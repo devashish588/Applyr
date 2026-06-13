@@ -1,49 +1,39 @@
 """
-Orchestrator - main pipeline that coordinates all 6 agents.
-Runs the 5-step process: discover → parse & match → filter & score → tailor → draft & send
+Orchestrator — AutoApply AI
+Wires all agents into a single pipeline:
+  web_research_agent  -> find jobs
+  pdf_qa_agent        -> parse uploaded JD PDFs
+  resume_parser_agent -> parse resume + score fit
+  job_application_agent -> tailor resume + cover letter
+  email_drafting_agent  -> draft + send cold email
 
-All agents are now fully implemented and wired in.
+Two trigger modes:
+  - Scheduled: scrapes job boards, processes all listings
+  - Manual:    user uploads a JD PDF/text -> runs same pipeline on it
 """
-import os
-import sys
-import uuid
+
 import json
 import logging
+import os
+import sqlite3
+import sys
 from datetime import datetime
-from typing import Dict, List, Any, Optional
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Path setup so agents are importable
+ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(ROOT))
 
-from db.db_client import get_db
-from utils.profile_loader import get_profile
-from utils.fit_scorer import FitScorer
-from utils.deduplicator import Deduplicator
-
-# Import all agents
-from agents.web_research_agent import WebResearchAgent
-from agents.pdf_qa_agent import PDFQAAgent
-from agents.resume_parser_agent import ResumeParserAgent
-from agents.doc_writer_agent import DocWriterAgent
-from agents.email_drafting_agent import EmailDraftingAgent
+from agents.web_research_agent    import build_graph as build_research_graph
+from agents.pdf_qa_agent          import extract_jd_info
+from agents.resume_parser_agent   import ResumeParserAgent
 from agents.job_application_agent import JobApplicationAgent
+from agents.email_drafting_agent  import EmailDraftingAgent
 
-# Configure logging
-log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
-os.makedirs(log_dir, exist_ok=True)
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(os.path.join(log_dir, 'orchestrator.log')),
-        logging.StreamHandler()
-    ]
-)
 logger = logging.getLogger(__name__)
 
 
@@ -51,378 +41,391 @@ class Orchestrator:
     """Main pipeline orchestrator - coordinates all agents."""
 
     def __init__(self):
-        self.db = get_db()
-        self.profile = get_profile()
-        self.scorer = FitScorer()
-        self.deduplicator = Deduplicator()
-        self.run_id = str(uuid.uuid4())
+        # Config from .env
+        self.profile_path      = os.getenv("PROFILE_PATH",        str(ROOT / "profile.json"))
+        self.master_resume_pdf = os.getenv("MASTER_RESUME_PDF",   str(ROOT / "resume/master_resume.pdf"))
+        self.db_path           = os.getenv("DB_PATH",             str(ROOT / "db/applications.db"))
+        self.log_dir           = os.getenv("LOG_DIR",             str(ROOT / "logs"))
+        self.auto_apply        = os.getenv("AUTO_APPLY",  "false").lower() == "true"
+        self.dry_run           = os.getenv("DRY_RUN",     "true").lower()  == "true"
+        self.min_fit_score     = int(os.getenv("MIN_FIT_SCORE",   "50"))
+        self.max_per_day       = int(os.getenv("MAX_APPLICATIONS_PER_DAY", "20"))
+        self.max_per_run       = int(os.getenv("MAX_EMAILS_PER_RUN", "10"))
 
-        # Initialize agents
-        self.web_agent = WebResearchAgent()
-        self.pdf_agent = PDFQAAgent()
-        self.resume_agent = ResumeParserAgent()
-        self.doc_agent = DocWriterAgent()
+        Path(self.log_dir).mkdir(parents=True, exist_ok=True)
+        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+
+        # Load profile
+        if not os.path.exists(self.profile_path):
+            raise FileNotFoundError(
+                f"profile.json not found at {self.profile_path}\n"
+                "Fill it in before running the pipeline."
+            )
+        with open(self.profile_path) as f:
+            self.profile = json.load(f)
+
+        logger.info(f"[orchestrator] Profile loaded: "
+                    f"{self.profile.get('personal', {}).get('name', 'Unknown')}")
+
+        # Parse master resume once (reused for all jobs)
+        self.parsed_resume = None
+        if os.path.exists(self.master_resume_pdf):
+            try:
+                resume_agent       = ResumeParserAgent()
+                self.parsed_resume = resume_agent.parse_file(self.master_resume_pdf)
+                logger.info("[orchestrator] Master resume parsed")
+            except Exception as e:
+                logger.warning(f"[orchestrator] Resume parse failed: {e} -- continuing without it")
+
+        # Init agents
+        self.job_agent   = JobApplicationAgent()
         self.email_agent = EmailDraftingAgent()
-        self.job_agent = JobApplicationAgent()
 
+        # Runtime counters
         self.results = {
-            "run_id": self.run_id,
-            "jobs_found": 0,
+            "triggered_by":  None,
+            "started_at":    None,
+            "finished_at":   None,
+            "jobs_found":    0,
             "jobs_filtered": 0,
-            "jobs_applied": 0,
-            "emails_sent": 0,
-            "errors": []
+            "jobs_applied":  0,
+            "emails_sent":   0,
+            "skipped":       0,
+            "errors":        [],
+            "status":        "pending",
+            "applications":  [],
         }
 
-    def run_full_pipeline(self, triggered_by: str = "scheduler",
-                           job_text: str = None,
-                           job_file: str = None) -> Dict[str, Any]:
-        """Run the complete 5-step pipeline.
+    # Public: main entry point
+    def run_full_pipeline(self, triggered_by="scheduled",
+                          job_text=None, job_file=None):
+        self.results["triggered_by"] = triggered_by
+        self.results["started_at"]   = datetime.now().isoformat()
+        self.results["status"]       = "running"
 
-        Args:
-            triggered_by: "scheduler", "manual", or "upload"
-            job_text: Optional JD text pasted by user
-            job_file: Optional path to uploaded JD file
-
-        Steps:
-        1. Discover - Web research agent scrapes jobs OR process manual input
-        2. Parse & Match - Resume parser + PDF QA process JDs
-        3. Filter & Score - Job application agent ranks by fit
-        4. Tailor - Documentation writer rewrites resume + cover letter
-        5. Draft & Send - Email drafting agent composes cold emails
-        """
+        logger.info(f"\n{'='*60}")
+        logger.info(f"[orchestrator] Pipeline START -- trigger: {triggered_by}")
+        logger.info(f"[orchestrator] dry_run={self.dry_run}  "
+                    f"auto_apply={self.auto_apply}  "
+                    f"min_fit_score={self.min_fit_score}")
         logger.info(f"{'='*60}")
-        logger.info(f"Starting pipeline (run_id: {self.run_id}, triggered_by: {triggered_by})")
-        logger.info(f"{'='*60}")
-
-        # Start run log
-        run_log_id = self.db.start_run_log(self.run_id, triggered_by)
 
         try:
-            # Step 1: Discover
-            if job_text or job_file:
-                logger.info("Step 1: Processing manual input...")
-                discovered_jobs = self._step_manual_input(job_text, job_file)
-            else:
-                logger.info("Step 1: Discovering jobs from web...")
-                discovered_jobs = self._step_discover()
+            # STEP 1: get job listings
+            job_listings = self._step_discover(triggered_by, job_text, job_file)
+            self.results["jobs_found"] = len(job_listings)
 
-            self.results["jobs_found"] = len(discovered_jobs)
-            logger.info(f"[OK] Step 1 complete: {len(discovered_jobs)} jobs discovered")
+            if not job_listings:
+                logger.warning("[orchestrator] No jobs found -- pipeline ending early")
+                self.results["status"] = "completed_empty"
+                return self._finalise()
 
-            # Step 2: Parse & Match
-            logger.info("Step 2: Parsing and analyzing...")
-            parsed_jobs = self._step_parse_and_match(discovered_jobs)
-            logger.info(f"[OK] Step 2 complete: {len(parsed_jobs)} jobs parsed")
+            # STEP 2: deduplicate against DB
+            new_listings = self._deduplicate(job_listings)
+            self.results["jobs_filtered"] = len(new_listings)
+            logger.info(f"[orchestrator] {len(new_listings)} new jobs after dedup "
+                        f"({len(job_listings) - len(new_listings)} already seen)")
 
-            # Step 3: Filter & Score
-            logger.info("Step 3: Filtering and scoring...")
-            filtered_jobs = self._step_filter_and_score(parsed_jobs)
-            self.results["jobs_filtered"] = len(filtered_jobs)
-            logger.info(f"[OK] Step 3 complete: {len(filtered_jobs)} jobs passed threshold")
+            # STEP 3: process each job
+            applied_count = 0
+            for job in new_listings:
+                if applied_count >= self.max_per_run:
+                    logger.info(f"[orchestrator] Hit MAX_EMAILS_PER_RUN={self.max_per_run}")
+                    break
+                if self._daily_count() >= self.max_per_day:
+                    logger.info(f"[orchestrator] Hit MAX_APPLICATIONS_PER_DAY={self.max_per_day}")
+                    break
 
-            # Step 4: Tailor
-            logger.info("Step 4: Tailoring applications...")
-            tailored_jobs = self._step_tailor(filtered_jobs)
-            logger.info(f"[OK] Step 4 complete: {len(tailored_jobs)} applications tailored")
+                result = self._step_process_job(job)
+                if result:
+                    applied_count += 1
 
-            # Step 5: Draft & Send
-            logger.info("Step 5: Drafting emails...")
-            applied_jobs = self._step_draft_and_send(tailored_jobs)
-            self.results["jobs_applied"] = len(applied_jobs)
-            self.results["emails_sent"] = len(applied_jobs)
-            logger.info(f"[OK] Step 5 complete: {len(applied_jobs)} emails drafted")
-
-            # Update run log
-            self.db.update_run_log(
-                self.run_id,
-                jobs_found=self.results["jobs_found"],
-                jobs_filtered=self.results["jobs_filtered"],
-                jobs_applied=self.results["jobs_applied"],
-                emails_sent=self.results["emails_sent"],
-                errors_count=len(self.results["errors"]),
-                summary=self.results
-            )
-
-            self.results["status"] = "completed"
-            logger.info("Pipeline completed successfully!")
-            logger.info(f"   Jobs: {self.results['jobs_found']} found -> "
-                        f"{self.results['jobs_filtered']} filtered -> "
-                        f"{self.results['jobs_applied']} applied")
+            self.results["jobs_applied"] = applied_count
+            self.results["status"]       = "completed"
 
         except Exception as e:
-            logger.error(f"Pipeline error: {e}", exc_info=True)
+            logger.error(f"[orchestrator] Pipeline error: {e}", exc_info=True)
             self.results["status"] = "failed"
             self.results["errors"].append(str(e))
-            self.db.update_run_log(
-                self.run_id,
-                errors_count=len(self.results["errors"]),
-                summary=self.results
-            )
 
-        return self.results
+        return self._finalise()
 
-    def _step_discover(self) -> List[Dict[str, Any]]:
-        """Step 1: Web research agent discovers jobs."""
-        # Build profile text for search query generation
-        profile_data = self.profile.to_dict()
-        target_roles = ", ".join(self.profile.get_target_roles())
-        skills_text = self.profile.get_skills_text()
-        locations = ", ".join(self.profile.get_job_preferences().get("target_locations", []))
-        profile_text = f"Looking for: {target_roles}. Skills: {skills_text}. Locations: {locations}"
+    # Step 1: discover jobs
+    def _step_discover(self, triggered_by, job_text, job_file):
+        # Manual: uploaded PDF
+        if job_file and os.path.exists(job_file):
+            logger.info(f"[orchestrator] Manual trigger -- PDF: {job_file}")
+            try:
+                job = extract_jd_info(job_file)
+                return [job] if job.get("title") else []
+            except Exception as e:
+                logger.error(f"[orchestrator] PDF extraction failed: {e}")
+                self.results["errors"].append(f"PDF extraction: {e}")
+                return []
 
+        # Manual: pasted text
+        if job_text:
+            logger.info("[orchestrator] Manual trigger -- pasted JD text")
+            return [self._text_to_job_dict(job_text)]
+
+        # Scheduled: web search
+        logger.info("[orchestrator] Scheduled trigger -- running web research agent")
         try:
-            jobs = self.web_agent.scrape_jobs(profile_text=profile_text)
-            return jobs
+            graph  = build_research_graph()
+            result = graph.invoke({
+                "query":          "",
+                "profile":        self.profile,
+                "messages":       [],
+                "search_results": [],
+                "job_listings":   [],
+                "report":         "",
+            })
+            listings = result.get("job_listings", [])
+            logger.info(f"[orchestrator] Web research found {len(listings)} jobs")
+            return listings
         except Exception as e:
-            logger.error(f"Web research failed: {e}")
-            self.results["errors"].append(f"Discovery: {e}")
+            logger.error(f"[orchestrator] Web research failed: {e}")
+            self.results["errors"].append(f"Web research: {e}")
             return []
 
-    def _step_manual_input(self, job_text: str = None,
-                            job_file: str = None) -> List[Dict[str, Any]]:
-        """Step 1 (manual): Process uploaded JD file or pasted text."""
-        jd_text = ""
-        jobs = []
+    # Step 2: process one job
+    def _step_process_job(self, job):
+        title   = job.get("title",   "Unknown Role")
+        company = job.get("company", "Unknown Company")
+        logger.info(f"\n[orchestrator] -> Processing: {title} at {company}")
 
-        if job_file and os.path.exists(job_file):
-            ext = os.path.splitext(job_file)[1].lower()
-            if ext == ".pdf":
-                jd_text = self.pdf_agent.extract_jd_from_pdf(job_file)
-            elif ext in (".png", ".jpg", ".jpeg"):
-                jd_text = self.pdf_agent.extract_jd_from_image(job_file)
-            elif ext in (".txt", ".doc", ".docx"):
-                with open(job_file, "r", encoding="utf-8", errors="ignore") as f:
-                    jd_text = f.read()
-            logger.info(f"Extracted {len(jd_text)} chars from {job_file}")
+        try:
+            # Agent 18: tailor resume + cover letter
+            app_result = self.job_agent.process(job, self.profile, self.parsed_resume)
 
-        elif job_text:
-            jd_text = job_text
+            if not app_result.get("should_apply"):
+                reason = app_result.get("reason", "below fit threshold")
+                logger.info(f"[orchestrator]   x Skip -- {reason}")
+                self.results["skipped"] += 1
+                self._save_to_db(job, app_result, status="skipped")
+                return False
 
-        if jd_text:
-            # Use LLM to analyze the JD
-            analysis = self.pdf_agent.analyze_jd(jd_text)
-            contact = self.pdf_agent.extract_hr_contact_info(jd_text)
+            fit_score = app_result.get("fit_score", 0)
+            logger.info(f"[orchestrator]   Fit score: {fit_score}/100 -- proceeding")
 
-            job = {
-                "title": analysis.get("title", "Unknown Position"),
-                "company": analysis.get("company", "Unknown Company"),
-                "url": contact.get("apply_url", ""),
-                "source": "manual_upload",
-                "jd_text": jd_text[:2000],
-                "location": analysis.get("location", ""),
-                "salary": analysis.get("salary", ""),
-                "hr_email": contact.get("hr_email", analysis.get("hr_email", ""))
-            }
-            jobs.append(job)
-            logger.info(f"Manual JD: {job['title']} at {job['company']}")
+            # Agent 05: draft email
+            email = self.email_agent.draft_email(job, self.profile)
 
-        return jobs
+            # Validate email
+            warnings = self.email_agent.validate_email(email, self.profile)
+            for w in warnings:
+                logger.warning(f"[orchestrator]   Email warning: {w}")
 
-    def _step_parse_and_match(self, discovered_jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Step 2: Enhance jobs with parsed details."""
-        parsed_jobs = []
-
-        for job in discovered_jobs:
-            try:
-                # If JD text is available but sparse, enrich it
-                if job.get("jd_text") and len(job["jd_text"]) > 50:
-                    # Extract contact info if not already present
-                    if not job.get("hr_email"):
-                        contact = self.pdf_agent.extract_hr_contact_info(job["jd_text"])
-                        job["hr_email"] = contact.get("hr_email", "")
-                        if not job.get("url"):
-                            job["url"] = contact.get("apply_url", "")
-
-                parsed_jobs.append(job)
-
-            except Exception as e:
-                logger.warning(f"Parse error for {job.get('title', 'unknown')}: {e}")
-                parsed_jobs.append(job)  # Keep job even if parsing fails
-
-        return parsed_jobs
-
-    def _step_filter_and_score(self, jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Step 3: Score and filter jobs by fit."""
-        filtered_jobs = []
-
-        for job in jobs:
-            # Check deduplication
-            should_skip, reason = self.deduplicator.should_skip_job(job)
-            if should_skip:
-                logger.debug(f"Skipping job: {reason}")
-                continue
-
-            # Score job using profile-based scorer
-            score = self.scorer.score_job(job)
-            job["fit_score"] = score
-
-            # Keep jobs above threshold
-            min_score = int(os.getenv("MIN_FIT_SCORE", "50"))
-            if score >= min_score:
-                # Store in database
-                try:
-                    job_id = self.db.add_job(
-                        title=job.get("title", ""),
-                        company=job.get("company", ""),
-                        url=job.get("url", ""),
-                        source=job.get("source", "unknown"),
-                        jd_text=job.get("jd_text", ""),
-                        fit_score=score
-                    )
-                    job["job_id"] = job_id
-                except Exception as e:
-                    logger.warning(f"DB insert failed: {e}")
-                    job["job_id"] = 0
-
-                filtered_jobs.append(job)
-                logger.info(f"  [+] {job.get('title')} at {job.get('company')} "
-                            f"(score: {score}/100)")
+            # Send or queue
+            sent = False
+            if self.auto_apply and not self.dry_run and job.get("hr_email"):
+                sent = self._send_email(email, app_result)
             else:
-                logger.debug(f"  [-] {job.get('title')} at {job.get('company')} "
-                             f"(score: {score}/100, below threshold)")
+                mode = "DRY RUN" if self.dry_run else "AUTO_APPLY=false"
+                logger.info(f"[orchestrator]   [{mode}] Email drafted but not sent")
 
-        # Sort by score
-        filtered_jobs.sort(key=lambda x: x.get("fit_score", 0), reverse=True)
-        return filtered_jobs
+            # Save to DB
+            status = "sent" if sent else ("draft" if self.dry_run else "ready")
+            self._save_to_db(job, app_result, email, status=status)
 
-    def _step_tailor(self, jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Step 4: Generate tailored resume + cover letter for each job."""
-        tailored_jobs = []
-        profile_data = self.profile.to_dict()
-        master_resume = os.path.join("resume", "master_resume.pdf")
+            self.results["applications"].append({
+                "title":     title,
+                "company":   company,
+                "fit_score": fit_score,
+                "status":    status,
+                "email_to":  email.get("to"),
+                "subject":   email.get("subject"),
+            })
 
+            if sent:
+                self.results["emails_sent"] += 1
+
+            return True
+
+        except Exception as e:
+            logger.error(f"[orchestrator]   Error processing {company}: {e}", exc_info=True)
+            self.results["errors"].append(f"{company} ({title}): {e}")
+            return False
+
+    # Email sending
+    def _send_email(self, email, app_result):
+        try:
+            from email.sender import GmailSender
+            sender = GmailSender()
+            attachments = []
+            for key in ("tailored_resume_path", "cover_letter_path"):
+                path = app_result.get(key)
+                if path and os.path.exists(path):
+                    attachments.append(path)
+            return sender.send(
+                to=email["to"], subject=email["subject"],
+                body=email["body"], attachments=attachments,
+            )
+        except Exception as e:
+            logger.warning(f"[orchestrator] Email send failed: {e}")
+            return False
+
+    # DB helpers
+    def _init_db(self):
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT, company TEXT, url TEXT UNIQUE,
+                source TEXT, location TEXT, type TEXT, hr_email TEXT,
+                fit_score INTEGER, status TEXT DEFAULT 'found',
+                jd_text TEXT,
+                scraped_at TEXT, applied_at TEXT,
+                cover_letter_path TEXT, tailored_resume_path TEXT,
+                email_subject TEXT, email_body TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS run_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT, triggered_by TEXT,
+                started_at TEXT, finished_at TEXT,
+                jobs_found INTEGER, jobs_filtered INTEGER,
+                jobs_applied INTEGER, emails_sent INTEGER,
+                errors_count INTEGER, status TEXT, summary_json TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS emails (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id INTEGER, hr_email TEXT,
+                subject TEXT, body_text TEXT, status TEXT,
+                resume_path TEXT, cover_letter_path TEXT,
+                created_at TEXT
+            )
+        """)
+        conn.commit()
+        return conn
+
+    def _deduplicate(self, jobs):
+        conn = self._init_db()
+        new = []
         for job in jobs:
-            try:
-                # Add current job context to profile for file naming
-                profile_data["_current_company"] = job.get("company", "company")
-                profile_data["_current_job_id"] = str(job.get("job_id", "0"))
+            url = job.get("url") or f"{job.get('company','')}-{job.get('title','')}"
+            row = conn.execute("SELECT id FROM jobs WHERE url = ?", (url,)).fetchone()
+            if not row:
+                new.append(job)
+        conn.close()
+        return new
 
-                # Generate tailored resume
-                resume_path = self.doc_agent.generate_tailored_resume(
-                    job_jd=job.get("jd_text", ""),
-                    profile=profile_data,
-                    master_resume_path=master_resume if os.path.exists(master_resume) else ""
-                )
-                job["resume_path"] = resume_path
+    def _daily_count(self):
+        try:
+            conn = self._init_db()
+            today = datetime.now().strftime("%Y-%m-%d")
+            count = conn.execute(
+                "SELECT COUNT(*) FROM jobs WHERE applied_at LIKE ? AND status='sent'",
+                (f"{today}%",)
+            ).fetchone()[0]
+            conn.close()
+            return count
+        except Exception:
+            return 0
 
-                # Generate cover letter
-                cover_letter_path = self.doc_agent.generate_cover_letter(
-                    job_data=job,
-                    profile=profile_data
-                )
-                job["cover_letter_path"] = cover_letter_path
+    def _save_to_db(self, job, app_result, email=None, status="found"):
+        conn = self._init_db()
+        now = datetime.now().isoformat()
+        try:
+            url = job.get("url") or f"{job.get('company','')}-{job.get('title','')}"
+            conn.execute("""
+                INSERT OR IGNORE INTO jobs
+                (title, company, url, source, location, type, hr_email,
+                 fit_score, status, jd_text, scraped_at, applied_at,
+                 cover_letter_path, tailored_resume_path,
+                 email_subject, email_body)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (
+                job.get("title"), job.get("company"), url,
+                job.get("source"), job.get("location"), job.get("type"),
+                job.get("hr_email"),
+                app_result.get("fit_score"), status,
+                job.get("description_snippet", job.get("jd_text", ""))[:2000],
+                now, now if status == "sent" else None,
+                app_result.get("cover_letter_path"),
+                app_result.get("tailored_resume_path"),
+                email.get("subject") if email else None,
+                email.get("body") if email else None,
+            ))
 
-                # Update DB status
-                if job.get("job_id"):
-                    self.db.update_job_status(job["job_id"], "tailored")
+            # Also save email record
+            if email:
+                job_row = conn.execute("SELECT id FROM jobs WHERE url = ?", (url,)).fetchone()
+                job_id = job_row[0] if job_row else 0
+                conn.execute("""
+                    INSERT INTO emails (job_id, hr_email, subject, body_text, status,
+                                       resume_path, cover_letter_path, created_at)
+                    VALUES (?,?,?,?,?,?,?,?)
+                """, (
+                    job_id, email.get("to"), email.get("subject"),
+                    email.get("body"), "drafted", 
+                    app_result.get("tailored_resume_path"),
+                    app_result.get("cover_letter_path"), now
+                ))
 
-                tailored_jobs.append(job)
-                logger.info(f"  [TAILORED] {job.get('company', 'Unknown')}")
+            conn.commit()
+        except Exception as e:
+            logger.error(f"[orchestrator] DB save failed: {e}")
+        finally:
+            conn.close()
 
-            except Exception as e:
-                logger.error(f"Tailor error for {job.get('company', 'Unknown')}: {e}")
-                self.results["errors"].append(f"Tailor: {e}")
-                tailored_jobs.append(job)  # Keep job even if tailoring fails
+    # Helpers
+    def _text_to_job_dict(self, text):
+        return {
+            "title": "Unknown Role", "company": "Unknown Company",
+            "location": "N/A", "type": "fulltime", "hr_email": None,
+            "url": f"manual-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+            "source": "manual_text",
+            "description_snippet": text[:800],
+            "required_skills": [],
+        }
 
-        return tailored_jobs
+    def _finalise(self):
+        self.results["finished_at"] = datetime.now().isoformat()
+        self._save_run_log()
+        logger.info(f"\n[orchestrator] Pipeline DONE")
+        logger.info(f"  Jobs found:   {self.results['jobs_found']}")
+        logger.info(f"  Filtered:     {self.results['jobs_filtered']}")
+        logger.info(f"  Applied:      {self.results['jobs_applied']}")
+        logger.info(f"  Emails sent:  {self.results['emails_sent']}")
+        logger.info(f"  Status:       {self.results['status']}")
+        return self.results
 
-    def _step_draft_and_send(self, jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Step 5: Draft emails for each job."""
-        applied_jobs = []
-        profile_data = self.profile.to_dict()
+    def _save_run_log(self):
+        try:
+            conn = self._init_db()
+            conn.execute("""
+                INSERT INTO run_log
+                (triggered_by, started_at, finished_at,
+                 jobs_found, jobs_filtered, jobs_applied,
+                 emails_sent, errors_count, status, summary_json)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+            """, (
+                self.results["triggered_by"],
+                self.results["started_at"],
+                self.results["finished_at"],
+                self.results["jobs_found"],
+                self.results["jobs_filtered"],
+                self.results["jobs_applied"],
+                self.results["emails_sent"],
+                len(self.results.get("errors", [])),
+                self.results["status"],
+                json.dumps(self.results),
+            ))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.warning(f"[orchestrator] Run log save failed: {e}")
 
-        for job in jobs:
-            try:
-                # Draft email using LLM
-                email_data = self.email_agent.draft_email(
-                    job_data=job,
-                    profile=profile_data
-                )
-
-                subject = email_data.get("subject", f"Application: {job.get('title', '')}")
-                body = email_data.get("body", "")
-
-                # Log email to database
-                email_id = self.db.add_email_log(
-                    job_id=job.get("job_id", 0),
-                    hr_email=job.get("hr_email", ""),
-                    subject=subject,
-                    body_text=body,
-                    resume_path=job.get("resume_path", ""),
-                    cover_letter_path=job.get("cover_letter_path", "")
-                )
-
-                # Check if we should auto-send
-                if self.job_agent.should_auto_apply(job) and job.get("hr_email"):
-                    # Send email via Gmail API
-                    try:
-                        from email.sender import EmailSender
-                        sender = EmailSender()
-                        sent = sender.send_email(
-                            to_email=job["hr_email"],
-                            subject=subject,
-                            body=body,
-                            resume_path=job.get("resume_path"),
-                            cover_letter_path=job.get("cover_letter_path")
-                        )
-                        if sent:
-                            self.db.update_email_status(email_id, "sent")
-                            logger.info(f"  [SENT] Email to {job['hr_email']}")
-                        else:
-                            self.db.update_email_status(email_id, "failed")
-                    except Exception as e:
-                        logger.warning(f"Email send failed: {e}")
-                        self.db.update_email_status(email_id, "pending")
-                else:
-                    # Mark as drafted (pending manual review)
-                    self.db.update_email_status(email_id, "drafted")
-                    logger.info(f"  [DRAFTED] Email for {job.get('company', 'Unknown')} "
-                                f"(pending review)")
-
-                # Update job status
-                if job.get("job_id"):
-                    self.db.update_job_status(job["job_id"], "applied")
-
-                applied_jobs.append(job)
-
-            except Exception as e:
-                logger.error(f"Email error for {job.get('company', 'Unknown')}: {e}")
-                self.results["errors"].append(f"Email: {e}")
-
-        return applied_jobs
-
-    def save_run_summary(self) -> str:
-        """Save run summary to logs."""
-        summary_path = os.path.join(
-            log_dir,
-            f"run_{datetime.now().strftime('%Y-%m-%d_%H%M%S')}.json"
+    def save_run_summary(self):
+        path = os.path.join(
+            self.log_dir,
+            f"run_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.json"
         )
-
-        with open(summary_path, "w") as f:
-            json.dump(self.results, f, indent=2, default=str)
-
-        logger.info(f"Run summary saved: {summary_path}")
-        return summary_path
-
-
-def main():
-    """Run the pipeline."""
-    orchestrator = Orchestrator()
-    results = orchestrator.run_full_pipeline(triggered_by="manual")
-    orchestrator.save_run_summary()
-
-    print(f"\n{'='*60}")
-    print("PIPELINE SUMMARY")
-    print(f"{'='*60}")
-    print(f"Jobs Found:     {results['jobs_found']}")
-    print(f"Jobs Filtered:  {results['jobs_filtered']}")
-    print(f"Jobs Applied:   {results['jobs_applied']}")
-    print(f"Emails Sent:    {results['emails_sent']}")
-    print(f"Errors:         {len(results['errors'])}")
-    print(f"Status:         {results['status']}")
-    print(f"{'='*60}")
-
-
-if __name__ == "__main__":
-    main()
+        with open(path, "w") as f:
+            json.dump(self.results, f, indent=2)
+        logger.info(f"[orchestrator] Run summary saved: {path}")
+        return path

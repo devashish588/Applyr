@@ -1,52 +1,430 @@
 """
-Job application agent - Filters and ranks jobs by fit score
-TODO: Use orchestrator's fit_scorer to rank jobs, then coordinates form filling
+Job Application Agent — AutoApply AI
+Analyzes a job description against your profile, scores fit,
+tailors your resume bullets, writes a cover letter, and saves
+both as files ready to attach to the email.
+
+Fixes vs original:
+  - langchain_openai.ChatOpenAI → langchain_groq.ChatGroq
+  - CrewAI removed — replaced with structured single-LLM pipeline
+  - Now produces actual files: tailored resume (.txt) + cover letter (.txt)
+  - Returns structured dict for orchestrator (not raw string)
+  - Reads from profile.json + fit score from resume parser agent
+  - Respects MIN_FIT_SCORE from .env (skips weak matches)
+
+Usage:
+    # CLI — test against a job
+    python 18_job_application_agent.py --job '{"title":"SDE","company":"Stripe",...}'
+    python 18_job_application_agent.py --job-file ./uploads/jd_pdfs/stripe.json
+
+    # Pipeline (used by orchestrator)
+    from agents.18_job_application_agent import JobApplicationAgent
+    agent = JobApplicationAgent()
+    result = agent.process(job_data, profile, parsed_resume)
+
+Install:
+    pip install langchain-groq python-dotenv
 """
 
+import argparse
+import json
+import os
+import re
+from datetime import datetime
+from pathlib import Path
 
+from dotenv import load_dotenv
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_groq import ChatGroq
+
+load_dotenv()
+
+
+# ── LLM ───────────────────────────────────────────────────────────────────────
+def get_llm(temperature: float = 0.3) -> ChatGroq:
+    api_key = os.getenv("GROQ_API_KEY")
+    model   = os.getenv("GROQ_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
+    if not api_key:
+        raise EnvironmentError(
+            "GROQ_API_KEY not found in .env\n"
+            "Get yours free at https://console.groq.com"
+        )
+    return ChatGroq(api_key=api_key, model=model, temperature=temperature)
+
+
+# ── Prompts ───────────────────────────────────────────────────────────────────
+TAILOR_PROMPT = """You are an expert resume writer and career coach.
+Given a candidate profile and a job description, produce tailored application materials.
+Return ONLY a valid JSON object — no markdown, no extra text.
+
+{{
+  "fit_score": 0-100,
+  "fit_label": "Excellent|Good|Fair|Poor",
+  "apply_recommendation": "Apply|Consider|Skip",
+  "tailored_bullets": [
+    "Rewritten bullet 1 — quantified, uses JD keywords",
+    "Rewritten bullet 2",
+    "Rewritten bullet 3",
+    "Rewritten bullet 4",
+    "Rewritten bullet 5"
+  ],
+  "skills_to_highlight": ["skill1", "skill2", "skill3"],
+  "keywords_matched": ["keyword from JD that appears in profile"],
+  "keywords_missing": ["keyword from JD not in profile"],
+  "cover_letter": "Full cover letter text — 3 paragraphs, under 220 words",
+  "interview_questions": [
+    {{"q": "Behavioral question", "framework": "Use STAR — talk about X"}},
+    {{"q": "Technical question", "framework": "Mention Y and Z"}}
+  ],
+  "salary_estimate": "Range estimate or null"
+}}
+
+Cover letter rules:
+- Paragraph 1: Specific hook about the company (not 'I am excited to apply')
+- Paragraph 2: 2-3 achievements from the profile that directly match JD requirements
+- Paragraph 3: Why this company specifically + brief call to action
+- Sign with candidate's actual name
+- Under 220 words total
+- No generic phrases like 'I am thrilled', 'I eagerly await', 'Please feel free to contact me'"""
+
+
+# ── Agent class ───────────────────────────────────────────────────────────────
 class JobApplicationAgent:
-    """Filters jobs by fit and coordinates application submission."""
-    
+    """
+    Analyzes job fit, tailors resume bullets, writes cover letter,
+    and saves output files ready for email attachment.
+    """
+
     def __init__(self):
-        pass
-    
-    def filter_and_rank_jobs(self, jobs: list, min_score: int = 50) -> list:
+        self.llm              = get_llm(temperature=0.3)
+        self.min_fit_score    = int(os.getenv("MIN_FIT_SCORE", "50"))
+        self.tailored_dir     = os.getenv("TAILORED_RESUME_DIR",  "./resume/tailored/")
+        self.cover_letter_dir = os.getenv("COVER_LETTER_DIR",     "./resume/cover_letters/")
+        self.dry_run          = os.getenv("DRY_RUN", "true").lower() == "true"
+
+        Path(self.tailored_dir).mkdir(parents=True, exist_ok=True)
+        Path(self.cover_letter_dir).mkdir(parents=True, exist_ok=True)
+
+    # ── Main pipeline entry point ──────────────────────────────────────────────
+    def process(self, job_data: dict, profile: dict,
+                parsed_resume: dict | None = None) -> dict:
         """
-        Filter jobs by fit score and rank by best matches.
-        
+        Full pipeline for one job:
+          1. Score fit
+          2. If above MIN_FIT_SCORE → tailor resume + write cover letter
+          3. Save files
+          4. Return structured result for orchestrator
+
         Args:
-            jobs: List of job objects
-            min_score: Minimum fit score threshold (0-100)
-        
+            job_data:       from web_research_agent or pdf_qa_agent
+            profile:        loaded from profile.json
+            parsed_resume:  output of resume_parser_agent.parse() — optional
+
         Returns:
-            Filtered & ranked jobs (highest score first)
+            {
+              "job": job_data,
+              "fit_score": 75,
+              "fit_label": "Good",
+              "should_apply": True,
+              "cover_letter_path": "./resume/cover_letters/stripe_sde_2024-06-13.txt",
+              "tailored_resume_path": "./resume/tailored/stripe_sde_2024-06-13.txt",
+              "email_data": { subject, body hint, to },
+              "materials": { full LLM output }
+            }
         """
-        # TODO: Use fit_scorer to rank jobs
-        return []
-    
-    def apply_to_job(self, job_data: dict) -> bool:
-        """
-        Attempt to apply to job.
-        May fill forms, send emails, or record application.
-        
-        Args:
-            job_data: Job details with fit_score
-        
-        Returns:
-            True if application successful
-        """
-        # TODO: Coordinate form filling, email sending, etc.
-        return False
-    
-    def detect_apply_method(self, job_url: str) -> str:
-        """
-        Detect how to apply (email, form, external portal, etc.)
-        
-        Args:
-            job_url: URL to job posting
-        
-        Returns:
-            "email", "form", "external_portal", "unknown"
-        """
-        # TODO: Detect application method
-        return "unknown"
+        company = job_data.get("company", "company").lower().replace(" ", "_")
+        title   = job_data.get("title",   "role").lower().replace(" ", "_")
+        slug    = f"{company}_{title}_{datetime.now().strftime('%Y-%m-%d')}"
+
+        print(f"\n[job_agent] Processing: {job_data.get('title')} at {job_data.get('company')}")
+
+        # ── Step 1: analyse + tailor ───────────────────────────────────────────
+        materials = self._analyse_and_tailor(job_data, profile, parsed_resume)
+
+        fit_score = materials.get("fit_score", 0)
+        fit_label = materials.get("fit_label", "Unknown")
+        should_apply = (
+            fit_score >= self.min_fit_score and
+            materials.get("apply_recommendation") != "Skip"
+        )
+
+        print(f"[job_agent] Fit: {fit_score}/100 ({fit_label}) → {'✅ Apply' if should_apply else '❌ Skip'}")
+
+        if not should_apply:
+            return {
+                "job":        job_data,
+                "fit_score":  fit_score,
+                "fit_label":  fit_label,
+                "should_apply": False,
+                "reason":     f"Score {fit_score} below threshold {self.min_fit_score}",
+                "materials":  materials,
+            }
+
+        # ── Step 2: save cover letter ──────────────────────────────────────────
+        cover_letter_path = os.path.join(self.cover_letter_dir, f"{slug}.txt")
+        cover_letter_text = self._format_cover_letter(
+            materials.get("cover_letter", ""),
+            job_data,
+            profile,
+        )
+        if not self.dry_run:
+            with open(cover_letter_path, "w") as f:
+                f.write(cover_letter_text)
+            print(f"[job_agent] Cover letter saved: {cover_letter_path}")
+        else:
+            print(f"[job_agent] DRY RUN — cover letter not saved (would be: {cover_letter_path})")
+
+        # ── Step 3: save tailored resume bullets ──────────────────────────────
+        tailored_resume_path = os.path.join(self.tailored_dir, f"{slug}.txt")
+        tailored_resume_text = self._format_tailored_resume(
+            materials, job_data, profile
+        )
+        if not self.dry_run:
+            with open(tailored_resume_path, "w") as f:
+                f.write(tailored_resume_text)
+            print(f"[job_agent] Tailored resume saved: {tailored_resume_path}")
+        else:
+            print(f"[job_agent] DRY RUN — tailored resume not saved (would be: {tailored_resume_path})")
+
+        return {
+            "job":                  job_data,
+            "fit_score":            fit_score,
+            "fit_label":            fit_label,
+            "should_apply":         True,
+            "cover_letter_path":    cover_letter_path,
+            "tailored_resume_path": tailored_resume_path,
+            "cover_letter_text":    cover_letter_text,
+            "skills_to_highlight":  materials.get("skills_to_highlight", []),
+            "keywords_matched":     materials.get("keywords_matched", []),
+            "keywords_missing":     materials.get("keywords_missing", []),
+            "interview_questions":  materials.get("interview_questions", []),
+            "email_data": {
+                "to":      job_data.get("hr_email"),
+                "subject": f"Application: {job_data.get('title')} — "
+                           f"{profile.get('personal', {}).get('name', '')}",
+            },
+            "materials": materials,
+        }
+
+    # ── Internal: call LLM ────────────────────────────────────────────────────
+    def _analyse_and_tailor(self, job_data: dict, profile: dict,
+                             parsed_resume: dict | None) -> dict:
+        personal   = profile.get("personal", {})
+        skills     = profile.get("skills", {})
+        experience = profile.get("experience", [])
+
+        # Build experience text from profile
+        exp_lines = []
+        for exp in experience[:3]:
+            exp_lines.append(
+                f"Role: {exp.get('role')} at {exp.get('company')} ({exp.get('duration', '')})"
+            )
+            for b in exp.get("bullets", [])[:3]:
+                exp_lines.append(f"  • {b}")
+
+        # Also pull parsed resume highlights if available
+        parsed_bullets = []
+        if parsed_resume:
+            for exp in parsed_resume.get("experience", [])[:2]:
+                parsed_bullets += exp.get("bullets", [])[:2]
+
+        all_skills = (
+            skills.get("languages", []) +
+            skills.get("frameworks", []) +
+            skills.get("tools", [])
+        )
+
+        candidate_block = f"""
+CANDIDATE: {personal.get('name')}
+Email: {personal.get('email')}
+Skills: {', '.join(all_skills[:15])}
+
+Experience:
+{chr(10).join(exp_lines)}
+
+{'Parsed resume highlights: ' + chr(10).join(f'  • {b}' for b in parsed_bullets) if parsed_bullets else ''}
+"""
+
+        jd_block = f"""
+ROLE:    {job_data.get('title')}
+COMPANY: {job_data.get('company')}
+LOCATION: {job_data.get('location', 'N/A')}
+TYPE:    {job_data.get('type', 'N/A')}
+
+Required skills: {', '.join(job_data.get('required_skills', []))}
+
+Description:
+{job_data.get('description_snippet', '')[:800]}
+"""
+
+        messages = [
+            SystemMessage(content=TAILOR_PROMPT),
+            HumanMessage(content=(
+                f"CANDIDATE PROFILE:\n{candidate_block}\n\n"
+                f"JOB DESCRIPTION:\n{jd_block}"
+            )),
+        ]
+
+        response = self.llm.invoke(messages)
+        return self._parse_json(response.content)
+
+    def _parse_json(self, raw: str) -> dict:
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+            cleaned = re.sub(r"\s*```$", "", cleaned)
+        match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+        if match:
+            cleaned = match.group(0)
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            print(f"[job_agent] Warning: could not parse JSON response")
+            return {"fit_score": 0, "fit_label": "Unknown", "cover_letter": raw}
+
+    def _format_cover_letter(self, body: str, job_data: dict, profile: dict) -> str:
+        personal = profile.get("personal", {})
+        header   = (
+            f"{personal.get('name', '')}\n"
+            f"{personal.get('email', '')} | {personal.get('phone', '')}\n"
+            f"{personal.get('linkedin', '')}\n"
+            f"{datetime.now().strftime('%B %d, %Y')}\n\n"
+            f"Hiring Team\n"
+            f"{job_data.get('company', '')}\n\n"
+        )
+        return header + body
+
+    def _format_tailored_resume(self, materials: dict,
+                                 job_data: dict, profile: dict) -> str:
+        personal = profile.get("personal", {})
+        lines    = [
+            f"TAILORED RESUME — {job_data.get('title')} at {job_data.get('company')}",
+            f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            f"Fit Score: {materials.get('fit_score')}/100 ({materials.get('fit_label')})",
+            "=" * 60,
+            "",
+            f"{personal.get('name', '')}",
+            f"{personal.get('email', '')} | {personal.get('phone', '')}",
+            f"{personal.get('linkedin', '')} | {personal.get('github', '')}",
+            "",
+            "SKILLS TO HIGHLIGHT FOR THIS ROLE",
+            "-" * 40,
+        ]
+        for skill in materials.get("skills_to_highlight", []):
+            lines.append(f"  • {skill}")
+
+        lines += [
+            "",
+            "TAILORED EXPERIENCE BULLETS",
+            "-" * 40,
+        ]
+        for bullet in materials.get("tailored_bullets", []):
+            lines.append(f"  • {bullet}")
+
+        lines += [
+            "",
+            "KEYWORDS MATCHED",
+            "-" * 40,
+            "  " + ", ".join(materials.get("keywords_matched", [])),
+            "",
+            "KEYWORDS MISSING (consider addressing in cover letter)",
+            "-" * 40,
+            "  " + ", ".join(materials.get("keywords_missing", [])),
+        ]
+
+        if materials.get("interview_questions"):
+            lines += ["", "INTERVIEW PREP", "-" * 40]
+            for item in materials.get("interview_questions", [])[:5]:
+                lines.append(f"Q: {item.get('q', '')}")
+                lines.append(f"   → {item.get('framework', '')}")
+                lines.append("")
+
+        return "\n".join(lines)
+
+
+# ── CLI ───────────────────────────────────────────────────────────────────────
+def main():
+    parser = argparse.ArgumentParser(description="AutoApply — Job Application Agent")
+    parser.add_argument("--job",      default=None, help="Job data as JSON string")
+    parser.add_argument("--job-file", default=None, help="Path to job JSON file")
+    parser.add_argument("--profile",  default="./profile.json", help="Path to profile.json")
+    args = parser.parse_args()
+
+    # Load profile
+    if os.path.exists(args.profile):
+        with open(args.profile) as f:
+            profile = json.load(f)
+    else:
+        print(f"[job_agent] profile.json not found at {args.profile} — using sample")
+        profile = {
+            "personal": {
+                "name": "Alex Kumar", "email": "alex@example.com",
+                "phone": "+91-9876543210",
+                "linkedin": "https://linkedin.com/in/alexkumar",
+                "github":   "https://github.com/alexkumar",
+            },
+            "skills": {
+                "languages":  ["Python", "JavaScript", "SQL"],
+                "frameworks": ["FastAPI", "Django", "React"],
+                "tools":      ["Docker", "Kubernetes", "Redis", "PostgreSQL"],
+            },
+            "experience": [{
+                "role": "Backend Engineer", "company": "TechCorp",
+                "duration": "2022-Present",
+                "bullets": [
+                    "Built REST APIs with FastAPI serving 50k daily users",
+                    "Reduced API response time 40% with Redis caching",
+                    "Deployed microservices on AWS using Docker + Kubernetes",
+                ],
+            }],
+        }
+
+    # Load job data
+    if args.job_file and os.path.exists(args.job_file):
+        with open(args.job_file) as f:
+            job_data = json.load(f)
+    elif args.job:
+        job_data = json.loads(args.job)
+    else:
+        job_data = {
+            "title":   "Senior Python Engineer",
+            "company": "Stripe",
+            "location": "Remote",
+            "type":    "fulltime",
+            "hr_email": "jobs@stripe.com",
+            "description_snippet": (
+                "Join Stripe's API Platform team to build high-performance APIs "
+                "handling millions of requests per day. You'll work with Python, "
+                "distributed systems, PostgreSQL, Redis, and Kubernetes. "
+                "5+ years Python required. Strong REST API design skills essential."
+            ),
+            "required_skills": [
+                "Python", "distributed systems", "REST APIs",
+                "PostgreSQL", "Redis", "Kubernetes",
+            ],
+        }
+
+    agent  = JobApplicationAgent()
+    result = agent.process(job_data, profile)
+
+    print("\n" + "=" * 60)
+    print("📋 JOB APPLICATION PACKAGE")
+    print("=" * 60)
+    print(f"Role:       {result['job'].get('title')} at {result['job'].get('company')}")
+    print(f"Fit Score:  {result['fit_score']}/100 ({result['fit_label']})")
+    print(f"Decision:   {'✅ Apply' if result['should_apply'] else '❌ Skip — ' + result.get('reason','')}")
+
+    if result["should_apply"]:
+        print(f"\n📄 Cover letter: {result['cover_letter_path']}")
+        print(f"📄 Tailored resume: {result['tailored_resume_path']}")
+        print(f"\n🔑 Skills to highlight: {', '.join(result['skills_to_highlight'])}")
+        print(f"✅ Keywords matched:    {', '.join(result['keywords_matched'][:5])}")
+        print(f"⚠️  Keywords missing:   {', '.join(result['keywords_missing'][:5])}")
+        print(f"\n--- COVER LETTER PREVIEW ---")
+        print(result["cover_letter_text"][:600] + "...")
+
+    return result
+
+
+if __name__ == "__main__":
+    main()
