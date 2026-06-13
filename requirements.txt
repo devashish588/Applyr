@@ -1,0 +1,42 @@
+# Core Dependencies
+anthropic==0.30.0
+python-dotenv==1.0.0
+requests==2.31.0
+
+# Web Scraping
+selenium==4.15.0
+beautifulsoup4==4.12.2
+playwright==1.40.0
+lxml==4.9.3
+
+# Database (sqlite3 is built-in to Python)
+
+# Email
+google-auth-oauthlib==1.1.0
+google-auth-httplib2==0.2.0
+google-api-python-client==2.100.0
+
+# Scheduling
+APScheduler==3.10.4
+
+# Web Framework
+Flask==3.0.0
+Werkzeug==3.0.1
+
+# File Processing
+python-pptx==0.6.21
+PyPDF2==3.0.1
+pdf2image==1.17.0
+pytesseract==0.3.10
+Pillow==11.0.0
+
+# Utilities
+pydantic==2.5.0
+pytz==2023.3
+tenacity==8.2.3
+
+# Development
+pytest==7.4.3
+pytest-asyncio==0.21.1
+black==23.12.0
+flake8==6.1.0

@@ -1,0 +1,83 @@
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+credentials.json
+token.json
+oauth_token.pickle
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+
+# Uploads
+uploads/*
+!uploads/.gitkeep
+
+# Screenshots
+autofill/screenshots/*
+!autofill/screenshots/.gitkeep
+
+# Tailored resumes and cover letters
+resume/tailored/*
+resume/cover_letters/*
+!resume/tailored/.gitkeep
+!resume/cover_letters/.gitkeep
+
+# Node (if using npm)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Applyr - Automated Job Applications</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        
+        header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+        }
+        
+        header h1 {
+            font-size: 3em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        header p {
+            font-size: 1.1em;
+            opacity: 0.95;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.15);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 50px rgba(0,0,0,0.2);
+        }
+        
+        .card h2 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.5em;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+        
+        .button-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        button {
+            padding: 12px 24px;
+            font-size: 1em;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: scale(1.05);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-secondary {
+            background: #f5f5f5;
+            color: #333;
+            border: 2px solid #667eea;
+        }
+        
+        .btn-secondary:hover {
+            background: #667eea;
+            color: white;
+        }
+        
+        .upload-box {
+            border: 3px dashed #667eea;
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: #f9f9f9;
+        }
+        
+        .upload-box:hover {
+            background: #f0f0ff;
+            border-color: #764ba2;
+        }
+        
+        .upload-box p {
+            color: #666;
+            margin-bottom: 10px;
+        }
+        
+        textarea {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 0.95em;
+            resize: vertical;
+            min-height: 150px;
+            margin-bottom: 15px;
+        }
+        
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .stat-item {
+            text-align: center;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 8px;
+        }
+        
+        .stat-item .number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #667eea;
+        }
+        
+        .stat-item .label {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 5px;
+        }
+        
+        .status-message {
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 8px;
+            display: none;
+        }
+        
+        .status-message.show {
+            display: block;
+        }
+        
+        .status-message.success {
+            background: #d4edda;
+            color: #155724;
+            border-left: 4px solid #28a745;
+        }
+        
+        .status-message.error {
+            background: #f8d7da;
+            color: #721c24;
+            border-left: 4px solid #dc3545;
+        }
+        
+        .status-message.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border-left: 4px solid #17a2b8;
+        }
+        
+        .logs-container {
+            max-height: 300px;
+            overflow-y: auto;
+            background: #f9f9f9;
+            border-radius: 8px;
+            padding: 15px;
+        }
+        
+        .log-entry {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            font-size: 0.9em;
+            font-family: monospace;
+        }
+        
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        @media (max-width: 600px) {
+            header h1 {
+                font-size: 2em;
+            }
+            
+            .button-group {
+                grid-template-columns: 1fr;
+            }
+            
+            .stats {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🚀 Applyr</h1>
+            <p>Automated Job Application Pipeline</p>
+        </header>
+        
+        <!-- Run Now Card -->
+        <div class="card">
+            <h2>Quick Actions</h2>
+            <div class="button-group">
+                <button class="btn-primary" onclick="runPipelineNow()">
+                    ▶️ Run Pipeline Now
+                </button>
+                <button class="btn-secondary" onclick="fetchLogs()">
+                    📋 View Logs
+                </button>
+            </div>
+            <div id="runStatus" class="status-message"></div>
+        </div>
+        
+        <!-- Manual JD Upload -->
+        <div class="card">
+            <h2>Upload Job Description</h2>
+            <p style="color: #666; margin-bottom: 15px;">Upload a PDF, screenshot, or image of the job posting</p>
+            <div class="upload-box" onclick="document.getElementById('fileInput').click()">
+                <p>📁 Click to upload or drag & drop</p>
+                <p style="font-size: 0.9em;">PDF, PNG, JPG, or DOCX</p>
+                <input type="file" id="fileInput" style="display: none;" accept=".pdf,.png,.jpg,.jpeg,.docx" onchange="handleFileUpload(event)">
+            </div>
+            <div id="uploadStatus" class="status-message"></div>
+        </div>
+        
+        <!-- Paste JD -->
+        <div class="card">
+            <h2>Paste Job Description</h2>
+            <p style="color: #666; margin-bottom: 15px;">Paste the job description text directly</p>
+            <textarea id="jdText" placeholder="Paste job description here..."></textarea>
+            <button class="btn-primary" onclick="pasteJD()" style="width: 100%;">
+                📝 Process Pasted JD
+            </button>
+            <div id="pasteStatus" class="status-message"></div>
+        </div>
+        
+        <!-- Statistics -->
+        <div class="card">
+            <h2>Latest Run Stats</h2>
+            <div class="stats">
+                <div class="stat-item">
+                    <div class="number" id="jobsFound">-</div>
+                    <div class="label">Jobs Found</div>
+                </div>
+                <div class="stat-item">
+                    <div class="number" id="jobsFiltered">-</div>
+                    <div class="label">Filtered</div>
+                </div>
+                <div class="stat-item">
+                    <div class="number" id="jobsApplied">-</div>
+                    <div class="label">Applied</div>
+                </div>
+                <div class="stat-item">
+                    <div class="number" id="emailsSent">-</div>
+                    <div class="label">Emails Sent</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Recent Logs -->
+        <div class="card">
+            <h2>Recent Activity</h2>
+            <div class="logs-container" id="logsContainer">
+                <p style="color: #999; text-align: center;">No runs yet. Click "Run Pipeline Now" to start!</p>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        async function runPipelineNow() {
+            const statusEl = document.getElementById('runStatus');
+            statusEl.className = 'status-message show info';
+            statusEl.innerHTML = '<span class="spinner"></span>Running pipeline...';
+            
+            try {
+                const response = await fetch('/api/run-now', { method: 'POST' });
+                const data = await response.json();
+                
+                if (data.success) {
+                    statusEl.className = 'status-message show success';
+                    statusEl.innerHTML = `✅ Pipeline run started! Jobs applied: ${data.results.jobs_applied}`;
+                    updateStats(data.results);
+                    fetchLogs();
+                } else {
+                    statusEl.className = 'status-message show error';
+                    statusEl.innerHTML = `❌ Error: ${data.error}`;
+                }
+            } catch (error) {
+                statusEl.className = 'status-message show error';
+                statusEl.innerHTML = `❌ Error: ${error.message}`;
+            }
+        }
+        
+        async function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const statusEl = document.getElementById('uploadStatus');
+            statusEl.className = 'status-message show info';
+            statusEl.innerHTML = '<span class="spinner"></span>Uploading and processing...';
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            try {
+                const response = await fetch('/api/upload-jd', { method: 'POST', body: formData });
+                const data = await response.json();
+                
+                if (data.success) {
+                    statusEl.className = 'status-message show success';
+                    statusEl.innerHTML = `✅ File processed! Jobs applied: ${data.results.jobs_applied}`;
+                    updateStats(data.results);
+                    fetchLogs();
+                } else {
+                    statusEl.className = 'status-message show error';
+                    statusEl.innerHTML = `❌ Error: ${data.error}`;
+                }
+            } catch (error) {
+                statusEl.className = 'status-message show error';
+                statusEl.innerHTML = `❌ Error: ${error.message}`;
+            }
+        }
+        
+        async function pasteJD() {
+            const jdText = document.getElementById('jdText').value.trim();
+            if (!jdText) {
+                alert('Please paste a job description');
+                return;
+            }
+            
+            const statusEl = document.getElementById('pasteStatus');
+            statusEl.className = 'status-message show info';
+            statusEl.innerHTML = '<span class="spinner"></span>Processing...';
+            
+            try {
+                const response = await fetch('/api/paste-jd', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ jd_text: jdText })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    statusEl.className = 'status-message show success';
+                    statusEl.innerHTML = `✅ JD processed! Jobs applied: ${data.results.jobs_applied}`;
+                    updateStats(data.results);
+                    document.getElementById('jdText').value = '';
+                    fetchLogs();
+                } else {
+                    statusEl.className = 'status-message show error';
+                    statusEl.innerHTML = `❌ Error: ${data.error}`;
+                }
+            } catch (error) {
+                statusEl.className = 'status-message show error';
+                statusEl.innerHTML = `❌ Error: ${error.message}`;
+            }
+        }
+        
+        async function fetchLogs() {
+            try {
+                const response = await fetch('/api/logs');
+                const data = await response.json();
+                
+                const logsContainer = document.getElementById('logsContainer');
+                if (data.success && data.runs.length > 0) {
+                    logsContainer.innerHTML = data.runs.map(run => `
+                        <div class="log-entry">
+                            <strong>${run.triggered_by}</strong> - 
+                            Jobs: ${run.jobs_found} found, ${run.jobs_applied} applied
+                            <br><small>${new Date(run.started_at).toLocaleString()}</small>
+                        </div>
+                    `).join('');
+                }
+            } catch (error) {
+                console.error('Error fetching logs:', error);
+            }
+        }
+        
+        function updateStats(results) {
+            document.getElementById('jobsFound').textContent = results.jobs_found || 0;
+            document.getElementById('jobsFiltered').textContent = results.jobs_filtered || 0;
+            document.getElementById('jobsApplied').textContent = results.jobs_applied || 0;
+            document.getElementById('emailsSent').textContent = results.emails_sent || 0;
+        }
+        
+        // Load logs on page load
+        window.addEventListener('load', () => {
+            fetchLogs();
+            setInterval(fetchLogs, 10000); // Refresh every 10 seconds
+        });
+    </script>
+</body>
+</html>
