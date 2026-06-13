@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Applyr Setup Script - Initialize project on first run
+Applyr Setup Script - Initialize project on first run.
+Tests Groq API, creates directories, initializes database.
 """
 import os
 import sys
@@ -8,207 +9,182 @@ import json
 import sqlite3
 from pathlib import Path
 
-# Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from dotenv import load_dotenv
+load_dotenv()
 
 
 def check_dependencies():
     """Check if required packages are installed."""
-    print("\n📦 Checking dependencies...")
-    
-    required = ['anthropic', 'flask', 'requests', 'apscheduler', 'playwright']
+    print("\n[*] Checking dependencies...")
+
+    required = {
+        'dotenv': 'python-dotenv',
+        'flask': 'Flask',
+        'requests': 'requests',
+        'apscheduler': 'APScheduler',
+        'langchain': 'langchain',
+        'langchain_openai': 'langchain-openai',
+        'langgraph': 'langgraph',
+    }
     missing = []
-    
-    for package in required:
+
+    for module, package in required.items():
         try:
-            __import__(package)
-            print(f"  ✓ {package}")
+            __import__(module)
+            print(f"  [OK] {package}")
         except ImportError:
-            print(f"  ✗ {package} - MISSING")
+            print(f"  [MISSING] {package}")
             missing.append(package)
-    
+
     if missing:
-        print(f"\n⚠️  Missing packages: {', '.join(missing)}")
-        print("Run: pip install -r requirements.txt")
+        print(f"\n  WARNING: Missing packages: {', '.join(missing)}")
+        print("  Run: pip install -r requirements.txt")
         return False
-    
+
     return True
+
+
+def test_groq_api():
+    """Test Groq API connectivity."""
+    print("\n[*] Testing Groq API...")
+
+    api_key = os.getenv("GROQ_API_KEY", "")
+    if not api_key:
+        print("  [FAIL] GROQ_API_KEY not set in .env")
+        return False
+
+    try:
+        from utils.llm_client import chat
+        response = chat("Say 'OK' and nothing else.")
+        print(f"  [OK] Groq API working (response: {response[:50]})")
+        return True
+    except Exception as e:
+        print(f"  [FAIL] Groq API failed: {e}")
+        return False
 
 
 def create_directories():
     """Create all necessary directories."""
-    print("\n📁 Creating directories...")
-    
+    print("\n[*] Creating directories...")
+
     dirs = [
         'logs',
         'db',
-        'uploads/jd_pdfs',
-        'uploads/jd_screenshots',
+        'uploads',
         'resume/tailored',
         'resume/cover_letters',
         'autofill/screenshots',
         'email/templates',
-        'ui/templates'
+        'ui/templates',
     ]
-    
+
     for dir_path in dirs:
         Path(dir_path).mkdir(parents=True, exist_ok=True)
-        print(f"  ✓ {dir_path}")
+        print(f"  [OK] {dir_path}")
 
 
 def initialize_database():
     """Create SQLite database and tables."""
-    print("\n🗄️  Initializing database...")
-    
+    print("\n[*] Initializing database...")
+
     db_path = 'db/applications.db'
     schema_path = 'db/schema.sql'
-    
+
     if not os.path.exists(schema_path):
-        print(f"  ✗ Schema file not found: {schema_path}")
+        print(f"  [FAIL] Schema file not found: {schema_path}")
         return False
-    
+
     try:
         conn = sqlite3.connect(db_path)
         with open(schema_path, 'r') as f:
             conn.executescript(f.read())
         conn.commit()
         conn.close()
-        print(f"  ✓ Database created: {db_path}")
+        print(f"  [OK] Database initialized: {db_path}")
         return True
     except Exception as e:
-        print(f"  ✗ Database initialization failed: {e}")
+        print(f"  [FAIL] Database initialization failed: {e}")
         return False
 
 
 def check_profile():
-    """Check if profile.json exists."""
-    print("\n👤 Checking profile...")
-    
-    profile_path = 'profile.json'
-    
-    if os.path.exists(profile_path):
+    """Check if profile.json exists and is valid."""
+    print("\n[*] Checking profile...")
+
+    if os.path.exists('profile.json'):
         try:
-            with open(profile_path, 'r') as f:
+            with open('profile.json', 'r') as f:
                 profile = json.load(f)
-            
-            # Verify required fields
             required = ['personal', 'skills', 'job_preferences']
             if all(key in profile for key in required):
-                print(f"  ✓ Profile found and valid")
+                name = profile.get('personal', {}).get('name', 'Unknown')
+                print(f"  [OK] Profile found (name: {name})")
                 return True
             else:
-                print(f"  ⚠️  Profile missing required sections")
+                print("  [WARN] Profile missing required sections")
         except json.JSONDecodeError:
-            print(f"  ✗ Profile JSON is invalid")
+            print("  [FAIL] Profile JSON is invalid")
     else:
-        print(f"  ℹ️  Profile not found: {profile_path}")
-    
-    # Create template
-    create_profile_template(profile_path)
+        print("  [WARN] profile.json not found")
+
     return False
 
 
-def create_profile_template(profile_path):
-    """Create template profile.json."""
-    print("  Creating template profile...")
-    
-    template = {
-        "personal": {
-            "name": "Your Full Name",
-            "email": "your.email@example.com",
-            "phone": "+1-XXX-XXX-XXXX",
-            "linkedin": "https://linkedin.com/in/yourprofile",
-            "github": "https://github.com/yourprofile",
-            "portfolio": "https://yourportfolio.com",
-            "city": "Your City",
-            "pincode": "123456"
-        },
-        "skills": {
-            "languages": ["Python", "JavaScript", "SQL"],
-            "frameworks": ["Django", "React", "FastAPI"],
-            "tools": ["Git", "Docker", "AWS"],
-            "years_experience": 5,
-            "certifications": []
-        },
-        "job_preferences": {
-            "target_roles": ["Software Engineer", "Full Stack Developer"],
-            "target_locations": ["Remote", "San Francisco", "New York"],
-            "min_salary": 100000,
-            "remote_ok": True,
-            "fulltime_only": True,
-            "interested_industries": ["Tech", "Finance"]
-        },
-        "experience_summary": "Senior software engineer with 5+ years building scalable systems",
-        "key_achievements": [
-            "Led migration of monolith to microservices, reducing latency by 40%",
-            "Architected real-time data pipeline processing 1M+ events daily",
-            "Mentored team of 3 junior engineers"
-        ]
-    }
-    
-    with open(profile_path, 'w') as f:
-        json.dump(template, f, indent=2)
-    
-    print(f"  ✓ Template created: {profile_path}")
-    print("  ⚠️  UPDATE THIS FILE with your actual details!")
-
-
 def check_env():
-    """Check if .env exists."""
-    print("\n🔑 Checking environment configuration...")
-    
+    """Check if .env exists with required keys."""
+    print("\n[*] Checking environment configuration...")
+
     if os.path.exists('.env'):
-        print("  ✓ .env file found")
-        return True
+        groq_key = os.getenv('GROQ_API_KEY', '')
+        if groq_key and groq_key != 'gsk_xxxxxxxxxxxxx':
+            print(f"  [OK] .env found with Groq API key")
+            return True
+        else:
+            print("  [WARN] .env found but GROQ_API_KEY not configured")
     else:
-        print("  ℹ️  .env file not found")
-        if os.path.exists('.env.example'):
-            print("  → Run: cp .env.example .env")
-            print("  → Then edit .env with your API keys")
-        return False
+        print("  [FAIL] .env not found")
+        print("  -> Run: copy .env.example .env")
+
+    return False
 
 
 def main():
     """Run setup."""
     print("=" * 60)
-    print("🚀 Applyr Project Setup")
+    print("  Applyr Project Setup (Groq API)")
     print("=" * 60)
-    
+
     all_good = True
-    
-    # Check dependencies
+
     if not check_dependencies():
-        print("\n❌ Please install missing dependencies first")
         all_good = False
-    
-    # Create directories
+
     create_directories()
-    
-    # Initialize database
+
     if not initialize_database():
         all_good = False
-    
-    # Check profile
-    profile_valid = check_profile()
-    
-    # Check environment
-    env_valid = check_env()
-    
-    # Summary
-    print("\n" + "=" * 60)
-    print("✅ SETUP COMPLETE!" if all_good else "⚠️  SETUP COMPLETE WITH WARNINGS")
-    print("=" * 60)
-    
-    print("\n📋 Next Steps:")
-    print("  1. Edit profile.json with your details")
-    print("  2. Copy .env.example to .env and fill in API keys")
-    print("  3. Add your master resume: resume/master_resume.pdf")
-    print("  4. Add your agents to agents/ folder")
-    print("  5. Run: python pipeline/scheduler.py (for auto scheduling)")
-    print("     or:  python ui/app.py (for web dashboard)")
-    
-    print("\n📖 Documentation: See README.md for detailed instructions")
-    print("=" * 60 + "\n")
+
+    check_profile()
+
+    env_ok = check_env()
+
+    if env_ok:
+        test_groq_api()
+
+    print(f"\n{'='*60}")
+    print("  SETUP COMPLETE!" if all_good else "  SETUP COMPLETE WITH WARNINGS")
+    print(f"{'='*60}")
+
+    print("\n  Quick Start:")
+    print("  1. Edit profile.json with YOUR details")
+    print("  2. Ensure .env has your GROQ_API_KEY")
+    print("  3. Run dashboard:  python ui/app.py")
+    print("     Open http://localhost:5000")
+    print("  4. Run pipeline:   python pipeline/manual_trigger.py --run-now")
+    print("  5. Run scheduler:  python pipeline/scheduler.py")
+    print(f"{'='*60}\n")
 
 
 if __name__ == "__main__":

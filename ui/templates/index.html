@@ -3,446 +3,486 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Applyr - Automated Job Applications</title>
+    <title>Applyr - AI Job Application Agent</title>
+    <meta name="description" content="Autonomous AI-powered job application platform">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+        :root{
+            --bg:#06070a;--bg2:#0d0f14;--bg3:#13151d;--card:rgba(255,255,255,0.03);
+            --card-h:rgba(255,255,255,0.06);--glass:rgba(255,255,255,0.04);
+            --bdr:rgba(255,255,255,0.06);--bdr-h:rgba(255,255,255,0.12);
+            --t1:#f1f2f6;--t2:#8a8da0;--t3:#555770;
+            --accent:#7c3aed;--accent2:#a78bfa;--accent-g:rgba(124,58,237,0.25);
+            --blue:#3b82f6;--green:#22c55e;--amber:#f59e0b;--red:#ef4444;--cyan:#06b6d4;
+            --g1:linear-gradient(135deg,#7c3aed,#3b82f6);
+            --g2:linear-gradient(135deg,#06b6d4,#7c3aed);
+            --g3:linear-gradient(135deg,#7c3aed 0%,#ec4899 50%,#f59e0b 100%);
+            --r:16px;--rs:10px;--rxs:6px;
+            --shadow:0 8px 32px rgba(0,0,0,0.4);
+            --ease:cubic-bezier(0.4,0,0.2,1);
         }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
-        
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-        }
-        
-        header {
-            text-align: center;
-            color: white;
-            margin-bottom: 40px;
-        }
-        
-        header h1 {
-            font-size: 3em;
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
-        }
-        
-        header p {
-            font-size: 1.1em;
-            opacity: 0.95;
-        }
-        
-        .card {
-            background: white;
-            border-radius: 12px;
-            padding: 30px;
-            margin-bottom: 20px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.15);
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-        
-        .card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 15px 50px rgba(0,0,0,0.2);
-        }
-        
-        .card h2 {
-            color: #333;
-            margin-bottom: 20px;
-            font-size: 1.5em;
-            border-bottom: 2px solid #667eea;
-            padding-bottom: 10px;
-        }
-        
-        .button-group {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-        
-        button {
-            padding: 12px 24px;
-            font-size: 1em;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.3s;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        
-        .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-        }
-        
-        .btn-primary:hover {
-            transform: scale(1.05);
-            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
-        }
-        
-        .btn-secondary {
-            background: #f5f5f5;
-            color: #333;
-            border: 2px solid #667eea;
-        }
-        
-        .btn-secondary:hover {
-            background: #667eea;
-            color: white;
-        }
-        
-        .upload-box {
-            border: 3px dashed #667eea;
-            border-radius: 8px;
-            padding: 40px;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.3s;
-            background: #f9f9f9;
-        }
-        
-        .upload-box:hover {
-            background: #f0f0ff;
-            border-color: #764ba2;
-        }
-        
-        .upload-box p {
-            color: #666;
-            margin-bottom: 10px;
-        }
-        
-        textarea {
-            width: 100%;
-            padding: 15px;
-            border: 2px solid #ddd;
-            border-radius: 8px;
-            font-family: monospace;
-            font-size: 0.95em;
-            resize: vertical;
-            min-height: 150px;
-            margin-bottom: 15px;
-        }
-        
-        textarea:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
-        
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 15px;
-            margin-top: 20px;
-        }
-        
-        .stat-item {
-            text-align: center;
-            padding: 15px;
-            background: #f9f9f9;
-            border-radius: 8px;
-        }
-        
-        .stat-item .number {
-            font-size: 2em;
-            font-weight: bold;
-            color: #667eea;
-        }
-        
-        .stat-item .label {
-            color: #666;
-            font-size: 0.9em;
-            margin-top: 5px;
-        }
-        
-        .status-message {
-            padding: 15px;
-            margin: 15px 0;
-            border-radius: 8px;
-            display: none;
-        }
-        
-        .status-message.show {
-            display: block;
-        }
-        
-        .status-message.success {
-            background: #d4edda;
-            color: #155724;
-            border-left: 4px solid #28a745;
-        }
-        
-        .status-message.error {
-            background: #f8d7da;
-            color: #721c24;
-            border-left: 4px solid #dc3545;
-        }
-        
-        .status-message.info {
-            background: #d1ecf1;
-            color: #0c5460;
-            border-left: 4px solid #17a2b8;
-        }
-        
-        .logs-container {
-            max-height: 300px;
-            overflow-y: auto;
-            background: #f9f9f9;
-            border-radius: 8px;
-            padding: 15px;
-        }
-        
-        .log-entry {
-            padding: 10px;
-            border-bottom: 1px solid #eee;
-            font-size: 0.9em;
-            font-family: monospace;
-        }
-        
-        .log-entry:last-child {
-            border-bottom: none;
-        }
-        
-        .spinner {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #667eea;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin-right: 10px;
-        }
-        
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        
-        @media (max-width: 600px) {
-            header h1 {
-                font-size: 2em;
-            }
-            
-            .button-group {
-                grid-template-columns: 1fr;
-            }
-            
-            .stats {
-                grid-template-columns: repeat(2, 1fr);
-            }
-        }
+        body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--t1);min-height:100vh;overflow-x:hidden}
+
+        /* ── Ambient ──────────────────── */
+        .ambient{position:fixed;inset:0;pointer-events:none;z-index:0}
+        .ambient .orb{position:absolute;border-radius:50%;filter:blur(120px);opacity:.15;animation:orbFloat 25s ease-in-out infinite alternate}
+        .ambient .orb:nth-child(1){width:600px;height:600px;background:#7c3aed;top:-10%;left:-5%}
+        .ambient .orb:nth-child(2){width:500px;height:500px;background:#3b82f6;top:50%;right:-10%;animation-delay:-8s}
+        .ambient .orb:nth-child(3){width:400px;height:400px;background:#06b6d4;bottom:-10%;left:30%;animation-delay:-15s}
+        @keyframes orbFloat{0%{transform:translate(0,0) scale(1)}50%{transform:translate(30px,-40px) scale(1.1)}100%{transform:translate(-20px,20px) scale(.95)}}
+
+        /* ── Header ───────────────────── */
+        .header{display:flex;align-items:center;justify-content:space-between;padding:16px 28px;border-bottom:1px solid var(--bdr);backdrop-filter:blur(20px);position:sticky;top:0;z-index:100;background:rgba(6,7,10,.85)}
+        .logo{display:flex;align-items:center;gap:10px}
+        .logo-mark{width:36px;height:36px;background:var(--g1);border-radius:10px;display:grid;place-items:center;font-size:18px;font-weight:900;color:white;box-shadow:0 0 24px var(--accent-g);letter-spacing:-1px}
+        .logo-name{font-size:20px;font-weight:800;background:var(--g3);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+        .logo-tag{font-size:9px;font-weight:700;padding:3px 7px;background:var(--card);border:1px solid var(--bdr);border-radius:20px;color:var(--t3);letter-spacing:1.5px;text-transform:uppercase}
+        .header-r{display:flex;gap:10px;align-items:center}
+        .status-pill{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--t2);padding:5px 12px;background:var(--card);border:1px solid var(--bdr);border-radius:20px}
+        .status-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 2s ease infinite}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+
+        /* ── Buttons ──────────────────── */
+        .btn{display:inline-flex;align-items:center;gap:7px;padding:9px 18px;border:none;border-radius:var(--rs);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;transition:all .25s var(--ease);text-decoration:none;position:relative;overflow:hidden}
+        .btn-glow{background:var(--g1);color:#fff;box-shadow:0 4px 20px var(--accent-g)}
+        .btn-glow:hover{transform:translateY(-2px);box-shadow:0 8px 30px var(--accent-g)}
+        .btn-glow::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.15),transparent);transform:translateX(-100%);transition:transform .6s}
+        .btn-glow:hover::after{transform:translateX(100%)}
+        .btn-ghost{background:var(--card);color:var(--t1);border:1px solid var(--bdr)}
+        .btn-ghost:hover{background:var(--card-h);border-color:var(--bdr-h)}
+        .btn-sm{padding:6px 12px;font-size:11px}
+        .btn:disabled{opacity:.4;cursor:not-allowed;transform:none!important}
+
+        /* ── Main ─────────────────────── */
+        .main{max-width:1360px;margin:0 auto;padding:24px 28px;position:relative;z-index:1}
+
+        /* ── Section titles ────────────── */
+        .sec-title{font-size:13px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+        .sec-title::before{content:'';width:3px;height:14px;background:var(--g1);border-radius:2px}
+
+        /* ── Stats ────────────────────── */
+        .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:24px}
+        .stat{background:var(--card);border:1px solid var(--bdr);border-radius:var(--r);padding:20px;transition:all .3s var(--ease);position:relative;overflow:hidden}
+        .stat::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--g1);opacity:0;transition:opacity .3s}
+        .stat:hover{border-color:var(--bdr-h);transform:translateY(-2px)}.stat:hover::after{opacity:1}
+        .stat-label{font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
+        .stat-val{font-size:28px;font-weight:900;background:var(--g1);-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1}
+        .stat-sub{font-size:11px;color:var(--t3);margin-top:4px}
+
+        /* ── Pipeline Viz ─────────────── */
+        .pipeline-section{margin-bottom:24px}
+        .pipeline-card{background:var(--card);border:1px solid var(--bdr);border-radius:var(--r);padding:24px;position:relative;overflow:hidden}
+        .pipeline-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+        .pipeline-header h3{font-size:15px;font-weight:700}
+        .pipeline-steps{display:flex;align-items:center;gap:0;position:relative}
+        .p-step{flex:1;text-align:center;position:relative;z-index:1}
+        .p-icon{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;margin:0 auto 8px;font-size:18px;background:var(--bg2);border:2px solid var(--bdr);transition:all .4s var(--ease);position:relative}
+        .p-icon.active{border-color:var(--accent);background:rgba(124,58,237,.15);box-shadow:0 0 20px var(--accent-g);animation:stepPulse 1.5s ease infinite}
+        .p-icon.done{border-color:var(--green);background:rgba(34,197,94,.12);color:var(--green)}
+        .p-icon.error{border-color:var(--red);background:rgba(239,68,68,.12);color:var(--red)}
+        @keyframes stepPulse{0%,100%{box-shadow:0 0 20px var(--accent-g)}50%{box-shadow:0 0 35px var(--accent-g)}}
+        .p-label{font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.5px}
+        .p-label.active{color:var(--accent2)}
+        .p-label.done{color:var(--green)}
+        .p-count{font-size:10px;color:var(--t2);margin-top:2px;min-height:14px}
+        .p-connector{position:absolute;top:22px;left:0;right:0;height:2px;background:var(--bdr);z-index:0}
+        .p-connector-fill{height:100%;background:var(--g1);transition:width .6s var(--ease);width:0%}
+        .pipeline-msg{text-align:center;margin-top:16px;font-size:13px;color:var(--t2);min-height:20px;transition:all .3s}
+        .pipeline-bar{margin-top:12px;height:4px;background:var(--bg2);border-radius:4px;overflow:hidden}
+        .pipeline-bar-fill{height:100%;background:var(--g1);border-radius:4px;transition:width .5s var(--ease);width:0%}
+        .pipeline-idle{display:flex;flex-direction:column;align-items:center;gap:12px;padding:16px 0}
+        .pipeline-idle p{font-size:13px;color:var(--t3)}
+
+        /* ── Action Grid ──────────────── */
+        .actions{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:24px}
+        .action-card{background:var(--card);border:1px solid var(--bdr);border-radius:var(--r);padding:22px;transition:all .3s var(--ease)}
+        .action-card:hover{border-color:var(--bdr-h)}
+        .action-card h4{font-size:14px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:8px}
+        .action-card p{font-size:12px;color:var(--t3);margin-bottom:14px;line-height:1.5}
+
+        /* ── Upload zones ─────────────── */
+        .drop-zone{border:2px dashed var(--bdr);border-radius:var(--rs);padding:20px;text-align:center;cursor:pointer;transition:all .3s var(--ease)}
+        .drop-zone:hover,.drop-zone.over{border-color:var(--accent);background:rgba(124,58,237,.04)}
+        .drop-zone .dz-icon{font-size:24px;margin-bottom:6px}
+        .drop-zone .dz-text{font-size:12px;color:var(--t3)}
+        .drop-zone input{display:none}
+        .resume-info{display:flex;align-items:center;gap:10px;padding:12px;background:rgba(34,197,94,.06);border:1px solid rgba(34,197,94,.2);border-radius:var(--rs)}
+        .resume-info .ri-icon{font-size:20px}
+        .resume-info .ri-text{font-size:12px;color:var(--green)}
+        .resume-info .ri-name{font-weight:600;color:var(--t1)}
+
+        /* ── Textarea ─────────────────── */
+        .jd-input{width:100%;min-height:80px;background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--rs);padding:12px;color:var(--t1);font-family:inherit;font-size:12px;resize:vertical;transition:all .3s var(--ease);margin-bottom:10px}
+        .jd-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-g)}
+        .jd-input::placeholder{color:var(--t3)}
+
+        /* ── Content grid ─────────────── */
+        .content{display:grid;grid-template-columns:5fr 3fr;gap:16px}
+
+        /* ── Card ─────────────────────── */
+        .card{background:var(--card);border:1px solid var(--bdr);border-radius:var(--r);overflow:hidden}
+        .card-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--bdr)}
+        .card-head h3{font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px}
+        .card-body{padding:16px 20px;max-height:480px;overflow-y:auto}
+        .card-body::-webkit-scrollbar{width:3px}
+        .card-body::-webkit-scrollbar-track{background:transparent}
+        .card-body::-webkit-scrollbar-thumb{background:var(--bdr);border-radius:2px}
+
+        /* ── Job list ─────────────────── */
+        .job{display:flex;gap:12px;padding:14px 0;border-bottom:1px solid var(--bdr);transition:all .2s}
+        .job:last-child{border:none}
+        .job:hover{background:var(--card-h);margin:0 -20px;padding:14px 20px;border-radius:var(--rs)}
+        .job-score{min-width:42px;height:42px;border-radius:10px;display:grid;place-items:center;font-size:14px;font-weight:800;flex-shrink:0}
+        .s-high{background:rgba(34,197,94,.12);color:var(--green)}
+        .s-mid{background:rgba(245,158,11,.12);color:var(--amber)}
+        .s-low{background:rgba(239,68,68,.12);color:var(--red)}
+        .job-info{flex:1;min-width:0}
+        .job-title{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:3px}
+        .job-co{font-size:12px;color:var(--t2);margin-bottom:4px}
+        .job-tags{display:flex;gap:6px;flex-wrap:wrap}
+        .tag{font-size:10px;padding:2px 7px;border-radius:4px;background:var(--bg2);color:var(--t3);font-weight:500}
+        .tag-applied{background:rgba(34,197,94,.08);color:var(--green)}
+        .tag-tailored{background:rgba(124,58,237,.08);color:var(--accent2)}
+        .tag-pending{background:rgba(245,158,11,.08);color:var(--amber)}
+
+        /* ── Run log & emails ─────────── */
+        .log-item{padding:12px 0;border-bottom:1px solid var(--bdr)}
+        .log-item:last-child{border:none}
+        .log-time{font-size:11px;color:var(--t3);margin-bottom:3px}
+        .log-stats{display:flex;gap:14px;font-size:12px;color:var(--t2)}
+        .log-stats strong{color:var(--t1)}
+
+        .email-item{padding:12px 0;border-bottom:1px solid var(--bdr)}
+        .email-item:last-child{border:none}
+        .email-subj{font-size:13px;font-weight:600;margin-bottom:3px}
+        .email-to{font-size:11px;color:var(--t2)}
+        .email-preview{font-size:11px;color:var(--t3);margin-top:4px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+
+        /* ── Empty state ──────────────── */
+        .empty{text-align:center;padding:32px 16px;color:var(--t3)}
+        .empty .e-icon{font-size:32px;margin-bottom:8px;opacity:.5}
+        .empty p{font-size:13px}
+
+        /* ── Toast ────────────────────── */
+        .toast-wrap{position:fixed;bottom:20px;right:20px;z-index:1000;display:flex;flex-direction:column;gap:8px}
+        .toast{background:var(--bg3);border:1px solid var(--bdr);border-radius:var(--rs);padding:12px 18px;font-size:12px;box-shadow:var(--shadow);display:flex;align-items:center;gap:8px;animation:toastIn .3s var(--ease);min-width:280px}
+        .toast-ok{border-left:3px solid var(--green)}.toast-err{border-left:3px solid var(--red)}.toast-info{border-left:3px solid var(--blue)}
+        @keyframes toastIn{from{transform:translateX(100%);opacity:0}to{transform:none;opacity:1}}
+
+        /* ── Spinner ──────────────────── */
+        .spin{width:16px;height:16px;border:2px solid var(--bdr);border-top-color:var(--accent);border-radius:50%;animation:sp .7s linear infinite;flex-shrink:0}
+        @keyframes sp{to{transform:rotate(360deg)}}
+
+        /* ── Responsive ───────────────── */
+        @media(max-width:1000px){.actions,.stats{grid-template-columns:repeat(2,1fr)}.content{grid-template-columns:1fr}.main{padding:16px}}
+        @media(max-width:600px){.stats{grid-template-columns:1fr}.actions{grid-template-columns:1fr}.pipeline-steps{flex-direction:column;gap:8px}.p-connector{display:none}}
     </style>
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>🚀 Applyr</h1>
-            <p>Automated Job Application Pipeline</p>
-        </header>
-        
-        <!-- Run Now Card -->
-        <div class="card">
-            <h2>Quick Actions</h2>
-            <div class="button-group">
-                <button class="btn-primary" onclick="runPipelineNow()">
-                    ▶️ Run Pipeline Now
-                </button>
-                <button class="btn-secondary" onclick="fetchLogs()">
-                    📋 View Logs
-                </button>
-            </div>
-            <div id="runStatus" class="status-message"></div>
-        </div>
-        
-        <!-- Manual JD Upload -->
-        <div class="card">
-            <h2>Upload Job Description</h2>
-            <p style="color: #666; margin-bottom: 15px;">Upload a PDF, screenshot, or image of the job posting</p>
-            <div class="upload-box" onclick="document.getElementById('fileInput').click()">
-                <p>📁 Click to upload or drag & drop</p>
-                <p style="font-size: 0.9em;">PDF, PNG, JPG, or DOCX</p>
-                <input type="file" id="fileInput" style="display: none;" accept=".pdf,.png,.jpg,.jpeg,.docx" onchange="handleFileUpload(event)">
-            </div>
-            <div id="uploadStatus" class="status-message"></div>
-        </div>
-        
-        <!-- Paste JD -->
-        <div class="card">
-            <h2>Paste Job Description</h2>
-            <p style="color: #666; margin-bottom: 15px;">Paste the job description text directly</p>
-            <textarea id="jdText" placeholder="Paste job description here..."></textarea>
-            <button class="btn-primary" onclick="pasteJD()" style="width: 100%;">
-                📝 Process Pasted JD
-            </button>
-            <div id="pasteStatus" class="status-message"></div>
-        </div>
-        
-        <!-- Statistics -->
-        <div class="card">
-            <h2>Latest Run Stats</h2>
-            <div class="stats">
-                <div class="stat-item">
-                    <div class="number" id="jobsFound">-</div>
-                    <div class="label">Jobs Found</div>
-                </div>
-                <div class="stat-item">
-                    <div class="number" id="jobsFiltered">-</div>
-                    <div class="label">Filtered</div>
-                </div>
-                <div class="stat-item">
-                    <div class="number" id="jobsApplied">-</div>
-                    <div class="label">Applied</div>
-                </div>
-                <div class="stat-item">
-                    <div class="number" id="emailsSent">-</div>
-                    <div class="label">Emails Sent</div>
-                </div>
-            </div>
-        </div>
-        
-        <!-- Recent Logs -->
-        <div class="card">
-            <h2>Recent Activity</h2>
-            <div class="logs-container" id="logsContainer">
-                <p style="color: #999; text-align: center;">No runs yet. Click "Run Pipeline Now" to start!</p>
-            </div>
-        </div>
+<div class="ambient"><div class="orb"></div><div class="orb"></div><div class="orb"></div></div>
+
+<!-- HEADER -->
+<header class="header">
+    <div class="logo">
+        <div class="logo-mark">A</div>
+        <span class="logo-name">Applyr</span>
+        <span class="logo-tag">AI Agent</span>
     </div>
-    
-    <script>
-        async function runPipelineNow() {
-            const statusEl = document.getElementById('runStatus');
-            statusEl.className = 'status-message show info';
-            statusEl.innerHTML = '<span class="spinner"></span>Running pipeline...';
-            
-            try {
-                const response = await fetch('/api/run-now', { method: 'POST' });
-                const data = await response.json();
-                
-                if (data.success) {
-                    statusEl.className = 'status-message show success';
-                    statusEl.innerHTML = `✅ Pipeline run started! Jobs applied: ${data.results.jobs_applied}`;
-                    updateStats(data.results);
-                    fetchLogs();
-                } else {
-                    statusEl.className = 'status-message show error';
-                    statusEl.innerHTML = `❌ Error: ${data.error}`;
-                }
-            } catch (error) {
-                statusEl.className = 'status-message show error';
-                statusEl.innerHTML = `❌ Error: ${error.message}`;
-            }
+    <div class="header-r">
+        <div class="status-pill"><div class="status-dot" id="sDot"></div><span id="sText">Connecting...</span></div>
+        <button class="btn btn-glow" id="runBtn" onclick="startPipeline()">Run Pipeline</button>
+    </div>
+</header>
+
+<main class="main">
+    <!-- STATS -->
+    <div class="sec-title">Dashboard Overview</div>
+    <section class="stats">
+        <div class="stat"><div class="stat-label">Jobs Found</div><div class="stat-val" id="xJobs">0</div><div class="stat-sub">Total discovered</div></div>
+        <div class="stat"><div class="stat-label">Applications</div><div class="stat-val" id="xApplied">0</div><div class="stat-sub">Submitted / drafted</div></div>
+        <div class="stat"><div class="stat-label">Avg Score</div><div class="stat-val" id="xScore">--</div><div class="stat-sub">Profile match</div></div>
+        <div class="stat"><div class="stat-label">Pipeline Runs</div><div class="stat-val" id="xRuns">0</div><div class="stat-sub">Total executions</div></div>
+        <div class="stat"><div class="stat-label">Resume</div><div class="stat-val" id="xResume">--</div><div class="stat-sub" id="xResumeInfo">Not uploaded</div></div>
+    </section>
+
+    <!-- PIPELINE VISUALIZER -->
+    <div class="sec-title">Live Pipeline</div>
+    <section class="pipeline-section">
+        <div class="pipeline-card">
+            <div class="pipeline-header">
+                <h3>Pipeline Execution</h3>
+                <span class="btn btn-ghost btn-sm" id="pStatus">Idle</span>
+            </div>
+            <div style="position:relative">
+                <div class="p-connector"><div class="p-connector-fill" id="pConnector"></div></div>
+                <div class="pipeline-steps">
+                    <div class="p-step"><div class="p-icon" id="ps1">1</div><div class="p-label" id="pl1">Discover</div><div class="p-count" id="pc1"></div></div>
+                    <div class="p-step"><div class="p-icon" id="ps2">2</div><div class="p-label" id="pl2">Parse</div><div class="p-count" id="pc2"></div></div>
+                    <div class="p-step"><div class="p-icon" id="ps3">3</div><div class="p-label" id="pl3">Score</div><div class="p-count" id="pc3"></div></div>
+                    <div class="p-step"><div class="p-icon" id="ps4">4</div><div class="p-label" id="pl4">Tailor</div><div class="p-count" id="pc4"></div></div>
+                    <div class="p-step"><div class="p-icon" id="ps5">5</div><div class="p-label" id="pl5">Email</div><div class="p-count" id="pc5"></div></div>
+                </div>
+            </div>
+            <div class="pipeline-msg" id="pMsg">Click "Run Pipeline" to start discovering jobs</div>
+            <div class="pipeline-bar"><div class="pipeline-bar-fill" id="pBar"></div></div>
+        </div>
+    </section>
+
+    <!-- ACTIONS -->
+    <div class="sec-title">Quick Actions</div>
+    <section class="actions">
+        <!-- Resume Upload -->
+        <div class="action-card">
+            <h4>Resume</h4>
+            <p>Upload your master resume (PDF/DOCX). Used for tailoring applications.</p>
+            <div id="resumeZone">
+                <div class="drop-zone" id="resumeDrop" onclick="document.getElementById('resumeFile').click()">
+                    <div class="dz-icon">&#128196;</div>
+                    <div class="dz-text">Drop resume here or click to browse</div>
+                    <input type="file" id="resumeFile" accept=".pdf,.docx,.doc,.txt" onchange="uploadResume(this)">
+                </div>
+            </div>
+        </div>
+        <!-- JD Upload -->
+        <div class="action-card">
+            <h4>Upload JD</h4>
+            <p>Upload a job description file (PDF, image, or text) for instant analysis.</p>
+            <div class="drop-zone" id="jdDrop" onclick="document.getElementById('jdFile').click()">
+                <div class="dz-icon">&#128206;</div>
+                <div class="dz-text">Drop JD file or click to browse</div>
+                <input type="file" id="jdFile" accept=".pdf,.png,.jpg,.jpeg,.txt,.doc,.docx" onchange="uploadJD(this)">
+            </div>
+        </div>
+        <!-- Paste JD -->
+        <div class="action-card">
+            <h4>Paste JD</h4>
+            <p>Paste a job description for instant matching, scoring, and application.</p>
+            <textarea class="jd-input" id="jdText" placeholder="Paste full job description here..."></textarea>
+            <button class="btn btn-ghost btn-sm" onclick="pasteJD()">Analyze</button>
+        </div>
+    </section>
+
+    <!-- CONTENT GRID -->
+    <section class="content">
+        <!-- Jobs -->
+        <div class="card">
+            <div class="card-head">
+                <h3>Job Feed</h3>
+                <button class="btn btn-ghost btn-sm" onclick="loadJobs()">Refresh</button>
+            </div>
+            <div class="card-body" id="jobList">
+                <div class="empty"><div class="e-icon">&#128270;</div><p>No jobs yet. Run the pipeline!</p></div>
+            </div>
+        </div>
+
+        <!-- Right Column -->
+        <div style="display:flex;flex-direction:column;gap:16px">
+            <!-- Emails -->
+            <div class="card">
+                <div class="card-head"><h3>Drafted Emails</h3></div>
+                <div class="card-body" id="emailList" style="max-height:220px">
+                    <div class="empty"><div class="e-icon">&#9993;</div><p>No drafts yet.</p></div>
+                </div>
+            </div>
+            <!-- Run History -->
+            <div class="card">
+                <div class="card-head"><h3>Run History</h3></div>
+                <div class="card-body" id="logList" style="max-height:220px">
+                    <div class="empty"><div class="e-icon">&#128197;</div><p>No runs yet.</p></div>
+                </div>
+            </div>
+        </div>
+    </section>
+</main>
+
+<div class="toast-wrap" id="toasts"></div>
+
+<script>
+const $=id=>document.getElementById(id);
+const api=async(url,opt)=>{try{const r=await fetch(url,opt);return await r.json()}catch(e){return{error:e.message}}};
+
+// ── Toast ──────────────────────────────────
+function toast(msg,type='info'){
+    const ic={ok:'&#10003;',err:'&#10007;',info:'&#8505;'};
+    const el=document.createElement('div');
+    el.className='toast toast-'+type;
+    el.innerHTML=`<span>${ic[type]||ic.info}</span> ${msg}`;
+    $('toasts').appendChild(el);
+    setTimeout(()=>el.remove(),5000);
+}
+
+// ── Pipeline Viz ───────────────────────────
+const stepMap={discover:1,parse:2,score:3,tailor:4,email:5};
+
+function resetPipeline(){
+    for(let i=1;i<=5;i++){
+        $('ps'+i).className='p-icon';$('ps'+i).textContent=i;
+        $('pl'+i).className='p-label';$('pc'+i).textContent='';
+    }
+    $('pConnector').style.width='0%';$('pBar').style.width='0%';
+    $('pMsg').textContent='Click "Run Pipeline" to start';
+    $('pStatus').textContent='Idle';$('pStatus').style.color='';
+}
+
+function updateStep(step,state,count){
+    const idx=stepMap[step];if(!idx)return;
+    const icons=['','&#128269;','&#128196;','&#11088;','&#9999;','&#9993;'];
+    const el=$('ps'+idx);const lb=$('pl'+idx);
+    el.className='p-icon '+state;
+    if(state==='done')el.innerHTML='&#10003;';
+    else if(state==='active')el.innerHTML=icons[idx];
+    else el.textContent=idx;
+    lb.className='p-label '+state;
+    if(count!==undefined)$('pc'+idx).textContent=count+' items';
+}
+
+function startPipeline(){
+    const btn=$('runBtn');btn.disabled=true;btn.innerHTML='<span class="spin"></span> Running...';
+    resetPipeline();$('pStatus').textContent='Running';$('pStatus').style.color='var(--accent2)';
+
+    api('/api/run-now',{method:'POST'}).then(data=>{
+        if(!data.success){toast(data.error||'Failed','err');btn.disabled=false;btn.textContent='Run Pipeline';return}
+        listenPipeline(data.run_id);
+    });
+}
+
+function listenPipeline(runId){
+    const es=new EventSource('/api/pipeline/stream/'+runId);
+    es.onmessage=e=>{
+        const d=JSON.parse(e.data);
+        $('pMsg').textContent=d.msg||'';
+        $('pBar').style.width=(d.pct||0)+'%';
+        $('pConnector').style.width=(d.pct||0)+'%';
+
+        if(d.step==='init'){}
+        else if(d.step.endsWith('_done')){
+            const base=d.step.replace('_done','');updateStep(base,'done',d.count);
+        }else if(stepMap[d.step]){
+            updateStep(d.step,'active');
         }
-        
-        async function handleFileUpload(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-            
-            const statusEl = document.getElementById('uploadStatus');
-            statusEl.className = 'status-message show info';
-            statusEl.innerHTML = '<span class="spinner"></span>Uploading and processing...';
-            
-            const formData = new FormData();
-            formData.append('file', file);
-            
-            try {
-                const response = await fetch('/api/upload-jd', { method: 'POST', body: formData });
-                const data = await response.json();
-                
-                if (data.success) {
-                    statusEl.className = 'status-message show success';
-                    statusEl.innerHTML = `✅ File processed! Jobs applied: ${data.results.jobs_applied}`;
-                    updateStats(data.results);
-                    fetchLogs();
-                } else {
-                    statusEl.className = 'status-message show error';
-                    statusEl.innerHTML = `❌ Error: ${data.error}`;
-                }
-            } catch (error) {
-                statusEl.className = 'status-message show error';
-                statusEl.innerHTML = `❌ Error: ${error.message}`;
+
+        if(d.step==='done'||d.step==='error'){
+            es.close();
+            const btn=$('runBtn');btn.disabled=false;btn.textContent='Run Pipeline';
+            if(d.step==='done'){
+                $('pStatus').textContent='Complete';$('pStatus').style.color='var(--green)';
+                const r=d.results||{};
+                toast(`Done! ${r.jobs_found||0} found, ${r.jobs_applied||0} applied`,'ok');
+            }else{
+                $('pStatus').textContent='Error';$('pStatus').style.color='var(--red)';
+                toast(d.msg||'Pipeline error','err');
             }
+            refreshAll();
         }
-        
-        async function pasteJD() {
-            const jdText = document.getElementById('jdText').value.trim();
-            if (!jdText) {
-                alert('Please paste a job description');
-                return;
-            }
-            
-            const statusEl = document.getElementById('pasteStatus');
-            statusEl.className = 'status-message show info';
-            statusEl.innerHTML = '<span class="spinner"></span>Processing...';
-            
-            try {
-                const response = await fetch('/api/paste-jd', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ jd_text: jdText })
-                });
-                const data = await response.json();
-                
-                if (data.success) {
-                    statusEl.className = 'status-message show success';
-                    statusEl.innerHTML = `✅ JD processed! Jobs applied: ${data.results.jobs_applied}`;
-                    updateStats(data.results);
-                    document.getElementById('jdText').value = '';
-                    fetchLogs();
-                } else {
-                    statusEl.className = 'status-message show error';
-                    statusEl.innerHTML = `❌ Error: ${data.error}`;
-                }
-            } catch (error) {
-                statusEl.className = 'status-message show error';
-                statusEl.innerHTML = `❌ Error: ${error.message}`;
-            }
-        }
-        
-        async function fetchLogs() {
-            try {
-                const response = await fetch('/api/logs');
-                const data = await response.json();
-                
-                const logsContainer = document.getElementById('logsContainer');
-                if (data.success && data.runs.length > 0) {
-                    logsContainer.innerHTML = data.runs.map(run => `
-                        <div class="log-entry">
-                            <strong>${run.triggered_by}</strong> - 
-                            Jobs: ${run.jobs_found} found, ${run.jobs_applied} applied
-                            <br><small>${new Date(run.started_at).toLocaleString()}</small>
-                        </div>
-                    `).join('');
-                }
-            } catch (error) {
-                console.error('Error fetching logs:', error);
-            }
-        }
-        
-        function updateStats(results) {
-            document.getElementById('jobsFound').textContent = results.jobs_found || 0;
-            document.getElementById('jobsFiltered').textContent = results.jobs_filtered || 0;
-            document.getElementById('jobsApplied').textContent = results.jobs_applied || 0;
-            document.getElementById('emailsSent').textContent = results.emails_sent || 0;
-        }
-        
-        // Load logs on page load
-        window.addEventListener('load', () => {
-            fetchLogs();
-            setInterval(fetchLogs, 10000); // Refresh every 10 seconds
-        });
-    </script>
+    };
+    es.onerror=()=>{es.close();$('runBtn').disabled=false;$('runBtn').textContent='Run Pipeline'};
+}
+
+// ── Uploads ────────────────────────────────
+async function uploadResume(input){
+    if(!input.files[0])return;
+    const fd=new FormData();fd.append('file',input.files[0]);
+    toast('Uploading resume...','info');
+    const d=await api('/api/upload-resume',{method:'POST',body:fd});
+    if(d.success){
+        toast('Resume uploaded & parsed!','ok');
+        loadResumeStatus();
+    }else toast(d.error||'Upload failed','err');
+    input.value='';
+}
+
+async function uploadJD(input){
+    if(!input.files[0])return;
+    const fd=new FormData();fd.append('file',input.files[0]);
+    toast('Processing JD file...','info');
+    resetPipeline();$('pStatus').textContent='Running';$('pStatus').style.color='var(--accent2)';
+    $('runBtn').disabled=true;$('runBtn').innerHTML='<span class="spin"></span> Running...';
+    const d=await api('/api/upload-jd',{method:'POST',body:fd});
+    if(d.success){listenPipeline(d.run_id)}
+    else{toast(d.error||'Failed','err');$('runBtn').disabled=false;$('runBtn').textContent='Run Pipeline'}
+    input.value='';
+}
+
+async function pasteJD(){
+    const txt=$('jdText').value.trim();
+    if(!txt||txt.length<30){toast('Paste a full JD (min 30 chars)','err');return}
+    toast('Analyzing JD...','info');
+    resetPipeline();$('pStatus').textContent='Running';$('pStatus').style.color='var(--accent2)';
+    $('runBtn').disabled=true;$('runBtn').innerHTML='<span class="spin"></span> Running...';
+    const d=await api('/api/paste-jd',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jd_text:txt})});
+    if(d.success){$('jdText').value='';listenPipeline(d.run_id)}
+    else{toast(d.error||'Failed','err');$('runBtn').disabled=false;$('runBtn').textContent='Run Pipeline'}
+}
+
+// ── Data Loading ───────────────────────────
+async function loadJobs(){
+    const d=await api('/api/jobs');
+    if(!d.success||!d.jobs?.length){$('jobList').innerHTML='<div class="empty"><div class="e-icon">&#128270;</div><p>No jobs yet. Run the pipeline!</p></div>';return}
+    $('jobList').innerHTML=d.jobs.map(j=>{
+        const s=j.fit_score||0;const sc=s>=70?'s-high':s>=50?'s-mid':'s-low';const st=j.status||'pending';
+        return `<div class="job"><div class="job-score ${sc}">${s}</div><div class="job-info"><div class="job-title">${j.title||'Unknown'}</div><div class="job-co">${j.company||'Unknown'}</div><div class="job-tags"><span class="tag tag-${st}">${st}</span><span class="tag">${j.source||'web'}</span>${j.url?`<a href="${j.url}" target="_blank" class="tag" style="color:var(--blue)">link</a>`:''}</div></div></div>`;
+    }).join('');
+}
+
+async function loadEmails(){
+    const d=await api('/api/emails');
+    if(!d.success||!d.emails?.length){$('emailList').innerHTML='<div class="empty"><div class="e-icon">&#9993;</div><p>No drafts yet.</p></div>';return}
+    $('emailList').innerHTML=d.emails.slice(0,10).map(e=>
+        `<div class="email-item"><div class="email-subj">${e.subject||'No subject'}</div><div class="email-to">${e.hr_email||'No recipient'} &middot; ${e.status||'drafted'}</div><div class="email-preview">${(e.body_text||'').slice(0,120)}...</div></div>`
+    ).join('');
+}
+
+async function loadLogs(){
+    const d=await api('/api/logs');
+    if(!d.success||!d.runs?.length){$('logList').innerHTML='<div class="empty"><div class="e-icon">&#128197;</div><p>No runs yet.</p></div>';return}
+    $('logList').innerHTML=d.runs.slice(0,10).map(r=>{
+        const t=r.started_at?new Date(r.started_at).toLocaleString():'Unknown';
+        return `<div class="log-item"><div class="log-time">${t} &middot; ${r.triggered_by||'manual'}</div><div class="log-stats"><span><strong>${r.jobs_found||0}</strong> found</span><span><strong>${r.jobs_applied||0}</strong> applied</span><span><strong>${r.errors_count||0}</strong> errors</span></div></div>`;
+    }).join('');
+}
+
+async function loadAnalytics(){
+    const d=await api('/api/analytics');if(!d.success)return;
+    const a=d.analytics;
+    $('xJobs').textContent=a.total_jobs;$('xApplied').textContent=a.applied;
+    $('xScore').textContent=a.avg_score>0?a.avg_score:'--';$('xRuns').textContent=a.total_runs;
+}
+
+async function loadResumeStatus(){
+    const d=await api('/api/resume-status');
+    if(d.uploaded){
+        $('xResume').textContent='&#10003;';$('xResume').style.cssText='font-size:24px;-webkit-text-fill-color:var(--green)';
+        $('xResumeInfo').textContent=d.filename;
+        $('resumeZone').innerHTML=`<div class="resume-info"><div class="ri-icon">&#128196;</div><div><div class="ri-name">${d.filename}</div><div class="ri-text">${(d.size/1024).toFixed(1)} KB &middot; Uploaded</div></div><button class="btn btn-ghost btn-sm" onclick="document.getElementById('resumeFile2').click()" style="margin-left:auto">Replace</button><input type="file" id="resumeFile2" accept=".pdf,.docx,.doc,.txt" onchange="uploadResume(this)" style="display:none"></div>`;
+    }else{
+        $('xResume').textContent='--';$('xResumeInfo').textContent='Not uploaded';
+    }
+}
+
+async function checkStatus(){
+    const d=await api('/api/status');
+    if(d.status==='online'){
+        $('sDot').style.background='var(--green)';$('sDot').style.boxShadow='0 0 8px var(--green)';
+        const keys=Object.values(d.env_keys||{}).filter(Boolean).length;
+        $('sText').textContent=`Online${d.resume_uploaded?' | Resume':''}${keys?' | '+keys+' keys':''}`;
+    }else{$('sDot').style.background='var(--red)';$('sText').textContent='Offline'}
+}
+
+// ── Drag & Drop ────────────────────────────
+['resumeDrop','jdDrop'].forEach(id=>{
+    const el=$(id);if(!el)return;
+    el.addEventListener('dragover',e=>{e.preventDefault();el.classList.add('over')});
+    el.addEventListener('dragleave',()=>el.classList.remove('over'));
+    el.addEventListener('drop',e=>{
+        e.preventDefault();el.classList.remove('over');
+        const inp=el.querySelector('input[type=file]');
+        if(inp){inp.files=e.dataTransfer.files;inp.dispatchEvent(new Event('change'))}
+    });
+});
+
+function refreshAll(){loadAnalytics();loadJobs();loadEmails();loadLogs();loadResumeStatus()}
+document.addEventListener('DOMContentLoaded',()=>{checkStatus();refreshAll();setInterval(refreshAll,30000)});
+</script>
 </body>
 </html>

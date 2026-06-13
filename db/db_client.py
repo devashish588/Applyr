@@ -5,6 +5,7 @@ Provides a simple interface for agents to read/write without raw SQL.
 import sqlite3
 import json
 import os
+import threading
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
 
@@ -12,7 +13,7 @@ from typing import List, Dict, Any, Optional, Tuple
 class DatabaseClient:
     def __init__(self, db_path: str = "./db/applications.db"):
         self.db_path = db_path
-        self.connection = None
+        self._local = threading.local()
         self.initialize_db()
 
     def initialize_db(self):
@@ -28,11 +29,13 @@ class DatabaseClient:
             self.execute_script(schema)
 
     def get_connection(self) -> sqlite3.Connection:
-        """Get or create database connection."""
-        if self.connection is None:
-            self.connection = sqlite3.connect(self.db_path)
-            self.connection.row_factory = sqlite3.Row
-        return self.connection
+        """Get or create a thread-local database connection."""
+        conn = getattr(self._local, 'connection', None)
+        if conn is None:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+            self._local.connection = conn
+        return conn
 
     def execute_script(self, script: str):
         """Execute SQL script."""
@@ -149,8 +152,8 @@ class DatabaseClient:
         return self.execute_query(query, (job_id,))
 
     def get_unsent_emails(self) -> List[Dict]:
-        """Get all emails that haven't been sent yet."""
-        query = "SELECT * FROM emails WHERE status = 'pending' ORDER BY id ASC"
+        """Get all emails that haven't been sent yet (pending or drafted)."""
+        query = "SELECT * FROM emails WHERE status IN ('pending', 'drafted') ORDER BY id DESC"
         return self.execute_query(query)
 
     def email_exists_for_company(self, company: str) -> bool:
@@ -239,10 +242,11 @@ class DatabaseClient:
         return self.execute_query(query, (limit,))
 
     def close(self):
-        """Close database connection."""
-        if self.connection:
-            self.connection.close()
-            self.connection = None
+        """Close the current thread's database connection."""
+        conn = getattr(self._local, 'connection', None)
+        if conn:
+            conn.close()
+            self._local.connection = None
 
     def __del__(self):
         """Cleanup on deletion."""

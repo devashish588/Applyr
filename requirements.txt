@@ -1,42 +1,41 @@
-# Core Dependencies
-anthropic==0.30.0
-python-dotenv==1.0.0
-requests==2.31.0
+# Core LLM & Agent Frameworks
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-openai>=0.2.0
+langchain-tavily>=0.1.0
+langgraph>=0.2.0
+crewai>=0.80.0
+llama-index>=0.11.0
+llama-index-llms-openai>=0.3.0
+llama-index-embeddings-openai>=0.3.0
+
+# Environment
+python-dotenv>=1.0.0
 
 # Web Scraping
-selenium==4.15.0
-beautifulsoup4==4.12.2
-playwright==1.40.0
-lxml==4.9.3
+requests>=2.31.0
+beautifulsoup4>=4.12.2
 
-# Database (sqlite3 is built-in to Python)
+# Database (sqlite3 is built-in)
 
 # Email
-google-auth-oauthlib==1.1.0
-google-auth-httplib2==0.2.0
-google-api-python-client==2.100.0
+google-auth-oauthlib>=1.1.0
+google-auth-httplib2>=0.2.0
+google-api-python-client>=2.100.0
 
 # Scheduling
-APScheduler==3.10.4
+APScheduler>=3.10.4
 
 # Web Framework
-Flask==3.0.0
-Werkzeug==3.0.1
+Flask>=3.0.0
+Werkzeug>=3.0.1
+flask-cors>=4.0.0
 
 # File Processing
-python-pptx==0.6.21
-PyPDF2==3.0.1
-pdf2image==1.17.0
-pytesseract==0.3.10
-Pillow==11.0.0
+pypdf>=4.3.1
+Pillow>=11.0.0
 
 # Utilities
-pydantic==2.5.0
-pytz==2023.3
-tenacity==8.2.3
-
-# Development
-pytest==7.4.3
-pytest-asyncio==0.21.1
-black==23.12.0
-flake8==6.1.0
+pydantic>=2.5.0
+pytz>=2023.3
+tenacity>=8.2.3
