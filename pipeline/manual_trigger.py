@@ -111,19 +111,19 @@ def print_results(results: dict):
 
     apps = results.get("applications", [])
     if apps:
-        print(f"\n{'─'*60}")
+        print(f"\n{'-'*60}")
         print(f"Applications ({len(apps)}):")
         for app in apps:
-            icon = "✅" if app["status"] == "sent" else "📝"
+            icon = "[SENT]" if app["status"] == "sent" else "[DRAFT]"
             print(f"  {icon} {app['title']} at {app['company']} "
-                  f"— score {app['fit_score']}/100 [{app['status']}]")
+                  f"- score {app['fit_score']}/100 [{app['status']}]")
 
     errors = results.get("errors", [])
     if errors:
-        print(f"\n{'─'*60}")
+        print(f"\n{'-'*60}")
         print(f"Errors ({len(errors)}):")
         for err in errors[:5]:
-            print(f"  ✗ {err}")
+            print(f"  x {err}")
 
     print(f"{'='*60}\n")
 

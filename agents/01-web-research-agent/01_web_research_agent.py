@@ -18,7 +18,6 @@ from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 # ── Groq (replaces OpenAI) ────────────────────────────────────────────────────
-from langchain_groq import ChatGroq
 
 # ── Tavily ────────────────────────────────────────────────────────────────────
 from langchain_tavily import TavilySearch
@@ -30,22 +29,7 @@ from langgraph.graph.message import add_messages
 load_dotenv()
 
 # ── Groq client (loaded once) ─────────────────────────────────────────────────
-def get_llm():
-    api_key = os.getenv("GROQ_API_KEY")
-    model   = os.getenv("GROQ_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
-    base_url = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
-
-    if not api_key:
-        raise EnvironmentError(
-            "GROQ_API_KEY not found in .env — "
-            "get yours free at https://console.groq.com"
-        )
-
-    return ChatGroq(
-        api_key=api_key,
-        model=model,
-        temperature=0,
-    )
+from utils.llm_client import get_llm
 
 
 # ── State ─────────────────────────────────────────────────────────────────────

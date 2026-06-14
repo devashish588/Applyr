@@ -35,21 +35,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_groq import ChatGroq
+from utils.llm_client import get_llm
 
 load_dotenv()
-
-
-# ── LLM ───────────────────────────────────────────────────────────────────────
-def get_llm(temperature: float = 0.3) -> ChatGroq:
-    api_key = os.getenv("GROQ_API_KEY")
-    model   = os.getenv("GROQ_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
-    if not api_key:
-        raise EnvironmentError(
-            "GROQ_API_KEY not found in .env\n"
-            "Get yours free at https://console.groq.com"
-        )
-    return ChatGroq(api_key=api_key, model=model, temperature=temperature)
 
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
@@ -96,7 +84,13 @@ class JobApplicationAgent:
     """
 
     def __init__(self):
-        self.llm              = get_llm(temperature=0.3)
+        self.llm_error        = None
+        try:
+            self.llm          = get_llm(temperature=0.3)
+        except Exception as e:
+            self.llm          = None
+            self.llm_error    = str(e)
+            print(f"[job_agent] LLM unavailable, using local fallback: {e}")
         self.min_fit_score    = int(os.getenv("MIN_FIT_SCORE", "50"))
         self.tailored_dir     = os.getenv("TAILORED_RESUME_DIR",  "./resume/tailored/")
         self.cover_letter_dir = os.getenv("COVER_LETTER_DIR",     "./resume/cover_letters/")
@@ -132,8 +126,8 @@ class JobApplicationAgent:
               "materials": { full LLM output }
             }
         """
-        company = job_data.get("company", "company").lower().replace(" ", "_")
-        title   = job_data.get("title",   "role").lower().replace(" ", "_")
+        company = self._slugify(job_data.get("company", "company"))
+        title   = self._slugify(job_data.get("title", "role"))
         slug    = f"{company}_{title}_{datetime.now().strftime('%Y-%m-%d')}"
 
         print(f"\n[job_agent] Processing: {job_data.get('title')} at {job_data.get('company')}")
@@ -141,14 +135,19 @@ class JobApplicationAgent:
         # ── Step 1: analyse + tailor ───────────────────────────────────────────
         materials = self._analyse_and_tailor(job_data, profile, parsed_resume)
 
-        fit_score = materials.get("fit_score", 0)
+        try:
+            fit_score = int(materials.get("fit_score", 0))
+        except (TypeError, ValueError):
+            fit_score = 0
+        materials["fit_score"] = fit_score
         fit_label = materials.get("fit_label", "Unknown")
+        recommendation = str(materials.get("apply_recommendation", "")).lower()
         should_apply = (
             fit_score >= self.min_fit_score and
-            materials.get("apply_recommendation") != "Skip"
+            recommendation != "skip"
         )
 
-        print(f"[job_agent] Fit: {fit_score}/100 ({fit_label}) → {'✅ Apply' if should_apply else '❌ Skip'}")
+        print(f"[job_agent] Fit: {fit_score}/100 ({fit_label}) -> {'[APPLY] Apply' if should_apply else '[SKIP] Skip'}")
 
         if not should_apply:
             return {
@@ -209,6 +208,9 @@ class JobApplicationAgent:
     # ── Internal: call LLM ────────────────────────────────────────────────────
     def _analyse_and_tailor(self, job_data: dict, profile: dict,
                              parsed_resume: dict | None) -> dict:
+        if self.llm is None:
+            return self._fallback_materials(job_data, profile, parsed_resume)
+
         personal   = profile.get("personal", {})
         skills     = profile.get("skills", {})
         experience = profile.get("experience", [])
@@ -265,8 +267,29 @@ Description:
             )),
         ]
 
-        response = self.llm.invoke(messages)
-        return self._parse_json(response.content)
+        try:
+            response = self.llm.invoke(messages)
+            parsed = self._parse_json(response.content)
+            if parsed.get("fit_score") is None:
+                return self._fallback_materials(job_data, profile, parsed_resume)
+            try:
+                parsed_score = int(parsed.get("fit_score", 0))
+            except (TypeError, ValueError):
+                return self._fallback_materials(job_data, profile, parsed_resume)
+
+            parse_failed = parsed_score == 0 and parsed.get("fit_label") == "Unknown"
+            if parse_failed:
+                return self._fallback_materials(job_data, profile, parsed_resume)
+
+            if parsed_score < self.min_fit_score:
+                fallback = self._fallback_materials(job_data, profile, parsed_resume)
+                if fallback.get("fit_score", 0) >= self.min_fit_score:
+                    fallback["llm_score_overridden"] = parsed_score
+                    return fallback
+            return parsed
+        except Exception as e:
+            print(f"[job_agent] LLM tailoring failed, using local fallback: {e}")
+            return self._fallback_materials(job_data, profile, parsed_resume)
 
     def _parse_json(self, raw: str) -> dict:
         cleaned = raw.strip()
@@ -281,6 +304,147 @@ Description:
         except json.JSONDecodeError:
             print(f"[job_agent] Warning: could not parse JSON response")
             return {"fit_score": 0, "fit_label": "Unknown", "cover_letter": raw}
+
+    def _fallback_materials(self, job_data: dict, profile: dict,
+                            parsed_resume: dict | None) -> dict:
+        personal = profile.get("personal", {})
+        skills = profile.get("skills", {})
+        all_skills = (
+            skills.get("languages", []) +
+            skills.get("frameworks", []) +
+            skills.get("tools", [])
+        )
+        jd_text = self._job_text(job_data)
+        jd_lower = jd_text.lower()
+
+        required = job_data.get("required_skills") or []
+        matched = []
+        for skill in all_skills:
+            pattern = r"(?<![a-z0-9])" + re.escape(skill.lower()) + r"(?![a-z0-9])"
+            if re.search(pattern, jd_lower):
+                matched.append(skill)
+
+        matched_lower = {m.lower() for m in matched}
+        missing = [
+            skill for skill in required
+            if skill and skill.lower() not in matched_lower
+        ][:8]
+
+        role_score = self._score_role(job_data, profile)
+        skill_denominator = max(len(required), min(len(all_skills), 8), 1)
+        skill_score = min(45, int(45 * len(matched) / skill_denominator))
+        location_score = self._score_location(job_data, profile)
+        achievement_score = 10 if profile.get("key_achievements") else 5
+        fit_score = max(0, min(100, role_score + skill_score + location_score + achievement_score))
+
+        fit_label = (
+            "Excellent" if fit_score >= 80 else
+            "Good" if fit_score >= 65 else
+            "Fair" if fit_score >= 50 else
+            "Poor"
+        )
+        recommendation = "Apply" if fit_score >= self.min_fit_score else "Skip"
+
+        highlights = profile.get("key_achievements", [])[:5]
+        parsed_highlights = []
+        if parsed_resume:
+            parsed_highlights = parsed_resume.get("achievements", [])[:3]
+        source_bullets = highlights or parsed_highlights or [
+            profile.get("experience_summary", "Built and shipped production software systems.")
+        ]
+
+        title = job_data.get("title") or "this role"
+        company = job_data.get("company") or "your company"
+        skill_phrase = ", ".join(matched[:3]) or "strong engineering fundamentals"
+        tailored_bullets = [
+            f"{bullet} Relevant to {title} through {skill_phrase}."
+            for bullet in source_bullets[:5]
+        ]
+
+        cover_letter = self._fallback_cover_letter(
+            name=personal.get("name", ""),
+            company=company,
+            title=title,
+            matched=matched,
+            achievements=source_bullets,
+        )
+
+        return {
+            "fit_score": fit_score,
+            "fit_label": fit_label,
+            "apply_recommendation": recommendation,
+            "tailored_bullets": tailored_bullets,
+            "skills_to_highlight": matched[:8] or all_skills[:5],
+            "keywords_matched": matched[:10],
+            "keywords_missing": missing,
+            "cover_letter": cover_letter,
+            "interview_questions": [
+                {
+                    "q": f"How would your experience help you succeed as {title}?",
+                    "framework": "Use STAR and anchor the answer in a shipped project.",
+                },
+                {
+                    "q": f"Which technical strengths are most relevant for {company}?",
+                    "framework": f"Lead with {skill_phrase}.",
+                },
+            ],
+            "salary_estimate": job_data.get("salary"),
+            "fallback_used": True,
+            "fallback_reason": self.llm_error,
+        }
+
+    def _score_role(self, job_data: dict, profile: dict) -> int:
+        target_roles = profile.get("job_preferences", {}).get("target_roles", [])
+        role_text = (job_data.get("title") or "").lower()
+        role_tokens = set(re.split(r"\W+", role_text))
+        score = 0
+        for role in target_roles:
+            role_lower = role.lower()
+            role_words = {w for w in re.split(r"\W+", role_lower) if len(w) > 2}
+            if role_lower in role_text:
+                score = max(score, 30)
+            elif role_words.intersection(role_tokens):
+                score = max(score, 25)
+        return score
+
+    def _score_location(self, job_data: dict, profile: dict) -> int:
+        prefs = profile.get("job_preferences", {})
+        location = (job_data.get("location") or "").lower()
+        if not location:
+            return 10
+        if "remote" in location and prefs.get("remote_ok", True):
+            return 15
+        for target in prefs.get("target_locations", []):
+            target_lower = target.lower()
+            if target_lower in location or location in target_lower:
+                return 15
+        return 5
+
+    def _fallback_cover_letter(self, *, name: str, company: str, title: str,
+                               matched: list[str], achievements: list[str]) -> str:
+        skills_text = ", ".join(matched[:5]) if matched else "the required engineering stack"
+        achievement_text = " ".join(achievements[:2]) if achievements else (
+            "I have built reliable software systems and worked across the delivery lifecycle."
+        )
+        return (
+            f"{company}'s {title} opening stood out because it calls for hands-on impact "
+            f"with {skills_text}.\n\n"
+            f"My background lines up with that need: {achievement_text}\n\n"
+            f"I would welcome the chance to discuss how I can contribute to {company}'s team.\n\n"
+            f"{name}"
+        )
+
+    def _job_text(self, job_data: dict) -> str:
+        return " ".join([
+            str(job_data.get("title", "")),
+            str(job_data.get("description_snippet", "")),
+            str(job_data.get("jd_text", "")),
+            " ".join(job_data.get("required_skills", [])),
+        ])
+
+    def _slugify(self, value: str) -> str:
+        cleaned = re.sub(r"[^a-z0-9]+", "_", str(value).lower()).strip("_")
+        return cleaned or "item"
 
     def _format_cover_letter(self, body: str, job_data: dict, profile: dict) -> str:
         personal = profile.get("personal", {})
@@ -408,18 +572,18 @@ def main():
     result = agent.process(job_data, profile)
 
     print("\n" + "=" * 60)
-    print("📋 JOB APPLICATION PACKAGE")
+    print("JOB APPLICATION PACKAGE")
     print("=" * 60)
     print(f"Role:       {result['job'].get('title')} at {result['job'].get('company')}")
     print(f"Fit Score:  {result['fit_score']}/100 ({result['fit_label']})")
-    print(f"Decision:   {'✅ Apply' if result['should_apply'] else '❌ Skip — ' + result.get('reason','')}")
+    print(f"Decision:   {'[APPLY] Apply' if result['should_apply'] else '[SKIP] Skip - ' + result.get('reason','')}")
 
     if result["should_apply"]:
-        print(f"\n📄 Cover letter: {result['cover_letter_path']}")
-        print(f"📄 Tailored resume: {result['tailored_resume_path']}")
-        print(f"\n🔑 Skills to highlight: {', '.join(result['skills_to_highlight'])}")
-        print(f"✅ Keywords matched:    {', '.join(result['keywords_matched'][:5])}")
-        print(f"⚠️  Keywords missing:   {', '.join(result['keywords_missing'][:5])}")
+        print(f"\nCover letter: {result['cover_letter_path']}")
+        print(f"Tailored resume: {result['tailored_resume_path']}")
+        print(f"\nSkills to highlight: {', '.join(result['skills_to_highlight'])}")
+        print(f"Keywords matched:    {', '.join(result['keywords_matched'][:5])}")
+        print(f"Keywords missing:   {', '.join(result['keywords_missing'][:5])}")
         print(f"\n--- COVER LETTER PREVIEW ---")
         print(result["cover_letter_text"][:600] + "...")
 

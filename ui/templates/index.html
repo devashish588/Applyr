@@ -1,488 +1,1756 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Applyr - AI Job Application Agent</title>
-    <meta name="description" content="Autonomous AI-powered job application platform">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <title>Applyr — AI Job Agent</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
     <style>
-        *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-        :root{
-            --bg:#06070a;--bg2:#0d0f14;--bg3:#13151d;--card:rgba(255,255,255,0.03);
-            --card-h:rgba(255,255,255,0.06);--glass:rgba(255,255,255,0.04);
-            --bdr:rgba(255,255,255,0.06);--bdr-h:rgba(255,255,255,0.12);
-            --t1:#f1f2f6;--t2:#8a8da0;--t3:#555770;
-            --accent:#7c3aed;--accent2:#a78bfa;--accent-g:rgba(124,58,237,0.25);
-            --blue:#3b82f6;--green:#22c55e;--amber:#f59e0b;--red:#ef4444;--cyan:#06b6d4;
-            --g1:linear-gradient(135deg,#7c3aed,#3b82f6);
-            --g2:linear-gradient(135deg,#06b6d4,#7c3aed);
-            --g3:linear-gradient(135deg,#7c3aed 0%,#ec4899 50%,#f59e0b 100%);
-            --r:16px;--rs:10px;--rxs:6px;
-            --shadow:0 8px 32px rgba(0,0,0,0.4);
-            --ease:cubic-bezier(0.4,0,0.2,1);
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0
         }
-        body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--t1);min-height:100vh;overflow-x:hidden}
 
-        /* ── Ambient ──────────────────── */
-        .ambient{position:fixed;inset:0;pointer-events:none;z-index:0}
-        .ambient .orb{position:absolute;border-radius:50%;filter:blur(120px);opacity:.15;animation:orbFloat 25s ease-in-out infinite alternate}
-        .ambient .orb:nth-child(1){width:600px;height:600px;background:#7c3aed;top:-10%;left:-5%}
-        .ambient .orb:nth-child(2){width:500px;height:500px;background:#3b82f6;top:50%;right:-10%;animation-delay:-8s}
-        .ambient .orb:nth-child(3){width:400px;height:400px;background:#06b6d4;bottom:-10%;left:30%;animation-delay:-15s}
-        @keyframes orbFloat{0%{transform:translate(0,0) scale(1)}50%{transform:translate(30px,-40px) scale(1.1)}100%{transform:translate(-20px,20px) scale(.95)}}
+        :root {
+            --bg: #06070a;
+            --bg2: #0d0f14;
+            --bg3: #13151d;
+            --card: rgba(255, 255, 255, .03);
+            --cardh: rgba(255, 255, 255, .055);
+            --bdr: rgba(255, 255, 255, .07);
+            --bdrh: rgba(255, 255, 255, .14);
+            --t1: #f1f2f6;
+            --t2: #8a8da0;
+            --t3: #4e5168;
+            --v: #7c3aed;
+            /* violet */
+            --vg: rgba(124, 58, 237, .22);
+            --blue: #3b82f6;
+            --green: #22c55e;
+            --amber: #f59e0b;
+            --red: #ef4444;
+            --cyan: #06b6d4;
+            --g1: linear-gradient(135deg, #7c3aed, #3b82f6);
+            --g2: linear-gradient(135deg, #06b6d4, #7c3aed);
+            --r: 14px;
+            --rs: 9px;
+            --ease: cubic-bezier(.4, 0, .2, 1);
+        }
 
-        /* ── Header ───────────────────── */
-        .header{display:flex;align-items:center;justify-content:space-between;padding:16px 28px;border-bottom:1px solid var(--bdr);backdrop-filter:blur(20px);position:sticky;top:0;z-index:100;background:rgba(6,7,10,.85)}
-        .logo{display:flex;align-items:center;gap:10px}
-        .logo-mark{width:36px;height:36px;background:var(--g1);border-radius:10px;display:grid;place-items:center;font-size:18px;font-weight:900;color:white;box-shadow:0 0 24px var(--accent-g);letter-spacing:-1px}
-        .logo-name{font-size:20px;font-weight:800;background:var(--g3);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-        .logo-tag{font-size:9px;font-weight:700;padding:3px 7px;background:var(--card);border:1px solid var(--bdr);border-radius:20px;color:var(--t3);letter-spacing:1.5px;text-transform:uppercase}
-        .header-r{display:flex;gap:10px;align-items:center}
-        .status-pill{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--t2);padding:5px 12px;background:var(--card);border:1px solid var(--bdr);border-radius:20px}
-        .status-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 2s ease infinite}
-        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--t1);
+            min-height: 100vh;
+            overflow-x: hidden
+        }
 
-        /* ── Buttons ──────────────────── */
-        .btn{display:inline-flex;align-items:center;gap:7px;padding:9px 18px;border:none;border-radius:var(--rs);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;transition:all .25s var(--ease);text-decoration:none;position:relative;overflow:hidden}
-        .btn-glow{background:var(--g1);color:#fff;box-shadow:0 4px 20px var(--accent-g)}
-        .btn-glow:hover{transform:translateY(-2px);box-shadow:0 8px 30px var(--accent-g)}
-        .btn-glow::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.15),transparent);transform:translateX(-100%);transition:transform .6s}
-        .btn-glow:hover::after{transform:translateX(100%)}
-        .btn-ghost{background:var(--card);color:var(--t1);border:1px solid var(--bdr)}
-        .btn-ghost:hover{background:var(--card-h);border-color:var(--bdr-h)}
-        .btn-sm{padding:6px 12px;font-size:11px}
-        .btn:disabled{opacity:.4;cursor:not-allowed;transform:none!important}
+        /* ── Ambient ─────────────────────────────────────────────── */
+        .ambient {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 0;
+            overflow: hidden
+        }
 
-        /* ── Main ─────────────────────── */
-        .main{max-width:1360px;margin:0 auto;padding:24px 28px;position:relative;z-index:1}
+        .orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(110px);
+            opacity: .12;
+            animation: drift 28s ease-in-out infinite alternate
+        }
 
-        /* ── Section titles ────────────── */
-        .sec-title{font-size:13px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:16px;display:flex;align-items:center;gap:8px}
-        .sec-title::before{content:'';width:3px;height:14px;background:var(--g1);border-radius:2px}
+        .orb:nth-child(1) {
+            width: 560px;
+            height: 560px;
+            background: #7c3aed;
+            top: -8%;
+            left: -4%
+        }
 
-        /* ── Stats ────────────────────── */
-        .stats{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:24px}
-        .stat{background:var(--card);border:1px solid var(--bdr);border-radius:var(--r);padding:20px;transition:all .3s var(--ease);position:relative;overflow:hidden}
-        .stat::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--g1);opacity:0;transition:opacity .3s}
-        .stat:hover{border-color:var(--bdr-h);transform:translateY(-2px)}.stat:hover::after{opacity:1}
-        .stat-label{font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
-        .stat-val{font-size:28px;font-weight:900;background:var(--g1);-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1}
-        .stat-sub{font-size:11px;color:var(--t3);margin-top:4px}
+        .orb:nth-child(2) {
+            width: 480px;
+            height: 480px;
+            background: #3b82f6;
+            top: 45%;
+            right: -8%;
+            animation-delay: -9s
+        }
 
-        /* ── Pipeline Viz ─────────────── */
-        .pipeline-section{margin-bottom:24px}
-        .pipeline-card{background:var(--card);border:1px solid var(--bdr);border-radius:var(--r);padding:24px;position:relative;overflow:hidden}
-        .pipeline-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
-        .pipeline-header h3{font-size:15px;font-weight:700}
-        .pipeline-steps{display:flex;align-items:center;gap:0;position:relative}
-        .p-step{flex:1;text-align:center;position:relative;z-index:1}
-        .p-icon{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;margin:0 auto 8px;font-size:18px;background:var(--bg2);border:2px solid var(--bdr);transition:all .4s var(--ease);position:relative}
-        .p-icon.active{border-color:var(--accent);background:rgba(124,58,237,.15);box-shadow:0 0 20px var(--accent-g);animation:stepPulse 1.5s ease infinite}
-        .p-icon.done{border-color:var(--green);background:rgba(34,197,94,.12);color:var(--green)}
-        .p-icon.error{border-color:var(--red);background:rgba(239,68,68,.12);color:var(--red)}
-        @keyframes stepPulse{0%,100%{box-shadow:0 0 20px var(--accent-g)}50%{box-shadow:0 0 35px var(--accent-g)}}
-        .p-label{font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.5px}
-        .p-label.active{color:var(--accent2)}
-        .p-label.done{color:var(--green)}
-        .p-count{font-size:10px;color:var(--t2);margin-top:2px;min-height:14px}
-        .p-connector{position:absolute;top:22px;left:0;right:0;height:2px;background:var(--bdr);z-index:0}
-        .p-connector-fill{height:100%;background:var(--g1);transition:width .6s var(--ease);width:0%}
-        .pipeline-msg{text-align:center;margin-top:16px;font-size:13px;color:var(--t2);min-height:20px;transition:all .3s}
-        .pipeline-bar{margin-top:12px;height:4px;background:var(--bg2);border-radius:4px;overflow:hidden}
-        .pipeline-bar-fill{height:100%;background:var(--g1);border-radius:4px;transition:width .5s var(--ease);width:0%}
-        .pipeline-idle{display:flex;flex-direction:column;align-items:center;gap:12px;padding:16px 0}
-        .pipeline-idle p{font-size:13px;color:var(--t3)}
+        .orb:nth-child(3) {
+            width: 380px;
+            height: 380px;
+            background: #06b6d4;
+            bottom: -8%;
+            left: 28%;
+            animation-delay: -18s
+        }
 
-        /* ── Action Grid ──────────────── */
-        .actions{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:24px}
-        .action-card{background:var(--card);border:1px solid var(--bdr);border-radius:var(--r);padding:22px;transition:all .3s var(--ease)}
-        .action-card:hover{border-color:var(--bdr-h)}
-        .action-card h4{font-size:14px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:8px}
-        .action-card p{font-size:12px;color:var(--t3);margin-bottom:14px;line-height:1.5}
+        @keyframes drift {
+            0% {
+                transform: translate(0, 0) scale(1)
+            }
 
-        /* ── Upload zones ─────────────── */
-        .drop-zone{border:2px dashed var(--bdr);border-radius:var(--rs);padding:20px;text-align:center;cursor:pointer;transition:all .3s var(--ease)}
-        .drop-zone:hover,.drop-zone.over{border-color:var(--accent);background:rgba(124,58,237,.04)}
-        .drop-zone .dz-icon{font-size:24px;margin-bottom:6px}
-        .drop-zone .dz-text{font-size:12px;color:var(--t3)}
-        .drop-zone input{display:none}
-        .resume-info{display:flex;align-items:center;gap:10px;padding:12px;background:rgba(34,197,94,.06);border:1px solid rgba(34,197,94,.2);border-radius:var(--rs)}
-        .resume-info .ri-icon{font-size:20px}
-        .resume-info .ri-text{font-size:12px;color:var(--green)}
-        .resume-info .ri-name{font-weight:600;color:var(--t1)}
+            50% {
+                transform: translate(24px, -36px) scale(1.08)
+            }
 
-        /* ── Textarea ─────────────────── */
-        .jd-input{width:100%;min-height:80px;background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--rs);padding:12px;color:var(--t1);font-family:inherit;font-size:12px;resize:vertical;transition:all .3s var(--ease);margin-bottom:10px}
-        .jd-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-g)}
-        .jd-input::placeholder{color:var(--t3)}
+            100% {
+                transform: translate(-18px, 16px) scale(.94)
+            }
+        }
 
-        /* ── Content grid ─────────────── */
-        .content{display:grid;grid-template-columns:5fr 3fr;gap:16px}
+        /* ── Header ──────────────────────────────────────────────── */
+        .hdr {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 28px;
+            border-bottom: 1px solid var(--bdr);
+            background: rgba(6, 7, 10, .88);
+            backdrop-filter: blur(20px)
+        }
 
-        /* ── Card ─────────────────────── */
-        .card{background:var(--card);border:1px solid var(--bdr);border-radius:var(--r);overflow:hidden}
-        .card-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--bdr)}
-        .card-head h3{font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px}
-        .card-body{padding:16px 20px;max-height:480px;overflow-y:auto}
-        .card-body::-webkit-scrollbar{width:3px}
-        .card-body::-webkit-scrollbar-track{background:transparent}
-        .card-body::-webkit-scrollbar-thumb{background:var(--bdr);border-radius:2px}
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 10px
+        }
 
-        /* ── Job list ─────────────────── */
-        .job{display:flex;gap:12px;padding:14px 0;border-bottom:1px solid var(--bdr);transition:all .2s}
-        .job:last-child{border:none}
-        .job:hover{background:var(--card-h);margin:0 -20px;padding:14px 20px;border-radius:var(--rs)}
-        .job-score{min-width:42px;height:42px;border-radius:10px;display:grid;place-items:center;font-size:14px;font-weight:800;flex-shrink:0}
-        .s-high{background:rgba(34,197,94,.12);color:var(--green)}
-        .s-mid{background:rgba(245,158,11,.12);color:var(--amber)}
-        .s-low{background:rgba(239,68,68,.12);color:var(--red)}
-        .job-info{flex:1;min-width:0}
-        .job-title{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:3px}
-        .job-co{font-size:12px;color:var(--t2);margin-bottom:4px}
-        .job-tags{display:flex;gap:6px;flex-wrap:wrap}
-        .tag{font-size:10px;padding:2px 7px;border-radius:4px;background:var(--bg2);color:var(--t3);font-weight:500}
-        .tag-applied{background:rgba(34,197,94,.08);color:var(--green)}
-        .tag-tailored{background:rgba(124,58,237,.08);color:var(--accent2)}
-        .tag-pending{background:rgba(245,158,11,.08);color:var(--amber)}
+        .logo-mark {
+            width: 34px;
+            height: 34px;
+            border-radius: 9px;
+            background: var(--g1);
+            display: grid;
+            place-items: center;
+            font-size: 16px;
+            font-weight: 900;
+            color: #fff;
+            box-shadow: 0 0 20px var(--vg);
+            letter-spacing: -1px;
+            flex-shrink: 0
+        }
 
-        /* ── Run log & emails ─────────── */
-        .log-item{padding:12px 0;border-bottom:1px solid var(--bdr)}
-        .log-item:last-child{border:none}
-        .log-time{font-size:11px;color:var(--t3);margin-bottom:3px}
-        .log-stats{display:flex;gap:14px;font-size:12px;color:var(--t2)}
-        .log-stats strong{color:var(--t1)}
+        .logo-name {
+            font-size: 18px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #a78bfa, #60a5fa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent
+        }
 
-        .email-item{padding:12px 0;border-bottom:1px solid var(--bdr)}
-        .email-item:last-child{border:none}
-        .email-subj{font-size:13px;font-weight:600;margin-bottom:3px}
-        .email-to{font-size:11px;color:var(--t2)}
-        .email-preview{font-size:11px;color:var(--t3);margin-top:4px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+        .logo-badge {
+            font-size: 9px;
+            font-weight: 700;
+            padding: 2px 7px;
+            background: rgba(124, 58, 237, .12);
+            border: 1px solid rgba(124, 58, 237, .3);
+            border-radius: 20px;
+            color: #a78bfa;
+            letter-spacing: 1.4px;
+            text-transform: uppercase
+        }
 
-        /* ── Empty state ──────────────── */
-        .empty{text-align:center;padding:32px 16px;color:var(--t3)}
-        .empty .e-icon{font-size:32px;margin-bottom:8px;opacity:.5}
-        .empty p{font-size:13px}
+        .hdr-r {
+            display: flex;
+            align-items: center;
+            gap: 10px
+        }
 
-        /* ── Toast ────────────────────── */
-        .toast-wrap{position:fixed;bottom:20px;right:20px;z-index:1000;display:flex;flex-direction:column;gap:8px}
-        .toast{background:var(--bg3);border:1px solid var(--bdr);border-radius:var(--rs);padding:12px 18px;font-size:12px;box-shadow:var(--shadow);display:flex;align-items:center;gap:8px;animation:toastIn .3s var(--ease);min-width:280px}
-        .toast-ok{border-left:3px solid var(--green)}.toast-err{border-left:3px solid var(--red)}.toast-info{border-left:3px solid var(--blue)}
-        @keyframes toastIn{from{transform:translateX(100%);opacity:0}to{transform:none;opacity:1}}
+        .pill {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 12px;
+            font-size: 11px;
+            color: var(--t2);
+            background: var(--card);
+            border: 1px solid var(--bdr);
+            border-radius: 20px;
+            white-space: nowrap
+        }
 
-        /* ── Spinner ──────────────────── */
-        .spin{width:16px;height:16px;border:2px solid var(--bdr);border-top-color:var(--accent);border-radius:50%;animation:sp .7s linear infinite;flex-shrink:0}
-        @keyframes sp{to{transform:rotate(360deg)}}
+        .dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--green);
+            box-shadow: 0 0 7px var(--green);
+            animation: blink 2.2s ease infinite;
+            flex-shrink: 0
+        }
 
-        /* ── Responsive ───────────────── */
-        @media(max-width:1000px){.actions,.stats{grid-template-columns:repeat(2,1fr)}.content{grid-template-columns:1fr}.main{padding:16px}}
-        @media(max-width:600px){.stats{grid-template-columns:1fr}.actions{grid-template-columns:1fr}.pipeline-steps{flex-direction:column;gap:8px}.p-connector{display:none}}
+        .dot.offline {
+            background: var(--red);
+            box-shadow: 0 0 7px var(--red)
+        }
+
+        @keyframes blink {
+
+            0%,
+            100% {
+                opacity: 1
+            }
+
+            50% {
+                opacity: .35
+            }
+        }
+
+        /* ── Buttons ─────────────────────────────────────────────── */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            border: none;
+            border-radius: var(--rs);
+            font-family: inherit;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all .22s var(--ease);
+            text-decoration: none;
+            white-space: nowrap;
+            position: relative;
+            overflow: hidden
+        }
+
+        .btn-primary {
+            background: var(--g1);
+            color: #fff;
+            box-shadow: 0 4px 18px var(--vg)
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 28px var(--vg)
+        }
+
+        .btn-primary::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .14), transparent);
+            transform: translateX(-100%);
+            transition: transform .55s
+        }
+
+        .btn-primary:hover::after {
+            transform: translateX(100%)
+        }
+
+        .btn-ghost {
+            background: var(--card);
+            color: var(--t1);
+            border: 1px solid var(--bdr)
+        }
+
+        .btn-ghost:hover {
+            background: var(--cardh);
+            border-color: var(--bdrh)
+        }
+
+        .btn-sm {
+            padding: 5px 11px;
+            font-size: 11px
+        }
+
+        .btn:disabled {
+            opacity: .4;
+            cursor: not-allowed;
+            transform: none !important
+        }
+
+        /* ── Spinner ─────────────────────────────────────────────── */
+        .spin {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255, 255, 255, .25);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: sp .65s linear infinite
+        }
+
+        @keyframes sp {
+            to {
+                transform: rotate(360deg)
+            }
+        }
+
+        /* ── Layout ──────────────────────────────────────────────── */
+        .main {
+            max-width: 1360px;
+            margin: 0 auto;
+            padding: 26px 28px;
+            position: relative;
+            z-index: 1
+        }
+
+        .sec {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--t3);
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px
+        }
+
+        .sec::before {
+            content: '';
+            width: 3px;
+            height: 12px;
+            background: var(--g1);
+            border-radius: 2px;
+            flex-shrink: 0
+        }
+
+        /* ── Stats row ───────────────────────────────────────────── */
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 12px;
+            margin-bottom: 22px
+        }
+
+        .stat {
+            background: var(--card);
+            border: 1px solid var(--bdr);
+            border-radius: var(--r);
+            padding: 18px 20px;
+            transition: all .28s var(--ease);
+            position: relative;
+            overflow: hidden;
+            cursor: default
+        }
+
+        .stat::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            inset-inline: 0;
+            height: 2px;
+            background: var(--g1);
+            opacity: 0;
+            transition: opacity .28s
+        }
+
+        .stat:hover {
+            border-color: var(--bdrh);
+            transform: translateY(-2px)
+        }
+
+        .stat:hover::before {
+            opacity: 1
+        }
+
+        .stat-lbl {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .9px;
+            color: var(--t3);
+            margin-bottom: 8px
+        }
+
+        .stat-val {
+            font-size: 26px;
+            font-weight: 900;
+            line-height: 1;
+            background: var(--g1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent
+        }
+
+        .stat-sub {
+            font-size: 10px;
+            color: var(--t3);
+            margin-top: 5px
+        }
+
+        /* ── Pipeline card ───────────────────────────────────────── */
+        .pipeline-card {
+            background: var(--card);
+            border: 1px solid var(--bdr);
+            border-radius: var(--r);
+            padding: 22px;
+            margin-bottom: 22px
+        }
+
+        .pipeline-hdr {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 22px
+        }
+
+        .pipeline-hdr h3 {
+            font-size: 14px;
+            font-weight: 700
+        }
+
+        .p-status-badge {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 3px 10px;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, .05);
+            border: 1px solid var(--bdr);
+            color: var(--t2);
+            text-transform: uppercase;
+            letter-spacing: .8px;
+            transition: all .3s
+        }
+
+        .p-status-badge.running {
+            background: rgba(124, 58, 237, .12);
+            border-color: rgba(124, 58, 237, .35);
+            color: #a78bfa
+        }
+
+        .p-status-badge.complete {
+            background: rgba(34, 197, 94, .1);
+            border-color: rgba(34, 197, 94, .3);
+            color: var(--green)
+        }
+
+        .p-status-badge.error {
+            background: rgba(239, 68, 68, .1);
+            border-color: rgba(239, 68, 68, .3);
+            color: var(--red)
+        }
+
+        .p-track {
+            position: relative;
+            padding: 0 20px;
+            margin-bottom: 14px
+        }
+
+        .p-line {
+            position: absolute;
+            top: 21px;
+            left: calc(20px + 10%);
+            right: calc(20px + 10%);
+            height: 2px;
+            background: var(--bdr);
+            z-index: 0;
+            border-radius: 2px
+        }
+
+        .p-line-fill {
+            height: 100%;
+            background: var(--g1);
+            border-radius: 2px;
+            transition: width .5s var(--ease);
+            width: 0%
+        }
+
+        .p-steps {
+            display: flex;
+            position: relative;
+            z-index: 1
+        }
+
+        .p-step {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 7px
+        }
+
+        .p-node {
+            width: 42px;
+            height: 42px;
+            border-radius: 11px;
+            display: grid;
+            place-items: center;
+            font-size: 15px;
+            font-weight: 700;
+            background: var(--bg2);
+            border: 2px solid var(--bdr);
+            transition: all .35s var(--ease);
+            color: var(--t3)
+        }
+
+        .p-node.active {
+            border-color: var(--v);
+            background: rgba(124, 58, 237, .14);
+            color: #a78bfa;
+            box-shadow: 0 0 0 4px var(--vg);
+            animation: nodeGlow 1.6s ease infinite
+        }
+
+        .p-node.done {
+            border-color: var(--green);
+            background: rgba(34, 197, 94, .1);
+            color: var(--green)
+        }
+
+        .p-node.error {
+            border-color: var(--red);
+            background: rgba(239, 68, 68, .1);
+            color: var(--red)
+        }
+
+        @keyframes nodeGlow {
+
+            0%,
+            100% {
+                box-shadow: 0 0 0 4px var(--vg)
+            }
+
+            50% {
+                box-shadow: 0 0 0 7px rgba(124, 58, 237, .12)
+            }
+        }
+
+        .p-name {
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: .6px;
+            color: var(--t3);
+            transition: color .3s
+        }
+
+        .p-name.active {
+            color: #a78bfa
+        }
+
+        .p-name.done {
+            color: var(--green)
+        }
+
+        .p-count {
+            font-size: 10px;
+            color: var(--t2);
+            min-height: 14px;
+            text-align: center
+        }
+
+        .p-footer {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-top: 14px
+        }
+
+        .p-msg {
+            font-size: 12px;
+            color: var(--t2);
+            flex: 1;
+            min-height: 16px;
+            font-family: 'JetBrains Mono', monospace
+        }
+
+        .p-pct {
+            font-size: 11px;
+            color: var(--t3);
+            font-family: 'JetBrains Mono', monospace;
+            width: 34px;
+            text-align: right
+        }
+
+        .p-bar {
+            flex: none;
+            width: 180px;
+            height: 3px;
+            background: var(--bg2);
+            border-radius: 3px;
+            overflow: hidden
+        }
+
+        .p-bar-fill {
+            height: 100%;
+            background: var(--g1);
+            border-radius: 3px;
+            transition: width .45s var(--ease);
+            width: 0%
+        }
+
+        /* ── Actions ─────────────────────────────────────────────── */
+        .actions {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 14px;
+            margin-bottom: 22px
+        }
+
+        .action-card {
+            background: var(--card);
+            border: 1px solid var(--bdr);
+            border-radius: var(--r);
+            padding: 20px;
+            transition: border-color .25s
+        }
+
+        .action-card:hover {
+            border-color: var(--bdrh)
+        }
+
+        .action-card h4 {
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 5px;
+            color: var(--t1)
+        }
+
+        .action-card .ac-sub {
+            font-size: 11px;
+            color: var(--t3);
+            margin-bottom: 14px;
+            line-height: 1.5
+        }
+
+        /* ── Drop zones ──────────────────────────────────────────── */
+        .dz {
+            border: 2px dashed var(--bdr);
+            border-radius: var(--rs);
+            padding: 18px 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: all .25s var(--ease)
+        }
+
+        .dz:hover,
+        .dz.over {
+            border-color: var(--v);
+            background: rgba(124, 58, 237, .04)
+        }
+
+        .dz-icon {
+            font-size: 22px;
+            margin-bottom: 5px
+        }
+
+        .dz-text {
+            font-size: 11px;
+            color: var(--t3)
+        }
+
+        .dz-text strong {
+            color: var(--t2)
+        }
+
+        .resume-uploaded {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 11px 13px;
+            background: rgba(34, 197, 94, .06);
+            border: 1px solid rgba(34, 197, 94, .18);
+            border-radius: var(--rs)
+        }
+
+        .ru-icon {
+            font-size: 18px;
+            flex-shrink: 0
+        }
+
+        .ru-info {
+            flex: 1;
+            min-width: 0
+        }
+
+        .ru-name {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--t1);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap
+        }
+
+        .ru-meta {
+            font-size: 10px;
+            color: var(--green);
+            margin-top: 1px
+        }
+
+        /* ── Textarea ────────────────────────────────────────────── */
+        .jd-area {
+            width: 100%;
+            min-height: 82px;
+            background: var(--bg2);
+            border: 1px solid var(--bdr);
+            border-radius: var(--rs);
+            padding: 10px 13px;
+            color: var(--t1);
+            font-family: inherit;
+            font-size: 12px;
+            resize: vertical;
+            outline: none;
+            transition: border-color .22s;
+            line-height: 1.5
+        }
+
+        .jd-area:focus {
+            border-color: var(--v);
+            box-shadow: 0 0 0 3px var(--vg)
+        }
+
+        .jd-area::placeholder {
+            color: var(--t3)
+        }
+
+        /* ── Content grid ────────────────────────────────────────── */
+        .content {
+            display: grid;
+            grid-template-columns: 3fr 2fr;
+            gap: 16px
+        }
+
+        .right-col {
+            display: flex;
+            flex-direction: column;
+            gap: 16px
+        }
+
+        /* ── Cards ───────────────────────────────────────────────── */
+        .card {
+            background: var(--card);
+            border: 1px solid var(--bdr);
+            border-radius: var(--r);
+            overflow: hidden
+        }
+
+        .card-hdr {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 18px;
+            border-bottom: 1px solid var(--bdr)
+        }
+
+        .card-hdr h3 {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--t1);
+            display: flex;
+            align-items: center;
+            gap: 7px
+        }
+
+        .card-body {
+            padding: 4px 0;
+            max-height: 460px;
+            overflow-y: auto
+        }
+
+        .card-body::-webkit-scrollbar {
+            width: 3px
+        }
+
+        .card-body::-webkit-scrollbar-thumb {
+            background: var(--bdr);
+            border-radius: 2px
+        }
+
+        /* ── Job items ───────────────────────────────────────────── */
+        .job {
+            display: flex;
+            gap: 11px;
+            padding: 13px 18px;
+            border-bottom: 1px solid rgba(255, 255, 255, .04);
+            transition: background .18s;
+            cursor: default
+        }
+
+        .job:last-child {
+            border: none
+        }
+
+        .job:hover {
+            background: var(--cardh)
+        }
+
+        .score-box {
+            width: 40px;
+            height: 40px;
+            border-radius: 9px;
+            display: grid;
+            place-items: center;
+            font-size: 13px;
+            font-weight: 800;
+            flex-shrink: 0
+        }
+
+        .sc-hi {
+            background: rgba(34, 197, 94, .12);
+            color: var(--green)
+        }
+
+        .sc-md {
+            background: rgba(245, 158, 11, .12);
+            color: var(--amber)
+        }
+
+        .sc-lo {
+            background: rgba(239, 68, 68, .12);
+            color: var(--red)
+        }
+
+        .sc-na {
+            background: rgba(107, 114, 128, .1);
+            color: var(--t3)
+        }
+
+        .job-info {
+            flex: 1;
+            min-width: 0
+        }
+
+        .job-title {
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 2px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap
+        }
+
+        .job-co {
+            font-size: 11px;
+            color: var(--t2);
+            margin-bottom: 5px
+        }
+
+        .job-tags {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap
+        }
+
+        /* ── Tags / badges ───────────────────────────────────────── */
+        .tag {
+            font-size: 10px;
+            padding: 2px 7px;
+            border-radius: 4px;
+            font-weight: 500;
+            background: rgba(255, 255, 255, .05);
+            color: var(--t3)
+        }
+
+        .tag-sent {
+            background: rgba(34, 197, 94, .08);
+            color: var(--green)
+        }
+
+        .tag-draft {
+            background: rgba(124, 58, 237, .1);
+            color: #a78bfa
+        }
+
+        .tag-ready {
+            background: rgba(245, 158, 11, .08);
+            color: var(--amber)
+        }
+
+        .tag-skipped {
+            background: rgba(107, 114, 128, .08);
+            color: var(--t3)
+        }
+
+        .tag-found {
+            background: rgba(59, 130, 246, .08);
+            color: var(--blue)
+        }
+
+        .tag-link {
+            color: var(--blue);
+            cursor: pointer;
+            text-decoration: none
+        }
+
+        .tag-link:hover {
+            text-decoration: underline
+        }
+
+        /* ── Email items ─────────────────────────────────────────── */
+        .email-item {
+            padding: 12px 18px;
+            border-bottom: 1px solid rgba(255, 255, 255, .04);
+            transition: background .18s
+        }
+
+        .email-item:last-child {
+            border: none
+        }
+
+        .email-item:hover {
+            background: var(--cardh)
+        }
+
+        .email-subj {
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 3px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap
+        }
+
+        .email-to {
+            font-size: 10px;
+            color: var(--t2);
+            margin-bottom: 4px;
+            font-family: 'JetBrains Mono', monospace
+        }
+
+        .email-prev {
+            font-size: 11px;
+            color: var(--t3);
+            line-height: 1.45;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden
+        }
+
+        /* ── Log items ───────────────────────────────────────────── */
+        .log-item {
+            padding: 11px 18px;
+            border-bottom: 1px solid rgba(255, 255, 255, .04);
+            transition: background .18s
+        }
+
+        .log-item:last-child {
+            border: none
+        }
+
+        .log-item:hover {
+            background: var(--cardh)
+        }
+
+        .log-time {
+            font-size: 10px;
+            color: var(--t3);
+            margin-bottom: 4px;
+            font-family: 'JetBrains Mono', monospace
+        }
+
+        .log-row {
+            display: flex;
+            gap: 14px;
+            font-size: 11px;
+            flex-wrap: wrap
+        }
+
+        .log-row span {
+            color: var(--t2)
+        }
+
+        .log-row strong {
+            color: var(--t1)
+        }
+
+        .log-status {
+            font-size: 10px;
+            font-weight: 600;
+            padding: 1px 7px;
+            border-radius: 4px;
+            margin-top: 4px;
+            display: inline-block
+        }
+
+        .ls-completed {
+            background: rgba(34, 197, 94, .1);
+            color: var(--green)
+        }
+
+        .ls-failed {
+            background: rgba(239, 68, 68, .1);
+            color: var(--red)
+        }
+
+        .ls-running {
+            background: rgba(124, 58, 237, .1);
+            color: #a78bfa
+        }
+
+        /* ── Empty state ─────────────────────────────────────────── */
+        .empty {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 28px 16px;
+            color: var(--t3);
+            gap: 8px
+        }
+
+        .empty-icon {
+            font-size: 28px;
+            opacity: .4
+        }
+
+        .empty p {
+            font-size: 12px;
+            text-align: center
+        }
+
+        /* ── Skeleton ────────────────────────────────────────────── */
+        .skel {
+            height: 12px;
+            background: linear-gradient(90deg, var(--bg2) 25%, var(--bg3) 50%, var(--bg2) 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.4s infinite;
+            border-radius: 4px
+        }
+
+        .skel-row {
+            display: flex;
+            gap: 10px;
+            padding: 13px 18px;
+            border-bottom: 1px solid rgba(255, 255, 255, .04)
+        }
+
+        .skel-box {
+            width: 40px;
+            height: 40px;
+            flex-shrink: 0;
+            border-radius: 9px
+        }
+
+        .skel-box {
+            background: var(--bg3)
+        }
+
+        .skel-lines {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+            justify-content: center
+        }
+
+        .skel-l {
+            height: 10px
+        }
+
+        .skel-s {
+            height: 8px;
+            width: 60%
+        }
+
+        @keyframes shimmer {
+            0% {
+                background-position: 200% 0
+            }
+
+            100% {
+                background-position: -200% 0
+            }
+        }
+
+        /* ── Toasts ──────────────────────────────────────────────── */
+        #toasts {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 999;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            align-items: flex-end
+        }
+
+        .toast {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding: 11px 16px;
+            background: var(--bg3);
+            border: 1px solid var(--bdr);
+            border-radius: var(--rs);
+            font-size: 12px;
+            box-shadow: 0 8px 28px rgba(0, 0, 0, .45);
+            animation: tIn .3s var(--ease);
+            min-width: 260px;
+            max-width: 340px
+        }
+
+        .toast-ok {
+            border-left: 3px solid var(--green)
+        }
+
+        .toast-err {
+            border-left: 3px solid var(--red)
+        }
+
+        .toast-info {
+            border-left: 3px solid var(--blue)
+        }
+
+        .toast-warn {
+            border-left: 3px solid var(--amber)
+        }
+
+        .t-icon {
+            font-size: 14px;
+            flex-shrink: 0
+        }
+
+        @keyframes tIn {
+            from {
+                transform: translateX(110%);
+                opacity: 0
+            }
+
+            to {
+                transform: none;
+                opacity: 1
+            }
+        }
+
+        @keyframes tOut {
+            to {
+                transform: translateX(110%);
+                opacity: 0
+            }
+        }
+
+        /* ── Responsive ──────────────────────────────────────────── */
+        @media(max-width:1080px) {
+            .content {
+                grid-template-columns: 1fr
+            }
+
+            .right-col {
+                flex-direction: row
+            }
+        }
+
+        @media(max-width:900px) {
+            .stats {
+                grid-template-columns: repeat(3, 1fr)
+            }
+
+            .actions {
+                grid-template-columns: 1fr 1fr
+            }
+        }
+
+        @media(max-width:640px) {
+            .stats {
+                grid-template-columns: 1fr 1fr
+            }
+
+            .actions {
+                grid-template-columns: 1fr
+            }
+
+            .p-steps {
+                gap: 0
+            }
+
+            .p-node {
+                width: 34px;
+                height: 34px;
+                font-size: 12px
+            }
+
+            .right-col {
+                flex-direction: column
+            }
+
+            .hdr {
+                padding: 12px 16px
+            }
+
+            .main {
+                padding: 16px
+            }
+        }
     </style>
 </head>
+
 <body>
-<div class="ambient"><div class="orb"></div><div class="orb"></div><div class="orb"></div></div>
 
-<!-- HEADER -->
-<header class="header">
-    <div class="logo">
-        <div class="logo-mark">A</div>
-        <span class="logo-name">Applyr</span>
-        <span class="logo-tag">AI Agent</span>
+    <div class="ambient">
+        <div class="orb"></div>
+        <div class="orb"></div>
+        <div class="orb"></div>
     </div>
-    <div class="header-r">
-        <div class="status-pill"><div class="status-dot" id="sDot"></div><span id="sText">Connecting...</span></div>
-        <button class="btn btn-glow" id="runBtn" onclick="startPipeline()">Run Pipeline</button>
-    </div>
-</header>
 
-<main class="main">
-    <!-- STATS -->
-    <div class="sec-title">Dashboard Overview</div>
-    <section class="stats">
-        <div class="stat"><div class="stat-label">Jobs Found</div><div class="stat-val" id="xJobs">0</div><div class="stat-sub">Total discovered</div></div>
-        <div class="stat"><div class="stat-label">Applications</div><div class="stat-val" id="xApplied">0</div><div class="stat-sub">Submitted / drafted</div></div>
-        <div class="stat"><div class="stat-label">Avg Score</div><div class="stat-val" id="xScore">--</div><div class="stat-sub">Profile match</div></div>
-        <div class="stat"><div class="stat-label">Pipeline Runs</div><div class="stat-val" id="xRuns">0</div><div class="stat-sub">Total executions</div></div>
-        <div class="stat"><div class="stat-label">Resume</div><div class="stat-val" id="xResume">--</div><div class="stat-sub" id="xResumeInfo">Not uploaded</div></div>
-    </section>
+    <!-- ── Header ──────────────────────────────────────────────────── -->
+    <header class="hdr">
+        <div class="logo">
+            <div class="logo-mark">A</div>
+            <span class="logo-name">Applyr</span>
+            <span class="logo-badge">AI Agent</span>
+        </div>
+        <div class="hdr-r">
+            <div class="pill">
+                <div class="dot" id="statusDot"></div>
+                <span id="statusText">Connecting…</span>
+            </div>
+            <button class="btn btn-primary" id="runBtn" onclick="startPipeline()">
+                ▶ Run Pipeline
+            </button>
+        </div>
+    </header>
 
-    <!-- PIPELINE VISUALIZER -->
-    <div class="sec-title">Live Pipeline</div>
-    <section class="pipeline-section">
+    <main class="main">
+
+        <!-- ── Stats ────────────────────────────────────────────────── -->
+        <div class="sec">Dashboard Overview</div>
+        <section class="stats">
+            <div class="stat">
+                <div class="stat-lbl">Jobs Found</div>
+                <div class="stat-val" id="xJobs">—</div>
+                <div class="stat-sub">Total discovered</div>
+            </div>
+            <div class="stat">
+                <div class="stat-lbl">Applications</div>
+                <div class="stat-val" id="xApplied">—</div>
+                <div class="stat-sub">Sent or drafted</div>
+            </div>
+            <div class="stat">
+                <div class="stat-lbl">Avg Fit Score</div>
+                <div class="stat-val" id="xScore">—</div>
+                <div class="stat-sub">Profile match</div>
+            </div>
+            <div class="stat">
+                <div class="stat-lbl">Runs</div>
+                <div class="stat-val" id="xRuns">—</div>
+                <div class="stat-sub">Pipeline executions</div>
+            </div>
+            <div class="stat">
+                <div class="stat-lbl">Resume</div>
+                <div class="stat-val" id="xResume" style="font-size:20px">—</div>
+                <div class="stat-sub" id="xResumeSub">Not uploaded</div>
+            </div>
+        </section>
+
+        <!-- ── Pipeline ──────────────────────────────────────────────── -->
+        <div class="sec">Live Pipeline</div>
         <div class="pipeline-card">
-            <div class="pipeline-header">
+            <div class="pipeline-hdr">
                 <h3>Pipeline Execution</h3>
-                <span class="btn btn-ghost btn-sm" id="pStatus">Idle</span>
+                <span class="p-status-badge" id="pBadge">Idle</span>
             </div>
-            <div style="position:relative">
-                <div class="p-connector"><div class="p-connector-fill" id="pConnector"></div></div>
-                <div class="pipeline-steps">
-                    <div class="p-step"><div class="p-icon" id="ps1">1</div><div class="p-label" id="pl1">Discover</div><div class="p-count" id="pc1"></div></div>
-                    <div class="p-step"><div class="p-icon" id="ps2">2</div><div class="p-label" id="pl2">Parse</div><div class="p-count" id="pc2"></div></div>
-                    <div class="p-step"><div class="p-icon" id="ps3">3</div><div class="p-label" id="pl3">Score</div><div class="p-count" id="pc3"></div></div>
-                    <div class="p-step"><div class="p-icon" id="ps4">4</div><div class="p-label" id="pl4">Tailor</div><div class="p-count" id="pc4"></div></div>
-                    <div class="p-step"><div class="p-icon" id="ps5">5</div><div class="p-label" id="pl5">Email</div><div class="p-count" id="pc5"></div></div>
+
+            <div class="p-track">
+                <div class="p-line">
+                    <div class="p-line-fill" id="pLineFill"></div>
+                </div>
+                <div class="p-steps">
+                    <div class="p-step">
+                        <div class="p-node" id="pn1">1</div>
+                        <div class="p-name" id="pnl1">Discover</div>
+                        <div class="p-count" id="pnc1"></div>
+                    </div>
+                    <div class="p-step">
+                        <div class="p-node" id="pn2">2</div>
+                        <div class="p-name" id="pnl2">Parse</div>
+                        <div class="p-count" id="pnc2"></div>
+                    </div>
+                    <div class="p-step">
+                        <div class="p-node" id="pn3">3</div>
+                        <div class="p-name" id="pnl3">Score</div>
+                        <div class="p-count" id="pnc3"></div>
+                    </div>
+                    <div class="p-step">
+                        <div class="p-node" id="pn4">4</div>
+                        <div class="p-name" id="pnl4">Tailor</div>
+                        <div class="p-count" id="pnc4"></div>
+                    </div>
+                    <div class="p-step">
+                        <div class="p-node" id="pn5">5</div>
+                        <div class="p-name" id="pnl5">Email</div>
+                        <div class="p-count" id="pnc5"></div>
+                    </div>
                 </div>
             </div>
-            <div class="pipeline-msg" id="pMsg">Click "Run Pipeline" to start discovering jobs</div>
-            <div class="pipeline-bar"><div class="pipeline-bar-fill" id="pBar"></div></div>
-        </div>
-    </section>
 
-    <!-- ACTIONS -->
-    <div class="sec-title">Quick Actions</div>
-    <section class="actions">
-        <!-- Resume Upload -->
-        <div class="action-card">
-            <h4>Resume</h4>
-            <p>Upload your master resume (PDF/DOCX). Used for tailoring applications.</p>
-            <div id="resumeZone">
-                <div class="drop-zone" id="resumeDrop" onclick="document.getElementById('resumeFile').click()">
-                    <div class="dz-icon">&#128196;</div>
-                    <div class="dz-text">Drop resume here or click to browse</div>
-                    <input type="file" id="resumeFile" accept=".pdf,.docx,.doc,.txt" onchange="uploadResume(this)">
+            <div class="p-footer">
+                <div class="p-msg" id="pMsg">Click "Run Pipeline" to start</div>
+                <div class="p-pct" id="pPct">0%</div>
+                <div class="p-bar">
+                    <div class="p-bar-fill" id="pBarFill"></div>
                 </div>
             </div>
         </div>
-        <!-- JD Upload -->
-        <div class="action-card">
-            <h4>Upload JD</h4>
-            <p>Upload a job description file (PDF, image, or text) for instant analysis.</p>
-            <div class="drop-zone" id="jdDrop" onclick="document.getElementById('jdFile').click()">
-                <div class="dz-icon">&#128206;</div>
-                <div class="dz-text">Drop JD file or click to browse</div>
-                <input type="file" id="jdFile" accept=".pdf,.png,.jpg,.jpeg,.txt,.doc,.docx" onchange="uploadJD(this)">
-            </div>
-        </div>
-        <!-- Paste JD -->
-        <div class="action-card">
-            <h4>Paste JD</h4>
-            <p>Paste a job description for instant matching, scoring, and application.</p>
-            <textarea class="jd-input" id="jdText" placeholder="Paste full job description here..."></textarea>
-            <button class="btn btn-ghost btn-sm" onclick="pasteJD()">Analyze</button>
-        </div>
-    </section>
 
-    <!-- CONTENT GRID -->
-    <section class="content">
-        <!-- Jobs -->
-        <div class="card">
-            <div class="card-head">
-                <h3>Job Feed</h3>
-                <button class="btn btn-ghost btn-sm" onclick="loadJobs()">Refresh</button>
-            </div>
-            <div class="card-body" id="jobList">
-                <div class="empty"><div class="e-icon">&#128270;</div><p>No jobs yet. Run the pipeline!</p></div>
-            </div>
-        </div>
+        <!-- ── Actions ───────────────────────────────────────────────── -->
+        <div class="sec">Quick Actions</div>
+        <section class="actions">
 
-        <!-- Right Column -->
-        <div style="display:flex;flex-direction:column;gap:16px">
-            <!-- Emails -->
+            <!-- Resume upload -->
+            <div class="action-card">
+                <h4>Resume</h4>
+                <p class="ac-sub">Upload your master resume. Used for every tailored application.</p>
+                <div id="resumeZone">
+                    <div class="dz" id="resumeDrop" onclick="document.getElementById('resumeFileIn').click()"
+                        ondragover="dzOver(event,'resumeDrop')" ondragleave="dzOut('resumeDrop')"
+                        ondrop="dzDrop(event,'resumeDrop',resumeDropped)">
+                        <div class="dz-icon">📄</div>
+                        <div class="dz-text"><strong>Click or drag</strong> PDF / DOCX</div>
+                    </div>
+                    <input type="file" id="resumeFileIn" style="display:none" accept=".pdf,.docx,.doc,.txt"
+                        onchange="uploadResume(this.files[0])">
+                </div>
+            </div>
+
+            <!-- JD upload -->
+            <div class="action-card">
+                <h4>Upload JD</h4>
+                <p class="ac-sub">Drop a job description PDF or screenshot for instant analysis.</p>
+                <div class="dz" id="jdDrop" onclick="document.getElementById('jdFileIn').click()"
+                    ondragover="dzOver(event,'jdDrop')" ondragleave="dzOut('jdDrop')"
+                    ondrop="dzDrop(event,'jdDrop',jdDropped)">
+                    <div class="dz-icon">📋</div>
+                    <div class="dz-text"><strong>Click or drag</strong> PDF / PNG / JPG</div>
+                </div>
+                <input type="file" id="jdFileIn" style="display:none" accept=".pdf,.png,.jpg,.jpeg,.txt"
+                    onchange="uploadJD(this.files[0])">
+            </div>
+
+            <!-- Paste JD -->
+            <div class="action-card">
+                <h4>Paste JD</h4>
+                <p class="ac-sub">Paste a job description for instant matching and application.</p>
+                <textarea class="jd-area" id="jdText" placeholder="Paste the full job description here…"></textarea>
+                <button class="btn btn-ghost btn-sm" onclick="pasteJD()" style="width:100%;justify-content:center">
+                    Analyze JD
+                </button>
+            </div>
+
+        </section>
+
+        <!-- ── Content ───────────────────────────────────────────────── -->
+        <section class="content">
+
+            <!-- Jobs feed -->
             <div class="card">
-                <div class="card-head"><h3>Drafted Emails</h3></div>
-                <div class="card-body" id="emailList" style="max-height:220px">
-                    <div class="empty"><div class="e-icon">&#9993;</div><p>No drafts yet.</p></div>
+                <div class="card-hdr">
+                    <h3>🔍 Job Feed</h3>
+                    <button class="btn btn-ghost btn-sm" onclick="loadJobs()">Refresh</button>
+                </div>
+                <div class="card-body" id="jobList">
+                    <div class="empty">
+                        <div class="empty-icon">🔍</div>
+                        <p>No jobs yet — run the pipeline</p>
+                    </div>
                 </div>
             </div>
-            <!-- Run History -->
-            <div class="card">
-                <div class="card-head"><h3>Run History</h3></div>
-                <div class="card-body" id="logList" style="max-height:220px">
-                    <div class="empty"><div class="e-icon">&#128197;</div><p>No runs yet.</p></div>
+
+            <div class="right-col">
+
+                <!-- Email drafts -->
+                <div class="card">
+                    <div class="card-hdr">
+                        <h3>✉ Email Drafts</h3>
+                        <button class="btn btn-ghost btn-sm" onclick="loadEmails()">Refresh</button>
+                    </div>
+                    <div class="card-body" id="emailList" style="max-height:220px">
+                        <div class="empty">
+                            <div class="empty-icon">✉</div>
+                            <p>No drafts yet</p>
+                        </div>
+                    </div>
                 </div>
+
+                <!-- Run history -->
+                <div class="card">
+                    <div class="card-hdr">
+                        <h3>📋 Run History</h3>
+                        <button class="btn btn-ghost btn-sm" onclick="loadLogs()">Refresh</button>
+                    </div>
+                    <div class="card-body" id="logList" style="max-height:220px">
+                        <div class="empty">
+                            <div class="empty-icon">📋</div>
+                            <p>No runs yet</p>
+                        </div>
+                    </div>
+                </div>
+
             </div>
-        </div>
-    </section>
-</main>
+        </section>
 
-<div class="toast-wrap" id="toasts"></div>
+    </main>
 
-<script>
-const $=id=>document.getElementById(id);
-const api=async(url,opt)=>{try{const r=await fetch(url,opt);return await r.json()}catch(e){return{error:e.message}}};
+    <div id="toasts"></div>
 
-// ── Toast ──────────────────────────────────
-function toast(msg,type='info'){
-    const ic={ok:'&#10003;',err:'&#10007;',info:'&#8505;'};
-    const el=document.createElement('div');
-    el.className='toast toast-'+type;
-    el.innerHTML=`<span>${ic[type]||ic.info}</span> ${msg}`;
-    $('toasts').appendChild(el);
-    setTimeout(()=>el.remove(),5000);
-}
+    <script>
+        // ── Tiny helpers ──────────────────────────────────────────────────────────────
+        const $ = id => document.getElementById(id);
+        const esc = s => String(s ?? '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-// ── Pipeline Viz ───────────────────────────
-const stepMap={discover:1,parse:2,score:3,tailor:4,email:5};
-
-function resetPipeline(){
-    for(let i=1;i<=5;i++){
-        $('ps'+i).className='p-icon';$('ps'+i).textContent=i;
-        $('pl'+i).className='p-label';$('pc'+i).textContent='';
-    }
-    $('pConnector').style.width='0%';$('pBar').style.width='0%';
-    $('pMsg').textContent='Click "Run Pipeline" to start';
-    $('pStatus').textContent='Idle';$('pStatus').style.color='';
-}
-
-function updateStep(step,state,count){
-    const idx=stepMap[step];if(!idx)return;
-    const icons=['','&#128269;','&#128196;','&#11088;','&#9999;','&#9993;'];
-    const el=$('ps'+idx);const lb=$('pl'+idx);
-    el.className='p-icon '+state;
-    if(state==='done')el.innerHTML='&#10003;';
-    else if(state==='active')el.innerHTML=icons[idx];
-    else el.textContent=idx;
-    lb.className='p-label '+state;
-    if(count!==undefined)$('pc'+idx).textContent=count+' items';
-}
-
-function startPipeline(){
-    const btn=$('runBtn');btn.disabled=true;btn.innerHTML='<span class="spin"></span> Running...';
-    resetPipeline();$('pStatus').textContent='Running';$('pStatus').style.color='var(--accent2)';
-
-    api('/api/run-now',{method:'POST'}).then(data=>{
-        if(!data.success){toast(data.error||'Failed','err');btn.disabled=false;btn.textContent='Run Pipeline';return}
-        listenPipeline(data.run_id);
-    });
-}
-
-function listenPipeline(runId){
-    const es=new EventSource('/api/pipeline/stream/'+runId);
-    es.onmessage=e=>{
-        const d=JSON.parse(e.data);
-        $('pMsg').textContent=d.msg||'';
-        $('pBar').style.width=(d.pct||0)+'%';
-        $('pConnector').style.width=(d.pct||0)+'%';
-
-        if(d.step==='init'){}
-        else if(d.step.endsWith('_done')){
-            const base=d.step.replace('_done','');updateStep(base,'done',d.count);
-        }else if(stepMap[d.step]){
-            updateStep(d.step,'active');
-        }
-
-        if(d.step==='done'||d.step==='error'){
-            es.close();
-            const btn=$('runBtn');btn.disabled=false;btn.textContent='Run Pipeline';
-            if(d.step==='done'){
-                $('pStatus').textContent='Complete';$('pStatus').style.color='var(--green)';
-                const r=d.results||{};
-                toast(`Done! ${r.jobs_found||0} found, ${r.jobs_applied||0} applied`,'ok');
-            }else{
-                $('pStatus').textContent='Error';$('pStatus').style.color='var(--red)';
-                toast(d.msg||'Pipeline error','err');
+        async function api(url, opt) {
+            try {
+                const r = await fetch(url, opt);
+                return await r.json();
+            } catch (e) {
+                return { error: e.message };
             }
-            refreshAll();
         }
-    };
-    es.onerror=()=>{es.close();$('runBtn').disabled=false;$('runBtn').textContent='Run Pipeline'};
-}
 
-// ── Uploads ────────────────────────────────
-async function uploadResume(input){
-    if(!input.files[0])return;
-    const fd=new FormData();fd.append('file',input.files[0]);
-    toast('Uploading resume...','info');
-    const d=await api('/api/upload-resume',{method:'POST',body:fd});
-    if(d.success){
-        toast('Resume uploaded & parsed!','ok');
-        loadResumeStatus();
-    }else toast(d.error||'Upload failed','err');
-    input.value='';
-}
+        // ── Toast ─────────────────────────────────────────────────────────────────────
+        function toast(msg, type = 'info', dur = 4500) {
+            const icons = { ok: '✓', err: '✗', info: 'ℹ', warn: '⚠' };
+            const el = document.createElement('div');
+            el.className = `toast toast-${type}`;
+            el.innerHTML = `<span class="t-icon">${icons[type] || icons.info}</span><span>${esc(msg)}</span>`;
+            $('toasts').appendChild(el);
+            setTimeout(() => {
+                el.style.animation = 'tOut .3s ease forwards';
+                setTimeout(() => el.remove(), 320);
+            }, dur);
+        }
 
-async function uploadJD(input){
-    if(!input.files[0])return;
-    const fd=new FormData();fd.append('file',input.files[0]);
-    toast('Processing JD file...','info');
-    resetPipeline();$('pStatus').textContent='Running';$('pStatus').style.color='var(--accent2)';
-    $('runBtn').disabled=true;$('runBtn').innerHTML='<span class="spin"></span> Running...';
-    const d=await api('/api/upload-jd',{method:'POST',body:fd});
-    if(d.success){listenPipeline(d.run_id)}
-    else{toast(d.error||'Failed','err');$('runBtn').disabled=false;$('runBtn').textContent='Run Pipeline'}
-    input.value='';
-}
+        // ── Drag-and-drop helpers ─────────────────────────────────────────────────────
+        function dzOver(e, id) { e.preventDefault(); $(id).classList.add('over'); }
+        function dzOut(id) { $(id).classList.remove('over'); }
+        function dzDrop(e, id, cb) {
+            e.preventDefault(); dzOut(id);
+            const f = e.dataTransfer.files[0];
+            if (f) cb(f);
+        }
+        function resumeDropped(f) { uploadResume(f); }
+        function jdDropped(f) { uploadJD(f); }
 
-async function pasteJD(){
-    const txt=$('jdText').value.trim();
-    if(!txt||txt.length<30){toast('Paste a full JD (min 30 chars)','err');return}
-    toast('Analyzing JD...','info');
-    resetPipeline();$('pStatus').textContent='Running';$('pStatus').style.color='var(--accent2)';
-    $('runBtn').disabled=true;$('runBtn').innerHTML='<span class="spin"></span> Running...';
-    const d=await api('/api/paste-jd',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jd_text:txt})});
-    if(d.success){$('jdText').value='';listenPipeline(d.run_id)}
-    else{toast(d.error||'Failed','err');$('runBtn').disabled=false;$('runBtn').textContent='Run Pipeline'}
-}
+        // ── Pipeline state ────────────────────────────────────────────────────────────
+        const STEPS = ['discover', 'parse', 'score', 'tailor', 'email'];
+        // Map SSE step names → step index (1-based)
+        const STEP_IDX = {
+            init: 0, discover: 1, discover_done: 1,
+            parse: 2, parse_done: 2,
+            score: 3, score_done: 3,
+            tailor: 4, tailor_done: 4,
+            email: 5, email_done: 5,
+        };
 
-// ── Data Loading ───────────────────────────
-async function loadJobs(){
-    const d=await api('/api/jobs');
-    if(!d.success||!d.jobs?.length){$('jobList').innerHTML='<div class="empty"><div class="e-icon">&#128270;</div><p>No jobs yet. Run the pipeline!</p></div>';return}
-    $('jobList').innerHTML=d.jobs.map(j=>{
-        const s=j.fit_score||0;const sc=s>=70?'s-high':s>=50?'s-mid':'s-low';const st=j.status||'pending';
-        return `<div class="job"><div class="job-score ${sc}">${s}</div><div class="job-info"><div class="job-title">${j.title||'Unknown'}</div><div class="job-co">${j.company||'Unknown'}</div><div class="job-tags"><span class="tag tag-${st}">${st}</span><span class="tag">${j.source||'web'}</span>${j.url?`<a href="${j.url}" target="_blank" class="tag" style="color:var(--blue)">link</a>`:''}</div></div></div>`;
-    }).join('');
-}
+        function resetPipeline() {
+            for (let i = 1; i <= 5; i++) {
+                $('pn' + i).className = 'p-node';
+                $('pn' + i).textContent = i;
+                $('pnl' + i).className = 'p-name';
+                $('pnc' + i).textContent = '';
+            }
+            $('pLineFill').style.width = '0%';
+            $('pBarFill').style.width = '0%';
+            $('pPct').textContent = '0%';
+            $('pMsg').textContent = 'Initializing…';
+            $('pBadge').textContent = 'Running';
+            $('pBadge').className = 'p-status-badge running';
+        }
 
-async function loadEmails(){
-    const d=await api('/api/emails');
-    if(!d.success||!d.emails?.length){$('emailList').innerHTML='<div class="empty"><div class="e-icon">&#9993;</div><p>No drafts yet.</p></div>';return}
-    $('emailList').innerHTML=d.emails.slice(0,10).map(e=>
-        `<div class="email-item"><div class="email-subj">${e.subject||'No subject'}</div><div class="email-to">${e.hr_email||'No recipient'} &middot; ${e.status||'drafted'}</div><div class="email-preview">${(e.body_text||'').slice(0,120)}...</div></div>`
-    ).join('');
-}
+        function advancePipeline(stepName, state, pct, count, msg) {
+            const idx = STEP_IDX[stepName];
 
-async function loadLogs(){
-    const d=await api('/api/logs');
-    if(!d.success||!d.runs?.length){$('logList').innerHTML='<div class="empty"><div class="e-icon">&#128197;</div><p>No runs yet.</p></div>';return}
-    $('logList').innerHTML=d.runs.slice(0,10).map(r=>{
-        const t=r.started_at?new Date(r.started_at).toLocaleString():'Unknown';
-        return `<div class="log-item"><div class="log-time">${t} &middot; ${r.triggered_by||'manual'}</div><div class="log-stats"><span><strong>${r.jobs_found||0}</strong> found</span><span><strong>${r.jobs_applied||0}</strong> applied</span><span><strong>${r.errors_count||0}</strong> errors</span></div></div>`;
-    }).join('');
-}
+            if (msg) $('pMsg').textContent = msg;
+            if (pct !== undefined) {
+                $('pBarFill').style.width = pct + '%';
+                $('pLineFill').style.width = pct + '%';
+                $('pPct').textContent = pct + '%';
+            }
 
-async function loadAnalytics(){
-    const d=await api('/api/analytics');if(!d.success)return;
-    const a=d.analytics;
-    $('xJobs').textContent=a.total_jobs;$('xApplied').textContent=a.applied;
-    $('xScore').textContent=a.avg_score>0?a.avg_score:'--';$('xRuns').textContent=a.total_runs;
-}
+            if (!idx) return;
+            // Mark all steps before idx as done, idx as active or done
+            for (let i = 1; i <= 5; i++) {
+                const node = $('pn' + i);
+                const label = $('pnl' + i);
+                node.className = 'p-node';
+                label.className = 'p-name';
+                if (i < idx) { node.classList.add('done'); label.classList.add('done'); node.textContent = '✓'; }
+                else if (i === idx) {
+                    const cls = state || (stepName.endsWith('_done') ? 'done' : 'active');
+                    node.classList.add(cls); label.classList.add(cls);
+                    node.textContent = cls === 'done' ? '✓' : i;
+                } else {
+                    node.textContent = i;
+                }
+            }
+            if (count !== undefined) $('pnc' + idx).textContent = count + ' jobs';
+        }
 
-async function loadResumeStatus(){
-    const d=await api('/api/resume-status');
-    if(d.uploaded){
-        $('xResume').textContent='&#10003;';$('xResume').style.cssText='font-size:24px;-webkit-text-fill-color:var(--green)';
-        $('xResumeInfo').textContent=d.filename;
-        $('resumeZone').innerHTML=`<div class="resume-info"><div class="ri-icon">&#128196;</div><div><div class="ri-name">${d.filename}</div><div class="ri-text">${(d.size/1024).toFixed(1)} KB &middot; Uploaded</div></div><button class="btn btn-ghost btn-sm" onclick="document.getElementById('resumeFile2').click()" style="margin-left:auto">Replace</button><input type="file" id="resumeFile2" accept=".pdf,.docx,.doc,.txt" onchange="uploadResume(this)" style="display:none"></div>`;
-    }else{
-        $('xResume').textContent='--';$('xResumeInfo').textContent='Not uploaded';
-    }
-}
+        // ── Run pipeline ──────────────────────────────────────────────────────────────
+        function startPipeline() {
+            const btn = $('runBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spin"></span> Running…';
+            resetPipeline();
 
-async function checkStatus(){
-    const d=await api('/api/status');
-    if(d.status==='online'){
-        $('sDot').style.background='var(--green)';$('sDot').style.boxShadow='0 0 8px var(--green)';
-        const keys=Object.values(d.env_keys||{}).filter(Boolean).length;
-        $('sText').textContent=`Online${d.resume_uploaded?' | Resume':''}${keys?' | '+keys+' keys':''}`;
-    }else{$('sDot').style.background='var(--red)';$('sText').textContent='Offline'}
-}
+            api('/api/run-now', { method: 'POST' }).then(d => {
+                if (!d.success) {
+                    toast(d.error || 'Failed to start', 'err');
+                    resetBtn();
+                    return;
+                }
+                listenSSE(d.run_id);
+                toast('Pipeline started — watching live', 'info');
+            });
+        }
 
-// ── Drag & Drop ────────────────────────────
-['resumeDrop','jdDrop'].forEach(id=>{
-    const el=$(id);if(!el)return;
-    el.addEventListener('dragover',e=>{e.preventDefault();el.classList.add('over')});
-    el.addEventListener('dragleave',()=>el.classList.remove('over'));
-    el.addEventListener('drop',e=>{
-        e.preventDefault();el.classList.remove('over');
-        const inp=el.querySelector('input[type=file]');
-        if(inp){inp.files=e.dataTransfer.files;inp.dispatchEvent(new Event('change'))}
-    });
-});
+        function listenSSE(runId) {
+            const es = new EventSource('/api/pipeline/stream/' + runId);
 
-function refreshAll(){loadAnalytics();loadJobs();loadEmails();loadLogs();loadResumeStatus()}
-document.addEventListener('DOMContentLoaded',()=>{checkStatus();refreshAll();setInterval(refreshAll,30000)});
-</script>
+            es.onmessage = e => {
+                const d = JSON.parse(e.data);
+
+                advancePipeline(d.step, null, d.pct, d.count, d.msg);
+
+                if (d.step === 'done') {
+                    es.close();
+                    $('pBadge').textContent = 'Complete';
+                    $('pBadge').className = 'p-status-badge complete';
+                    // Mark all steps done
+                    for (let i = 1; i <= 5; i++) {
+                        $('pn' + i).className = 'p-node done';
+                        $('pn' + i).textContent = '✓';
+                        $('pnl' + i).className = 'p-name done';
+                    }
+                    $('pBarFill').style.width = '100%';
+                    $('pLineFill').style.width = '100%';
+                    $('pPct').textContent = '100%';
+                    const r = d.results || {};
+                    $('pMsg').textContent = `Done — ${r.jobs_found || 0} found, ${r.jobs_applied || 0} applied`;
+                    toast(`Pipeline complete ✓ — ${r.jobs_applied || 0} applications`, 'ok');
+                    resetBtn();
+                    refreshAll();
+                }
+
+                if (d.step === 'error') {
+                    es.close();
+                    $('pBadge').textContent = 'Error';
+                    $('pBadge').className = 'p-status-badge error';
+                    $('pMsg').textContent = 'Error: ' + (d.msg || 'unknown');
+                    toast('Pipeline error: ' + (d.msg || 'unknown'), 'err');
+                    resetBtn();
+                }
+
+                if (d.step === 'timeout') {
+                    es.close();
+                    toast('Stream timed out — check logs', 'warn');
+                    resetBtn();
+                }
+            };
+
+            es.onerror = () => {
+                es.close();
+                toast('Lost connection to pipeline — check the terminal', 'warn');
+                resetBtn();
+            };
+        }
+
+        function resetBtn() {
+            const btn = $('runBtn');
+            btn.disabled = false;
+            btn.innerHTML = '▶ Run Pipeline';
+        }
+
+        // ── Resume upload ─────────────────────────────────────────────────────────────
+        async function uploadResume(file) {
+            if (!file) return;
+            toast('Uploading resume…', 'info');
+            const fd = new FormData();
+            fd.append('file', file);
+            const d = await api('/api/upload-resume', { method: 'POST', body: fd });
+            if (d.success) {
+                toast('Resume uploaded ✓', 'ok');
+                loadResumeStatus();
+            } else {
+                toast(d.error || 'Upload failed', 'err');
+            }
+        }
+
+        // ── JD upload ─────────────────────────────────────────────────────────────────
+        async function uploadJD(file) {
+            if (!file) return;
+            resetPipeline(); $('runBtn').disabled = true;
+            $('runBtn').innerHTML = '<span class="spin"></span> Running…';
+            toast('Processing JD…', 'info');
+            const fd = new FormData();
+            fd.append('file', file);
+            const d = await api('/api/upload-jd', { method: 'POST', body: fd });
+            if (d.success) { listenSSE(d.run_id); }
+            else { toast(d.error || 'Upload failed', 'err'); resetBtn(); }
+        }
+
+        // ── Paste JD ──────────────────────────────────────────────────────────────────
+        async function pasteJD() {
+            const txt = $('jdText').value.trim();
+            if (!txt || txt.length < 30) { toast('Paste a longer JD (min 30 chars)', 'warn'); return; }
+            resetPipeline(); $('runBtn').disabled = true;
+            $('runBtn').innerHTML = '<span class="spin"></span> Running…';
+            toast('Analyzing JD…', 'info');
+            const d = await api('/api/paste-jd', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ jd_text: txt }),
+            });
+            if (d.success) { $('jdText').value = ''; listenSSE(d.run_id); }
+            else { toast(d.error || 'Failed', 'err'); resetBtn(); }
+        }
+
+        // ── Data loaders ──────────────────────────────────────────────────────────────
+        function skeleton(n = 3) {
+            return Array.from({ length: n }, () =>
+                `<div class="skel-row">
+       <div class="skel skel-box"></div>
+       <div class="skel-lines">
+         <div class="skel skel-l"></div><div class="skel skel-s"></div>
+       </div>
+     </div>`
+            ).join('');
+        }
+
+        function scoreBox(s) {
+            if (s == null) return `<div class="score-box sc-na">—</div>`;
+            const cls = s >= 70 ? 'sc-hi' : s >= 50 ? 'sc-md' : 'sc-lo';
+            return `<div class="score-box ${cls}">${s}</div>`;
+        }
+
+        function statusTag(st) {
+            const cls = `tag-${(st || 'found').toLowerCase()}`;
+            return `<span class="tag ${cls}">${esc(st || 'found')}</span>`;
+        }
+
+        async function loadJobs() {
+            $('jobList').innerHTML = skeleton(4);
+            const d = await api('/api/jobs');
+            if (!d.success || !d.jobs?.length) {
+                $('jobList').innerHTML = '<div class="empty"><div class="empty-icon">🔍</div><p>No jobs yet — run the pipeline</p></div>';
+                return;
+            }
+            $('jobList').innerHTML = d.jobs.map(j => `
+    <div class="job">
+      ${scoreBox(j.fit_score)}
+      <div class="job-info">
+        <div class="job-title">${esc(j.title || 'Unknown Role')}</div>
+        <div class="job-co">${esc(j.company || '—')} · ${esc(j.location || '')}</div>
+        <div class="job-tags">
+          ${statusTag(j.status)}
+          <span class="tag">${esc(j.source || 'web')}</span>
+          ${j.url ? `<a href="${esc(j.url)}" target="_blank" class="tag tag-link">↗ link</a>` : ''}
+        </div>
+      </div>
+    </div>`).join('');
+        }
+
+        async function loadEmails() {
+            $('emailList').innerHTML = skeleton(2);
+            const d = await api('/api/emails');
+            if (!d.success || !d.emails?.length) {
+                $('emailList').innerHTML = '<div class="empty"><div class="empty-icon">✉</div><p>No drafts yet</p></div>';
+                return;
+            }
+            // DB columns: email_subject, email_body, hr_email — not subject/body_text
+            $('emailList').innerHTML = d.emails.slice(0, 12).map(e => `
+    <div class="email-item">
+      <div class="email-subj">${esc(e.email_subject || e.subject || 'No subject')}</div>
+      <div class="email-to">${esc(e.hr_email || '—')} · ${esc(e.status || 'draft')}</div>
+      <div class="email-prev">${esc((e.email_body || e.body_text || '').slice(0, 130))}</div>
+    </div>`).join('');
+        }
+
+        async function loadLogs() {
+            $('logList').innerHTML = skeleton(2);
+            const d = await api('/api/logs');
+            if (!d.success || !d.runs?.length) {
+                $('logList').innerHTML = '<div class="empty"><div class="empty-icon">📋</div><p>No runs yet</p></div>';
+                return;
+            }
+            $('logList').innerHTML = d.runs.slice(0, 12).map(r => {
+                const t = r.started_at ? new Date(r.started_at).toLocaleString('en-IN',
+                    { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+                const sc = `ls-${(r.status || 'running').toLowerCase()}`;
+                return `<div class="log-item">
+      <div class="log-time">${t} · ${esc(r.triggered_by || 'manual')}</div>
+      <div class="log-row">
+        <span><strong>${r.jobs_found ?? 0}</strong> found</span>
+        <span><strong>${r.jobs_applied ?? 0}</strong> applied</span>
+        <span><strong>${r.errors_count ?? 0}</strong> errors</span>
+      </div>
+      <span class="log-status ${sc}">${esc(r.status || 'running')}</span>
+    </div>`;
+            }).join('');
+        }
+
+        async function loadAnalytics() {
+            const d = await api('/api/analytics');
+            if (!d.success) return;
+            const a = d.analytics;
+            $('xJobs').textContent = a.total_jobs ?? '—';
+            $('xApplied').textContent = a.applied ?? '—';
+            $('xScore').textContent = a.avg_score > 0 ? a.avg_score : '—';
+            $('xRuns').textContent = a.total_runs ?? '—';
+        }
+
+        async function loadResumeStatus() {
+            const d = await api('/api/resume-status');
+            if (d.uploaded) {
+                const kb = d.size ? (d.size / 1024).toFixed(1) + ' KB' : '';
+                // Stat card
+                $('xResume').innerHTML = '✓';
+                $('xResume').style.cssText = 'font-size:22px;-webkit-text-fill-color:var(--green)';
+                $('xResumeSub').textContent = d.filename;
+                // Upload zone → show file info + replace button
+                $('resumeZone').innerHTML = `
+      <div class="resume-uploaded">
+        <div class="ru-icon">📄</div>
+        <div class="ru-info">
+          <div class="ru-name">${esc(d.filename)}</div>
+          <div class="ru-meta">${kb} · Uploaded</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="$('resumeFileIn').click()">Replace</button>
+      </div>`;
+            } else {
+                $('xResume').textContent = '—';
+                $('xResume').style.cssText = '';
+                $('xResumeSub').textContent = 'Not uploaded';
+            }
+        }
+
+        async function checkStatus() {
+            const d = await api('/api/status');
+            const dot = $('statusDot');
+            const text = $('statusText');
+            if (d.status === 'online') {
+                dot.classList.remove('offline');
+                const keys = Object.values(d.env_keys || {}).filter(Boolean).length;
+                const resume = d.resume_uploaded ? ' · Resume ✓' : '';
+                text.textContent = `Online · ${keys}/4 keys${resume}`;
+            } else {
+                dot.classList.add('offline');
+                text.textContent = 'Offline';
+            }
+        }
+
+        // ── Init ──────────────────────────────────────────────────────────────────────
+        function refreshAll() {
+            loadAnalytics();
+            loadJobs();
+            loadEmails();
+            loadLogs();
+            loadResumeStatus();
+        }
+
+        checkStatus();
+        refreshAll();
+        setInterval(checkStatus, 15000);
+        setInterval(refreshAll, 30000);
+    </script>
 </body>
+
 </html>

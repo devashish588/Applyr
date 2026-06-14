@@ -15,8 +15,10 @@ Two trigger modes:
 import json
 import logging
 import os
+import re
 import sqlite3
 import sys
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -28,8 +30,6 @@ load_dotenv()
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-from agents.web_research_agent    import build_graph as build_research_graph
-from agents.pdf_qa_agent          import extract_jd_info
 from agents.resume_parser_agent   import ResumeParserAgent
 from agents.job_application_agent import JobApplicationAgent
 from agents.email_drafting_agent  import EmailDraftingAgent
@@ -40,7 +40,9 @@ logger = logging.getLogger(__name__)
 class Orchestrator:
     """Main pipeline orchestrator - coordinates all agents."""
 
-    def __init__(self):
+    def __init__(self, run_id=None):
+        self.run_id = run_id or str(uuid.uuid4())[:8]
+
         # Config from .env
         self.profile_path      = os.getenv("PROFILE_PATH",        str(ROOT / "profile.json"))
         self.master_resume_pdf = os.getenv("MASTER_RESUME_PDF",   str(ROOT / "resume/master_resume.pdf"))
@@ -83,6 +85,7 @@ class Orchestrator:
 
         # Runtime counters
         self.results = {
+            "run_id":        self.run_id,
             "triggered_by":  None,
             "started_at":    None,
             "finished_at":   None,
@@ -156,6 +159,7 @@ class Orchestrator:
         if job_file and os.path.exists(job_file):
             logger.info(f"[orchestrator] Manual trigger -- PDF: {job_file}")
             try:
+                from agents.pdf_qa_agent import extract_jd_info
                 job = extract_jd_info(job_file)
                 return [job] if job.get("title") else []
             except Exception as e:
@@ -171,6 +175,7 @@ class Orchestrator:
         # Scheduled: web search
         logger.info("[orchestrator] Scheduled trigger -- running web research agent")
         try:
+            from agents.web_research_agent import build_graph as build_research_graph
             graph  = build_research_graph()
             result = graph.invoke({
                 "query":          "",
@@ -299,8 +304,54 @@ class Orchestrator:
                 created_at TEXT
             )
         """)
+        self._ensure_columns(conn, "jobs", {
+            "source": "TEXT",
+            "location": "TEXT",
+            "type": "TEXT",
+            "hr_email": "TEXT",
+            "fit_score": "INTEGER",
+            "status": "TEXT DEFAULT 'found'",
+            "jd_text": "TEXT",
+            "scraped_at": "TEXT",
+            "applied_at": "TEXT",
+            "cover_letter_path": "TEXT",
+            "tailored_resume_path": "TEXT",
+            "email_subject": "TEXT",
+            "email_body": "TEXT",
+        })
+        self._ensure_columns(conn, "emails", {
+            "job_id": "INTEGER",
+            "hr_email": "TEXT",
+            "subject": "TEXT",
+            "body_text": "TEXT",
+            "status": "TEXT",
+            "resume_path": "TEXT",
+            "cover_letter_path": "TEXT",
+            "created_at": "TEXT",
+        })
+        self._ensure_columns(conn, "run_log", {
+            "run_id": "TEXT",
+            "triggered_by": "TEXT",
+            "started_at": "TEXT",
+            "finished_at": "TEXT",
+            "jobs_found": "INTEGER DEFAULT 0",
+            "jobs_filtered": "INTEGER DEFAULT 0",
+            "jobs_applied": "INTEGER DEFAULT 0",
+            "emails_sent": "INTEGER DEFAULT 0",
+            "errors_count": "INTEGER DEFAULT 0",
+            "status": "TEXT DEFAULT 'running'",
+            "summary_json": "TEXT",
+        })
         conn.commit()
         return conn
+
+    def _ensure_columns(self, conn, table, columns):
+        existing = {
+            row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        for name, definition in columns.items():
+            if name not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
 
     def _deduplicate(self, jobs):
         conn = self._init_db()
@@ -374,13 +425,49 @@ class Orchestrator:
 
     # Helpers
     def _text_to_job_dict(self, text):
+        cleaned = " ".join(text.split())
+        email_match = re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", cleaned)
+        hr_email = email_match.group(0).rstrip(".,;:") if email_match else None
+
+        title = "Manual Job"
+        company = "Unknown Company"
+        at_match = re.search(
+            r"(?P<title>[A-Z][A-Za-z0-9 +/#.&-]{2,80})\s+at\s+(?P<company>[A-Z][A-Za-z0-9 .&-]{2,80})",
+            cleaned,
+        )
+        if at_match:
+            title = at_match.group("title").strip(" .,-")
+            company = at_match.group("company").split(".")[0].strip(" .,-")
+
+        location = "N/A"
+        if re.search(r"\bremote\b", cleaned, re.IGNORECASE):
+            location = "Remote"
+
+        role_type = "fulltime"
+        if re.search(r"\bintern(ship)?\b", cleaned, re.IGNORECASE):
+            role_type = "internship"
+        elif re.search(r"\bcontract\b", cleaned, re.IGNORECASE):
+            role_type = "contract"
+
+        profile_skills = []
+        for key in ("languages", "frameworks", "tools"):
+            profile_skills.extend(self.profile.get("skills", {}).get(key, []))
+        required_skills = []
+        lower_text = cleaned.lower()
+        for skill in profile_skills:
+            pattern = r"(?<![a-z0-9])" + re.escape(skill.lower()) + r"(?![a-z0-9])"
+            if re.search(pattern, lower_text):
+                required_skills.append(skill)
+
         return {
-            "title": "Unknown Role", "company": "Unknown Company",
-            "location": "N/A", "type": "fulltime", "hr_email": None,
-            "url": f"manual-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+            "title": title, "company": company,
+            "location": location, "type": role_type,
+            "hr_email": hr_email,
+            "url": f"manual-{datetime.now().strftime('%Y%m%d%H%M%S%f')}",
             "source": "manual_text",
-            "description_snippet": text[:800],
-            "required_skills": [],
+            "description_snippet": text[:1200],
+            "jd_text": text,
+            "required_skills": required_skills,
         }
 
     def _finalise(self):
@@ -397,13 +484,8 @@ class Orchestrator:
     def _save_run_log(self):
         try:
             conn = self._init_db()
-            conn.execute("""
-                INSERT INTO run_log
-                (triggered_by, started_at, finished_at,
-                 jobs_found, jobs_filtered, jobs_applied,
-                 emails_sent, errors_count, status, summary_json)
-                VALUES (?,?,?,?,?,?,?,?,?,?)
-            """, (
+            values = (
+                self.results["run_id"],
                 self.results["triggered_by"],
                 self.results["started_at"],
                 self.results["finished_at"],
@@ -414,7 +496,31 @@ class Orchestrator:
                 len(self.results.get("errors", [])),
                 self.results["status"],
                 json.dumps(self.results),
-            ))
+            )
+            existing = conn.execute(
+                "SELECT id FROM run_log WHERE run_id = ?",
+                (self.results["run_id"],),
+            ).fetchone()
+            if existing:
+                conn.execute("""
+                    UPDATE run_log
+                    SET triggered_by=?, started_at=?, finished_at=?,
+                        jobs_found=?, jobs_filtered=?, jobs_applied=?,
+                        emails_sent=?, errors_count=?, status=?, summary_json=?
+                    WHERE run_id=?
+                """, (
+                    values[1], values[2], values[3], values[4], values[5],
+                    values[6], values[7], values[8], values[9], values[10],
+                    values[0],
+                ))
+            else:
+                conn.execute("""
+                    INSERT INTO run_log
+                    (run_id, triggered_by, started_at, finished_at,
+                     jobs_found, jobs_filtered, jobs_applied,
+                     emails_sent, errors_count, status, summary_json)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                """, values)
             conn.commit()
             conn.close()
         except Exception as e:

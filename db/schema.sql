@@ -5,9 +5,17 @@ CREATE TABLE IF NOT EXISTS jobs (
     company TEXT NOT NULL,
     url TEXT UNIQUE,
     source TEXT,  -- 'linkedin', 'internshala', 'naukri', 'company_careers'
+    location TEXT,
+    type TEXT,
+    hr_email TEXT,
     jd_text TEXT,
     fit_score INTEGER,  -- 0-100
     scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    applied_at TIMESTAMP,
+    cover_letter_path TEXT,
+    tailored_resume_path TEXT,
+    email_subject TEXT,
+    email_body TEXT,
     status TEXT DEFAULT 'pending',  -- 'pending', 'tailored', 'applied', 'rejected', 'no_apply_link'
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -24,6 +32,7 @@ CREATE TABLE IF NOT EXISTS emails (
     sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     status TEXT DEFAULT 'pending',  -- 'pending', 'sent', 'failed'
     error_message TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (job_id) REFERENCES jobs(id)
 );
 

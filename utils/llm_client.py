@@ -1,17 +1,21 @@
 """
 Central LLM client for Applyr - all agents use this.
-Configured to use Groq API via OpenAI-compatible endpoint.
+Configured to use Groq through the LangChain Groq adapter.
 """
 import os
 import json
 import re
 import time
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
+
+try:
+    from langchain_groq import ChatGroq
+except ImportError:  # pragma: no cover - surfaced by _ensure_groq_available
+    ChatGroq = None
 
 load_dotenv()
 
@@ -24,36 +28,51 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct"
 GROQ_FAST_MODEL = os.getenv("GROQ_FAST_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
 
 
-def get_llm(temperature: float = 0, model: Optional[str] = None) -> ChatOpenAI:
-    """Get a ChatOpenAI instance configured for Groq API.
+def _ensure_groq_available() -> None:
+    if ChatGroq is None:
+        raise ImportError(
+            "langchain-groq is not installed. Install it with: pip install langchain-groq"
+        )
+    if not GROQ_API_KEY or GROQ_API_KEY == "gsk_xxxxxxxxxxxxx":
+        raise EnvironmentError("GROQ_API_KEY is missing or still set to the placeholder")
+
+
+def _build_chat_groq(
+    *,
+    temperature: float,
+    model: Optional[str],
+    timeout: int,
+) -> Any:
+    _ensure_groq_available()
+    base_url = GROQ_BASE_URL.rstrip("/")
+    if base_url.endswith("/openai/v1"):
+        base_url = base_url[: -len("/openai/v1")]
+    return ChatGroq(
+        model=model or GROQ_MODEL,
+        api_key=GROQ_API_KEY,
+        base_url=base_url,
+        temperature=temperature,
+        max_retries=3,
+        timeout=timeout,
+    )
+
+
+def get_llm(temperature: float = 0, model: Optional[str] = None) -> Any:
+    """Get a ChatGroq instance configured for the Groq API.
 
     Args:
         temperature: LLM temperature (0 = deterministic, 1 = creative)
         model: Override model name. Defaults to GROQ_MODEL env var.
 
     Returns:
-        ChatOpenAI instance pointed at Groq.
+        ChatGroq instance.
     """
-    return ChatOpenAI(
-        model=model or GROQ_MODEL,
-        api_key=GROQ_API_KEY,
-        base_url=GROQ_BASE_URL,
-        temperature=temperature,
-        max_retries=3,
-        request_timeout=60,
-    )
+    return _build_chat_groq(temperature=temperature, model=model, timeout=60)
 
 
-def get_fast_llm(temperature: float = 0) -> ChatOpenAI:
+def get_fast_llm(temperature: float = 0) -> Any:
     """Get a fast/cheap LLM for simple tasks (scoring, classification)."""
-    return ChatOpenAI(
-        model=GROQ_FAST_MODEL,
-        api_key=GROQ_API_KEY,
-        base_url=GROQ_BASE_URL,
-        temperature=temperature,
-        max_retries=3,
-        request_timeout=30,
-    )
+    return _build_chat_groq(temperature=temperature, model=GROQ_FAST_MODEL, timeout=30)
 
 
 def chat(prompt: str, system_prompt: str = "", temperature: float = 0) -> str:

@@ -1,265 +1,269 @@
 """
-Database client wrapper for SQLite.
-Provides a simple interface for agents to read/write without raw SQL.
+DB Client — AutoApply AI
+Single SQLite wrapper used by orchestrator.py, app.py, and all API routes.
+Call get_db() anywhere to get a singleton instance.
 """
-import sqlite3
+
 import json
+import logging
 import os
-import threading
+import sqlite3
 from datetime import datetime
-from typing import List, Dict, Any, Optional, Tuple
+from pathlib import Path
+
+from dotenv import load_dotenv
+load_dotenv()
+
+logger  = logging.getLogger(__name__)
+DB_PATH = os.getenv("DB_PATH", "./db/applications.db")
 
 
-class DatabaseClient:
-    def __init__(self, db_path: str = "./db/applications.db"):
+class DBClient:
+    def __init__(self, db_path: str = DB_PATH):
         self.db_path = db_path
-        self._local = threading.local()
-        self.initialize_db()
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        self._init_schema()
 
-    def initialize_db(self):
-        """Initialize database and create tables if they don't exist."""
-        # Create db directory if it doesn't exist
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-        
-        # Read and execute schema
-        schema_path = os.path.join(os.path.dirname(self.db_path), "schema.sql")
-        if os.path.exists(schema_path):
-            with open(schema_path, "r") as f:
-                schema = f.read()
-            self.execute_script(schema)
-
-    def get_connection(self) -> sqlite3.Connection:
-        """Get or create a thread-local database connection."""
-        conn = getattr(self._local, 'connection', None)
-        if conn is None:
-            conn = sqlite3.connect(self.db_path, check_same_thread=False)
-            conn.row_factory = sqlite3.Row
-            self._local.connection = conn
+    def _conn(self):
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
         return conn
 
-    def execute_script(self, script: str):
-        """Execute SQL script."""
-        conn = self.get_connection()
-        conn.executescript(script)
+    def _init_schema(self):
+        conn = self._conn()
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS jobs (
+                id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                title                TEXT,
+                company              TEXT,
+                url                  TEXT UNIQUE,
+                source               TEXT,
+                location             TEXT,
+                type                 TEXT,
+                hr_email             TEXT,
+                jd_text              TEXT,
+                fit_score            INTEGER,
+                status               TEXT DEFAULT 'found',
+                scraped_at           TEXT,
+                applied_at           TEXT,
+                cover_letter_path    TEXT,
+                tailored_resume_path TEXT,
+                email_subject        TEXT,
+                email_body           TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS run_log (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id        TEXT UNIQUE,
+                triggered_by  TEXT,
+                started_at    TEXT,
+                finished_at   TEXT,
+                jobs_found    INTEGER DEFAULT 0,
+                jobs_filtered INTEGER DEFAULT 0,
+                jobs_applied  INTEGER DEFAULT 0,
+                emails_sent   INTEGER DEFAULT 0,
+                errors_count  INTEGER DEFAULT 0,
+                status        TEXT DEFAULT 'running',
+                summary_json  TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS emails (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id            INTEGER,
+                hr_email          TEXT,
+                subject           TEXT,
+                body_text         TEXT,
+                status            TEXT DEFAULT 'drafted',
+                resume_path       TEXT,
+                cover_letter_path TEXT,
+                created_at        TEXT
+            );
+        """)
+        self._ensure_columns(conn, "jobs", {
+            "source": "TEXT",
+            "location": "TEXT",
+            "type": "TEXT",
+            "hr_email": "TEXT",
+            "jd_text": "TEXT",
+            "fit_score": "INTEGER",
+            "status": "TEXT DEFAULT 'found'",
+            "scraped_at": "TEXT",
+            "applied_at": "TEXT",
+            "cover_letter_path": "TEXT",
+            "tailored_resume_path": "TEXT",
+            "email_subject": "TEXT",
+            "email_body": "TEXT",
+        })
+        self._ensure_columns(conn, "emails", {
+            "job_id": "INTEGER",
+            "hr_email": "TEXT",
+            "subject": "TEXT",
+            "body_text": "TEXT",
+            "status": "TEXT DEFAULT 'drafted'",
+            "resume_path": "TEXT",
+            "cover_letter_path": "TEXT",
+            "created_at": "TEXT",
+        })
+        self._ensure_columns(conn, "run_log", {
+            "run_id": "TEXT",
+            "triggered_by": "TEXT",
+            "started_at": "TEXT",
+            "finished_at": "TEXT",
+            "jobs_found": "INTEGER DEFAULT 0",
+            "jobs_filtered": "INTEGER DEFAULT 0",
+            "jobs_applied": "INTEGER DEFAULT 0",
+            "emails_sent": "INTEGER DEFAULT 0",
+            "errors_count": "INTEGER DEFAULT 0",
+            "status": "TEXT DEFAULT 'running'",
+            "summary_json": "TEXT",
+        })
         conn.commit()
+        conn.close()
 
-    def execute_query(self, query: str, params: tuple = ()) -> List[Dict]:
-        """Execute SELECT query and return results as list of dicts."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute(query, params)
-        return [dict(row) for row in cursor.fetchall()]
+    def _ensure_columns(self, conn, table: str, columns: dict[str, str]):
+        existing = {
+            row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        for name, definition in columns.items():
+            if name not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
 
-    def execute_insert(self, query: str, params: tuple = ()) -> int:
-        """Execute INSERT query and return last row id."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute(query, params)
-        conn.commit()
-        return cursor.lastrowid
+    # ── Jobs ──────────────────────────────────────────────────────────────────
+    def insert_job(self, job: dict, app_result: dict = None,
+                   email: dict = None, status: str = "found"):
+        now  = datetime.now().isoformat()
+        conn = self._conn()
+        try:
+            conn.execute("""
+                INSERT OR IGNORE INTO jobs
+                (title, company, url, source, location, type, hr_email,
+                 fit_score, status, scraped_at, applied_at,
+                 jd_text, cover_letter_path, tailored_resume_path,
+                 email_subject, email_body)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (
+                job.get("title"),
+                job.get("company"),
+                job.get("url") or f"{job.get('company')}-{job.get('title')}-{now}",
+                job.get("source"),
+                job.get("location"),
+                job.get("type"),
+                job.get("hr_email"),
+                (app_result or {}).get("fit_score"),
+                status,
+                now,
+                now if status == "sent" else None,
+                job.get("description_snippet", job.get("jd_text", "")),
+                (app_result or {}).get("cover_letter_path"),
+                (app_result or {}).get("tailored_resume_path"),
+                (email or {}).get("subject"),
+                (email or {}).get("body"),
+            ))
+            conn.commit()
+        except Exception as e:
+            logger.error(f"[db] insert_job failed: {e}")
+        finally:
+            conn.close()
 
-    def execute_update(self, query: str, params: tuple = ()) -> int:
-        """Execute UPDATE query and return rows affected."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute(query, params)
-        conn.commit()
-        return cursor.rowcount
-
-    def execute_delete(self, query: str, params: tuple = ()) -> int:
-        """Execute DELETE query and return rows affected."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute(query, params)
-        conn.commit()
-        return cursor.rowcount
-
-    # ===================== JOB OPERATIONS =====================
-
-    def add_job(self, title: str, company: str, url: str, source: str, 
-                jd_text: str = "", fit_score: int = 0) -> int:
-        """Add a new job listing."""
-        query = """
-            INSERT INTO jobs (title, company, url, source, jd_text, fit_score)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """
-        return self.execute_insert(query, (title, company, url, source, jd_text, fit_score))
-
-    def get_job(self, job_id: int) -> Optional[Dict]:
-        """Get job by ID."""
-        query = "SELECT * FROM jobs WHERE id = ?"
-        results = self.execute_query(query, (job_id,))
-        return results[0] if results else None
-
-    def get_jobs_by_status(self, status: str) -> List[Dict]:
-        """Get all jobs with specific status."""
-        query = "SELECT * FROM jobs WHERE status = ? ORDER BY fit_score DESC"
-        return self.execute_query(query, (status,))
-
-    def get_jobs_by_company(self, company: str) -> List[Dict]:
-        """Get all jobs from a specific company."""
-        query = "SELECT * FROM jobs WHERE company = ?"
-        return self.execute_query(query, (company,))
-
-    def get_jobs_by_source(self, source: str) -> List[Dict]:
-        """Get all jobs from a specific source."""
-        query = "SELECT * FROM jobs WHERE source = ? ORDER BY fit_score DESC"
-        return self.execute_query(query, (source,))
-
-    def get_all_jobs(self, limit: int = 100) -> List[Dict]:
-        """Get all jobs, latest first."""
-        query = "SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?"
-        return self.execute_query(query, (limit,))
-
-    def update_job_status(self, job_id: int, status: str) -> int:
-        """Update job status."""
-        query = "UPDATE jobs SET status = ? WHERE id = ?"
-        return self.execute_update(query, (status, job_id))
-
-    def update_job_fit_score(self, job_id: int, fit_score: int) -> int:
-        """Update job fit score."""
-        query = "UPDATE jobs SET fit_score = ? WHERE id = ?"
-        return self.execute_update(query, (fit_score, job_id))
+    def url_exists(self, url: str) -> bool:
+        conn = self._conn()
+        row  = conn.execute("SELECT id FROM jobs WHERE url = ?", (url,)).fetchone()
+        conn.close()
+        return row is not None
 
     def job_exists(self, url: str) -> bool:
-        """Check if job URL already exists in database."""
-        query = "SELECT COUNT(*) as count FROM jobs WHERE url = ?"
-        result = self.execute_query(query, (url,))
-        return result[0]["count"] > 0 if result else False
-
-    # ===================== EMAIL OPERATIONS =====================
-
-    def add_email_log(self, job_id: int, hr_email: str, subject: str, 
-                     body_text: str, resume_path: str, cover_letter_path: str = "") -> int:
-        """Log an email that will be sent."""
-        query = """
-            INSERT INTO emails (job_id, hr_email, subject, body_text, resume_path, cover_letter_path)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """
-        return self.execute_insert(
-            query, 
-            (job_id, hr_email, subject, body_text, resume_path, cover_letter_path)
-        )
-
-    def update_email_status(self, email_id: int, status: str, error_message: str = "") -> int:
-        """Update email status after sending."""
-        query = "UPDATE emails SET status = ?, error_message = ? WHERE id = ?"
-        return self.execute_update(query, (status, error_message, email_id))
-
-    def get_emails_by_job(self, job_id: int) -> List[Dict]:
-        """Get all emails for a specific job."""
-        query = "SELECT * FROM emails WHERE job_id = ?"
-        return self.execute_query(query, (job_id,))
-
-    def get_unsent_emails(self) -> List[Dict]:
-        """Get all emails that haven't been sent yet (pending or drafted)."""
-        query = "SELECT * FROM emails WHERE status IN ('pending', 'drafted') ORDER BY id DESC"
-        return self.execute_query(query)
+        return self.url_exists(url)
 
     def email_exists_for_company(self, company: str) -> bool:
-        """Check if email already sent to this company."""
-        query = """
-            SELECT COUNT(*) as count FROM emails e
-            JOIN jobs j ON e.job_id = j.id
-            WHERE j.company = ? AND e.status = 'sent'
-        """
-        result = self.execute_query(query, (company,))
-        return result[0]["count"] > 0 if result else False
+        conn = self._conn()
+        row = conn.execute("""
+            SELECT id FROM jobs
+            WHERE lower(company) = lower(?)
+            AND status IN ('sent', 'draft', 'ready')
+            LIMIT 1
+        """, (company,)).fetchone()
+        conn.close()
+        return row is not None
 
-    # ===================== WEB FORM OPERATIONS =====================
+    def get_jobs_by_company(self, company: str) -> list[dict]:
+        conn = self._conn()
+        rows = conn.execute("""
+            SELECT * FROM jobs
+            WHERE lower(company) = lower(?)
+            ORDER BY scraped_at DESC
+        """, (company,)).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
 
-    def add_web_form_submission(self, job_id: int, portal_url: str, 
-                               fields_filled: Dict[str, str], screenshot_path: str = "") -> int:
-        """Log a web form submission."""
-        query = """
-            INSERT INTO web_forms (job_id, portal_url, fields_filled, screenshot_path)
-            VALUES (?, ?, ?, ?)
-        """
-        fields_json = json.dumps(fields_filled)
-        return self.execute_insert(query, (job_id, portal_url, fields_json, screenshot_path))
+    def get_all_jobs(self, limit: int = 100) -> list[dict]:
+        conn = self._conn()
+        rows = conn.execute(
+            "SELECT * FROM jobs ORDER BY scraped_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
 
-    def update_web_form_status(self, form_id: int, status: str, error_message: str = "") -> int:
-        """Update web form submission status."""
-        query = "UPDATE web_forms SET status = ?, error_message = ? WHERE id = ?"
-        return self.execute_update(query, (status, error_message, form_id))
+    def get_unsent_emails(self) -> list[dict]:
+        conn = self._conn()
+        rows = conn.execute("""
+            SELECT * FROM jobs
+            WHERE status IN ('draft','ready')
+            AND email_body IS NOT NULL
+            ORDER BY scraped_at DESC
+        """).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
 
-    def get_form_submissions_by_job(self, job_id: int) -> List[Dict]:
-        """Get all form submissions for a job."""
-        query = "SELECT * FROM web_forms WHERE job_id = ?"
-        results = self.execute_query(query, (job_id,))
-        # Parse JSON fields
-        for row in results:
-            if row.get("fields_filled"):
-                row["fields_filled"] = json.loads(row["fields_filled"])
-        return results
+    def daily_sent_count(self) -> int:
+        today = datetime.now().strftime("%Y-%m-%d")
+        conn  = self._conn()
+        count = conn.execute(
+            "SELECT COUNT(*) FROM jobs WHERE applied_at LIKE ? AND status='sent'",
+            (f"{today}%",)
+        ).fetchone()[0]
+        conn.close()
+        return count
 
-    # ===================== RUN LOG OPERATIONS =====================
+    # ── Run log ───────────────────────────────────────────────────────────────
+    def start_run_log(self, run_id: str, triggered_by: str):
+        conn = self._conn()
+        conn.execute("""
+            INSERT OR IGNORE INTO run_log (run_id, triggered_by, started_at, status)
+            VALUES (?,?,?,?)
+        """, (run_id, triggered_by, datetime.now().isoformat(), "running"))
+        conn.commit()
+        conn.close()
 
-    def start_run_log(self, run_id: str, triggered_by: str = "scheduler") -> int:
-        """Start a new run log."""
-        query = """
-            INSERT INTO run_logs (run_id, triggered_by, status)
-            VALUES (?, ?, 'running')
-        """
-        return self.execute_insert(query, (run_id, triggered_by))
+    def update_run_log(self, run_id: str, **kwargs):
+        if not kwargs:
+            return
+        summary = kwargs.pop("summary", None)
+        fields  = {k: v for k, v in kwargs.items()}
+        if summary:
+            fields["summary_json"] = json.dumps(summary)
+        fields["finished_at"] = datetime.now().isoformat()
 
-    def update_run_log(self, run_id: str, jobs_found: int = 0, jobs_filtered: int = 0,
-                      jobs_applied: int = 0, emails_sent: int = 0, 
-                      errors_count: int = 0, summary: Dict = None) -> int:
-        """Update run log with results."""
-        summary_json = json.dumps(summary) if summary else ""
-        query = """
-            UPDATE run_logs 
-            SET jobs_found = ?, jobs_filtered = ?, jobs_applied = ?, 
-                emails_sent = ?, errors_count = ?, summary_json = ?,
-                completed_at = ?, status = 'completed'
-            WHERE run_id = ?
-        """
-        return self.execute_update(
-            query,
-            (jobs_found, jobs_filtered, jobs_applied, emails_sent, 
-             errors_count, summary_json, datetime.now().isoformat(), run_id)
-        )
+        set_clause = ", ".join(f"{k} = ?" for k in fields)
+        values     = list(fields.values()) + [run_id]
+        conn       = self._conn()
+        conn.execute(f"UPDATE run_log SET {set_clause} WHERE run_id = ?", values)
+        conn.commit()
+        conn.close()
 
-    def get_run_log(self, run_id: str) -> Optional[Dict]:
-        """Get run log details."""
-        query = "SELECT * FROM run_logs WHERE run_id = ?"
-        results = self.execute_query(query, (run_id,))
-        if results:
-            row = results[0]
-            if row.get("summary_json"):
-                row["summary_json"] = json.loads(row["summary_json"])
-            return row
-        return None
-
-    def get_recent_run_logs(self, limit: int = 10) -> List[Dict]:
-        """Get recent run logs."""
-        query = """
-            SELECT * FROM run_logs 
-            ORDER BY started_at DESC 
-            LIMIT ?
-        """
-        return self.execute_query(query, (limit,))
-
-    def close(self):
-        """Close the current thread's database connection."""
-        conn = getattr(self._local, 'connection', None)
-        if conn:
-            conn.close()
-            self._local.connection = None
-
-    def __del__(self):
-        """Cleanup on deletion."""
-        self.close()
+    def get_recent_run_logs(self, limit: int = 20) -> list[dict]:
+        conn = self._conn()
+        rows = conn.execute(
+            "SELECT * FROM run_log ORDER BY started_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
 
 
-# Global database instance
+# ── Singleton ─────────────────────────────────────────────────────────────────
 _db_instance = None
 
-
-def get_db() -> DatabaseClient:
-    """Get or create global database instance."""
+def get_db() -> DBClient:
     global _db_instance
     if _db_instance is None:
-        _db_instance = DatabaseClient()
+        _db_instance = DBClient()
     return _db_instance
