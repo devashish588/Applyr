@@ -104,6 +104,7 @@ class DBClient:
             "cover_letter_path": "TEXT",
             "created_at": "TEXT",
         })
+        self._relax_email_constraints(conn)
         self._ensure_columns(conn, "run_log", {
             "run_id": "TEXT",
             "triggered_by": "TEXT",
@@ -127,6 +128,46 @@ class DBClient:
         for name, definition in columns.items():
             if name not in existing:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+
+    def _relax_email_constraints(self, conn):
+        columns = conn.execute("PRAGMA table_info(emails)").fetchall()
+        not_null = {row[1]: bool(row[3]) for row in columns}
+        if not not_null.get("hr_email") and not not_null.get("job_id"):
+            return
+
+        logger.info("[db] Rebuilding emails table to allow missing HR emails")
+        conn.execute("ALTER TABLE emails RENAME TO emails_old")
+        conn.execute("""
+            CREATE TABLE emails (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id            INTEGER,
+                hr_email          TEXT,
+                subject           TEXT,
+                body_text         TEXT,
+                status            TEXT DEFAULT 'drafted',
+                resume_path       TEXT,
+                cover_letter_path TEXT,
+                sent_at           TEXT,
+                error_message     TEXT,
+                created_at        TEXT
+            )
+        """)
+
+        old_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(emails_old)").fetchall()
+        }
+        copy_columns = [
+            "id", "job_id", "hr_email", "subject", "body_text", "status",
+            "resume_path", "cover_letter_path", "sent_at", "error_message",
+            "created_at",
+        ]
+        copy_columns = [column for column in copy_columns if column in old_columns]
+        if copy_columns:
+            column_csv = ", ".join(copy_columns)
+            conn.execute(
+                f"INSERT INTO emails ({column_csv}) SELECT {column_csv} FROM emails_old"
+            )
+        conn.execute("DROP TABLE emails_old")
 
     # ── Jobs ──────────────────────────────────────────────────────────────────
     def insert_job(self, job: dict, app_result: dict = None,

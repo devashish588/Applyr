@@ -238,22 +238,22 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     <div class="logo">App<span>lyr</span></div>
 
     <button class="nav-item active" onclick="nav('dashboard')">
-      <span class="nav-icon">⚡</span> Dashboard
+      <span class="nav-icon"></span> Dashboard
     </button>
     <button class="nav-item" onclick="nav('run')">
-      <span class="nav-icon">▶</span> Run Pipeline
+      <span class="nav-icon"></span> Run Pipeline
     </button>
     <button class="nav-item" onclick="nav('jobs')">
-      <span class="nav-icon">💼</span> Jobs
+      <span class="nav-icon"></span> Jobs
     </button>
     <button class="nav-item" onclick="nav('emails')">
-      <span class="nav-icon">✉</span> Drafts
+      <span class="nav-icon"></span> Drafts
     </button>
     <button class="nav-item" onclick="nav('history')">
-      <span class="nav-icon">📋</span> History
+      <span class="nav-icon"></span> History
     </button>
     <button class="nav-item" onclick="nav('settings')">
-      <span class="nav-icon">⚙</span> Settings
+      <span class="nav-icon"></span> Settings
     </button>
 
     <div class="sidebar-footer">
