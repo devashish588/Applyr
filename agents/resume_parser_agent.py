@@ -1,15 +1,22 @@
+# -*- coding: utf-8 -*-
 """
-Resume Parser Agent — bridge module.
-Re-exports from agents/09-resume-parser-agent/09_resume_parser_agent.py
+Resume Parser Agent — thin bridge to core/services/resume_parser_service.py.
+
+All implementation lives in ResumeParserService (core/services/resume_parser_service.py).
+This module re-exports it so that existing imports from agents.resume_parser_agent
+continue to work without changes.
 """
-import importlib.util
-import os
 
-_path = os.path.join(os.path.dirname(__file__),
-                     "09-resume-parser-agent", "09_resume_parser_agent.py")
-_spec = importlib.util.spec_from_file_location("_resume_parser_impl", _path)
-_mod = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_mod)
+from core.services.resume_parser_service import (
+    ResumeParserService as ResumeParserAgent,
+    ResumeParseError,
+    _get_llm,
+    SECTION_HEADERS,
+    EMAIL_RE, PHONE_RE, LINKEDIN_RE, GITHUB_RE,
+    COMMON_SKILLS, SKILLS_CATEGORIES, ROLE_KEYWORDS,
+)
 
-# Re-export
-ResumeParserAgent = _mod.ResumeParserAgent
+__all__ = [
+    "ResumeParserAgent",
+    "ResumeParseError",
+]

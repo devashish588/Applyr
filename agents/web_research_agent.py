@@ -4,6 +4,14 @@ Re-exports from agents/01-web-research-agent/01_web_research_agent.py
 """
 import importlib.util
 import os
+import sys
+
+# Ensure the project root (one level up) is on the import path so that
+# modules like ``utils.llm_client`` can be resolved when this bridge is
+# executed directly.
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 _path = os.path.join(os.path.dirname(__file__),
                      "01-web-research-agent", "01_web_research_agent.py")

@@ -16,7 +16,6 @@ import json
 import logging
 import os
 import re
-import sqlite3
 import sys
 import uuid
 from datetime import datetime
@@ -33,6 +32,10 @@ sys.path.insert(0, str(ROOT))
 from agents.resume_parser_agent   import ResumeParserAgent
 from agents.job_application_agent import JobApplicationAgent
 from agents.email_drafting_agent  import EmailDraftingAgent
+from agents.recruiter_discovery_agent import RecruiterDiscoveryAgent
+
+# Template-based email builder (primary path, fallback to LLM)
+from email_module.email_templates import build_cold_email
 
 logger = logging.getLogger(__name__)
 
@@ -40,22 +43,22 @@ logger = logging.getLogger(__name__)
 class Orchestrator:
     """Main pipeline orchestrator - coordinates all agents."""
 
-    def __init__(self, run_id=None):
+    def __init__(self, run_id=None, event_callback=None):
         self.run_id = run_id or str(uuid.uuid4())[:8]
+        self.event_callback = event_callback
 
         # Config from .env
         self.profile_path      = os.getenv("PROFILE_PATH",        str(ROOT / "profile.json"))
         self.master_resume_pdf = os.getenv("MASTER_RESUME_PDF",   str(ROOT / "resume/master_resume.pdf"))
-        self.db_path           = os.getenv("DB_PATH",             str(ROOT / "db/applications.db"))
         self.log_dir           = os.getenv("LOG_DIR",             str(ROOT / "logs"))
         self.auto_apply        = os.getenv("AUTO_APPLY",  "false").lower() == "true"
         self.dry_run           = os.getenv("DRY_RUN",     "true").lower()  == "true"
         self.min_fit_score     = int(os.getenv("MIN_FIT_SCORE",   "50"))
         self.max_per_day       = int(os.getenv("MAX_APPLICATIONS_PER_DAY", "20"))
         self.max_per_run       = int(os.getenv("MAX_EMAILS_PER_RUN", "10"))
+        self.min_resume_confidence = int(os.getenv("MIN_RESUME_CONFIDENCE", "70"))
 
         Path(self.log_dir).mkdir(parents=True, exist_ok=True)
-        Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
 
         # Load profile
         if not os.path.exists(self.profile_path):
@@ -69,35 +72,99 @@ class Orchestrator:
         logger.info(f"[orchestrator] Profile loaded: "
                     f"{self.profile.get('personal', {}).get('name', 'Unknown')}")
 
-        # Parse master resume once (reused for all jobs)
+        # Resume parsing with blocking logic
         self.parsed_resume = None
-        if os.path.exists(self.master_resume_pdf):
-            try:
-                resume_agent       = ResumeParserAgent()
-                self.parsed_resume = resume_agent.parse_file(self.master_resume_pdf)
-                logger.info("[orchestrator] Master resume parsed")
-            except Exception as e:
-                logger.warning(f"[orchestrator] Resume parse failed: {e} -- continuing without it")
+        self.resume_blocked = False
+        self.resume_block_reason = None
 
-        # Init agents
-        self.job_agent   = JobApplicationAgent()
-        self.email_agent = EmailDraftingAgent()
+        if not os.path.exists(self.master_resume_pdf):
+            self.resume_blocked = True
+            self.resume_block_reason = (
+                f"No resume found at {self.master_resume_pdf}. "
+                "Upload a resume before running the pipeline."
+            )
+            logger.error(f"[orchestrator] BLOCKED: {self.resume_block_reason}")
+        else:
+            try:
+                resume_agent = ResumeParserAgent()
+                parsed = resume_agent.parse_file(self.master_resume_pdf)
+                self.parsed_resume = parsed
+
+                # Extract key metrics
+                confidence = parsed.confidence
+                has_name = bool(parsed.name)
+                has_skills = bool(parsed.skills and len(parsed.skills) > 0)
+                has_experience = bool(parsed.experience and len(parsed.experience) > 0)
+                has_projects = bool(parsed.projects and len(parsed.projects) > 0)
+
+                # Check all blocking conditions
+                missing_critical = []
+                if not has_name:
+                    missing_critical.append("name")
+                if not has_skills:
+                    missing_critical.append("skills")
+                if not has_experience:
+                    missing_critical.append("experience")
+                if not has_projects:
+                    missing_critical.append("projects")
+
+                if confidence < self.min_resume_confidence or missing_critical:
+                    self.resume_blocked = True
+                    self.resume_block_reason = (
+                        f"Resume parsing confidence is {confidence}% "
+                        f"(minimum required: {self.min_resume_confidence}%). "
+                        f"Missing or insufficient: {', '.join(missing_critical) or 'confidence too low'}.\n"
+                        "Please upload a DOCX or text-based (not scanned-image) PDF resume with:\n"
+                        "  • Your name and contact information\n"
+                        "  • At least 5 skills\n"
+                        "  • Work experience entries\n"
+                        "  • Project examples or achievements"
+                    )
+                    logger.error(f"[orchestrator] BLOCKED: {self.resume_block_reason}")
+                else:
+                    logger.info(
+                        f"[orchestrator] Resume parsed successfully — "
+                        f"confidence {confidence}%, name={parsed.name}, "
+                        f"{len(parsed.skills)} skills, {len(parsed.experience)} experience entries, "
+                        f"{len(parsed.projects)} projects"
+                    )
+
+            except Exception as e:
+                self.resume_blocked = True
+                self.resume_block_reason = (
+                    f"Resume parsing failed: {e}\n"
+                    "Please upload a DOCX or ATS-friendly text-based PDF."
+                )
+                logger.error(f"[orchestrator] BLOCKED: {self.resume_block_reason}", exc_info=True)
+
+        # Init agents (only if resume is OK)
+        if not self.resume_blocked:
+            self.job_agent   = JobApplicationAgent()
+            self.email_agent = EmailDraftingAgent()
+            self.recruiter_agent = RecruiterDiscoveryAgent()
 
         # Runtime counters
         self.results = {
-            "run_id":        self.run_id,
-            "triggered_by":  None,
-            "started_at":    None,
-            "finished_at":   None,
-            "jobs_found":    0,
-            "jobs_filtered": 0,
-            "jobs_applied":  0,
-            "emails_sent":   0,
-            "skipped":       0,
-            "errors":        [],
-            "status":        "pending",
-            "applications":  [],
+            "run_id":               self.run_id,
+            "triggered_by":         None,
+            "started_at":           None,
+            "finished_at":          None,
+            "jobs_found":           0,
+            "jobs_filtered":        0,
+            "applications_drafted": 0,
+            "jobs_applied":         0,
+            "applications_submitted": 0,
+            "emails_drafted":       0,
+            "emails_sent":          0,
+            "skipped":              0,
+            "errors":               [],
+            "status":               "pending",
+            "applications":         [],
         }
+
+    def _emit(self, step: str, msg: str, agent="orchestrator", status="running", **extra):
+        if self.event_callback:
+            self.event_callback(self.run_id, step, msg, agent=agent, status=status, **extra)
 
     # Public: main entry point
     def run_full_pipeline(self, triggered_by="scheduled",
@@ -113,17 +180,28 @@ class Orchestrator:
                     f"min_fit_score={self.min_fit_score}")
         logger.info(f"{'='*60}")
 
+        # HARD BLOCK: resume parsing failed or confidence too low
+        if self.resume_blocked:
+            logger.error(f"[orchestrator] Pipeline BLOCKED — not running. Reason: {self.resume_block_reason}")
+            self.results["status"] = "blocked"
+            self.results["errors"] = [self.resume_block_reason]
+            self.results["finished_at"] = datetime.now().isoformat()
+            return self.results
+
         try:
             # STEP 1: get job listings
+            self._emit("discover", "Searching for jobs...", agent="web_research")
             job_listings = self._step_discover(triggered_by, job_text, job_file)
             self.results["jobs_found"] = len(job_listings)
 
             if not job_listings:
                 logger.warning("[orchestrator] No jobs found -- pipeline ending early")
+                self._emit("done", "No jobs found", status="done")
                 self.results["status"] = "completed_empty"
                 return self._finalise()
 
             # STEP 2: deduplicate against DB
+            self._emit("dedup", "Deduplicating jobs", agent="orchestrator")
             new_listings = self._deduplicate(job_listings)
             self.results["jobs_filtered"] = len(new_listings)
             logger.info(f"[orchestrator] {len(new_listings)} new jobs after dedup "
@@ -176,10 +254,28 @@ class Orchestrator:
         logger.info("[orchestrator] Scheduled trigger -- running web research agent")
         try:
             from agents.web_research_agent import build_graph as build_research_graph
+            
+            # Fetch inferred roles and skills from parsed resume in DB
+            resume_data = None
+            try:
+                from db.db_client import get_db
+                resume_data = get_db().get_resume_data()
+            except Exception as e:
+                logger.warning(f"[orchestrator] Failed to get resume data: {e}")
+
+            # Log the search strategy for transparency
+            if resume_data:
+                roles = resume_data.get("roles_json", []) or resume_data.get("roles", [])
+                skills = resume_data.get("skills_json", []) or resume_data.get("skills", [])
+                logger.info(f"[orchestrator] Resume-driven search — roles: {roles[:4]}, skills: {skills[:8]}")
+            else:
+                logger.info("[orchestrator] No resume data — using profile.json target_roles")
+
             graph  = build_research_graph()
             result = graph.invoke({
                 "query":          "",
                 "profile":        self.profile,
+                "resume_data":    resume_data or {},
                 "messages":       [],
                 "search_results": [],
                 "job_listings":   [],
@@ -193,28 +289,63 @@ class Orchestrator:
             self.results["errors"].append(f"Web research: {e}")
             return []
 
+    def _sanitize_company(self, company) -> str:
+        if not company or str(company).strip().lower() in ("none", "null", "n/a", "", "unknown"):
+            return "Company Not Extracted"
+        return str(company).strip()
+
     # Step 2: process one job
     def _step_process_job(self, job):
         title   = job.get("title",   "Unknown Role")
-        company = job.get("company", "Unknown Company")
+        company = self._sanitize_company(job.get("company"))
         logger.info(f"\n[orchestrator] -> Processing: {title} at {company}")
+        self._emit("process_job", f"Evaluating {title} at {company}", agent="fit_scorer")
 
         try:
             # Agent 18: tailor resume + cover letter
-            app_result = self.job_agent.process(job, self.profile, self.parsed_resume)
+            resume_dict = self.parsed_resume.model_dump() if hasattr(self.parsed_resume, 'model_dump') else self.parsed_resume
+            app_result = self.job_agent.process(job, self.profile, resume_dict)
 
             if not app_result.get("should_apply"):
                 reason = app_result.get("reason", "below fit threshold")
                 logger.info(f"[orchestrator]   x Skip -- {reason}")
+                self._emit("skip_job", f"Skipped {company}: {reason}", agent="fit_scorer", status="done")
                 self.results["skipped"] += 1
                 self._save_to_db(job, app_result, status="skipped")
                 return False
 
+            self._emit("tailoring", f"Tailoring resume for {company}", agent="job_application")
+
+            # At this point we are drafting an application (resume + cover letter)
+            self.results["applications_drafted"] += 1
+            self.results["emails_drafted"] += 1
+            # Keep jobs_applied in sync for backward compatibility
+            self.results["jobs_applied"] = self.results["applications_drafted"]
+
             fit_score = app_result.get("fit_score", 0)
             logger.info(f"[orchestrator]   Fit score: {fit_score}/100 -- proceeding")
 
-            # Agent 05: draft email
-            email = self.email_agent.draft_email(job, self.profile)
+            # Ensure we have a recruiter email (hr_email) for the job
+            if not job.get("hr_email"):
+                self._emit("discover_recruiter", f"Finding recruiter for {company}", agent="web_research")
+                discovered = self.recruiter_agent.find_email(job)
+                if discovered:
+                    job["hr_email"] = discovered
+
+            # Agent 05: draft email (template-based primary, LLM fallback)
+            self._emit("draft_email", f"Drafting email for {company}", agent="email_drafting")
+
+            try:
+                email = build_cold_email(job, self.profile, app_result)
+                if not email.get("body") or email.get("missing_placeholders"):
+                    logger.warning(
+                        f"[orchestrator] Template email incomplete "
+                        f"(missing: {email.get('missing_placeholders')}) — falling back to LLM"
+                    )
+                    email = self.email_agent.draft_email(job, self.profile)
+            except FileNotFoundError as e:
+                logger.warning(f"[orchestrator] {e} — using LLM email drafting instead")
+                email = self.email_agent.draft_email(job, self.profile)
 
             # Validate email
             warnings = self.email_agent.validate_email(email, self.profile)
@@ -225,6 +356,9 @@ class Orchestrator:
             sent = False
             if self.auto_apply and not self.dry_run and job.get("hr_email"):
                 sent = self._send_email(email, app_result)
+                if sent:
+                    self.results["applications_submitted"] += 1
+                    self.results["emails_sent"] += 1
             else:
                 mode = "DRY RUN" if self.dry_run else "AUTO_APPLY=false"
                 logger.info(f"[orchestrator]   [{mode}] Email drafted but not sent")
@@ -242,20 +376,19 @@ class Orchestrator:
                 "subject":   email.get("subject"),
             })
 
-            if sent:
-                self.results["emails_sent"] += 1
-
+            self._emit("job_done", f"Processed {company}", agent="orchestrator", status="done")
             return True
 
         except Exception as e:
             logger.error(f"[orchestrator]   Error processing {company}: {e}", exc_info=True)
+            self._emit("job_error", f"Error on {company}: {e}", agent="orchestrator", status="error", error=str(e))
             self.results["errors"].append(f"{company} ({title}): {e}")
             return False
 
     # Email sending
     def _send_email(self, email, app_result):
         try:
-            from email.sender import GmailSender
+            from email_module.sender import GmailSender
             sender = GmailSender()
             attachments = []
             for key in ("tailored_resume_path", "cover_letter_path"):
@@ -270,199 +403,58 @@ class Orchestrator:
             logger.warning(f"[orchestrator] Email send failed: {e}")
             return False
 
-    # DB helpers
-    def _init_db(self):
-        conn = sqlite3.connect(self.db_path)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS jobs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT, company TEXT, url TEXT UNIQUE,
-                source TEXT, location TEXT, type TEXT, hr_email TEXT,
-                fit_score INTEGER, status TEXT DEFAULT 'found',
-                jd_text TEXT,
-                scraped_at TEXT, applied_at TEXT,
-                cover_letter_path TEXT, tailored_resume_path TEXT,
-                email_subject TEXT, email_body TEXT
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS run_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                run_id TEXT, triggered_by TEXT,
-                started_at TEXT, finished_at TEXT,
-                jobs_found INTEGER, jobs_filtered INTEGER,
-                jobs_applied INTEGER, emails_sent INTEGER,
-                errors_count INTEGER, status TEXT, summary_json TEXT
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS emails (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                job_id INTEGER, hr_email TEXT,
-                subject TEXT, body_text TEXT, status TEXT,
-                resume_path TEXT, cover_letter_path TEXT,
-                created_at TEXT
-            )
-        """)
-        self._ensure_columns(conn, "jobs", {
-            "source": "TEXT",
-            "location": "TEXT",
-            "type": "TEXT",
-            "hr_email": "TEXT",
-            "fit_score": "INTEGER",
-            "status": "TEXT DEFAULT 'found'",
-            "jd_text": "TEXT",
-            "scraped_at": "TEXT",
-            "applied_at": "TEXT",
-            "cover_letter_path": "TEXT",
-            "tailored_resume_path": "TEXT",
-            "email_subject": "TEXT",
-            "email_body": "TEXT",
-        })
-        self._ensure_columns(conn, "emails", {
-            "job_id": "INTEGER",
-            "hr_email": "TEXT",
-            "subject": "TEXT",
-            "body_text": "TEXT",
-            "status": "TEXT",
-            "resume_path": "TEXT",
-            "cover_letter_path": "TEXT",
-            "created_at": "TEXT",
-        })
-        self._relax_email_constraints(conn)
-        self._ensure_columns(conn, "run_log", {
-            "run_id": "TEXT",
-            "triggered_by": "TEXT",
-            "started_at": "TEXT",
-            "finished_at": "TEXT",
-            "jobs_found": "INTEGER DEFAULT 0",
-            "jobs_filtered": "INTEGER DEFAULT 0",
-            "jobs_applied": "INTEGER DEFAULT 0",
-            "emails_sent": "INTEGER DEFAULT 0",
-            "errors_count": "INTEGER DEFAULT 0",
-            "status": "TEXT DEFAULT 'running'",
-            "summary_json": "TEXT",
-        })
-        conn.commit()
-        return conn
-
-    def _ensure_columns(self, conn, table, columns):
-        existing = {
-            row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
-        }
-        for name, definition in columns.items():
-            if name not in existing:
-                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
-
-    def _relax_email_constraints(self, conn):
-        columns = conn.execute("PRAGMA table_info(emails)").fetchall()
-        not_null = {row[1]: bool(row[3]) for row in columns}
-        if not not_null.get("hr_email") and not not_null.get("job_id"):
-            return
-
-        logger.info("[orchestrator] Rebuilding emails table to allow missing HR emails")
-        conn.execute("ALTER TABLE emails RENAME TO emails_old")
-        conn.execute("""
-            CREATE TABLE emails (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                job_id INTEGER,
-                hr_email TEXT,
-                subject TEXT,
-                body_text TEXT,
-                status TEXT,
-                resume_path TEXT,
-                cover_letter_path TEXT,
-                sent_at TEXT,
-                error_message TEXT,
-                created_at TEXT
-            )
-        """)
-
-        old_columns = {
-            row[1] for row in conn.execute("PRAGMA table_info(emails_old)").fetchall()
-        }
-        copy_columns = [
-            "id", "job_id", "hr_email", "subject", "body_text", "status",
-            "resume_path", "cover_letter_path", "sent_at", "error_message",
-            "created_at",
-        ]
-        copy_columns = [column for column in copy_columns if column in old_columns]
-        if copy_columns:
-            column_csv = ", ".join(copy_columns)
-            conn.execute(
-                f"INSERT INTO emails ({column_csv}) SELECT {column_csv} FROM emails_old"
-            )
-        conn.execute("DROP TABLE emails_old")
-
+    # DB helpers — all use get_db() (PostgreSQL via DBClient)
     def _deduplicate(self, jobs):
-        conn = self._init_db()
+        from db.db_client import get_db
+        db = get_db()
         new = []
         for job in jobs:
             url = job.get("url") or f"{job.get('company','')}-{job.get('title','')}"
-            row = conn.execute("SELECT id FROM jobs WHERE url = ?", (url,)).fetchone()
-            if not row:
+            if not db.url_exists(url):
                 new.append(job)
-        conn.close()
         return new
 
     def _daily_count(self):
         try:
-            conn = self._init_db()
-            today = datetime.now().strftime("%Y-%m-%d")
-            count = conn.execute(
-                "SELECT COUNT(*) FROM jobs WHERE applied_at LIKE ? AND status='sent'",
-                (f"{today}%",)
-            ).fetchone()[0]
-            conn.close()
-            return count
+            from db.db_client import get_db
+            return get_db().daily_sent_count()
         except Exception:
             return 0
 
     def _save_to_db(self, job, app_result, email=None, status="found"):
-        conn = self._init_db()
+        from db.db_client import get_db
+        db = get_db()
         now = datetime.now().isoformat()
         try:
-            url = job.get("url") or f"{job.get('company','')}-{job.get('title','')}"
-            conn.execute("""
-                INSERT OR IGNORE INTO jobs
-                (title, company, url, source, location, type, hr_email,
-                 fit_score, status, jd_text, scraped_at, applied_at,
-                 cover_letter_path, tailored_resume_path,
-                 email_subject, email_body)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """, (
-                job.get("title"), job.get("company"), url,
-                job.get("source"), job.get("location"), job.get("type"),
-                job.get("hr_email"),
-                app_result.get("fit_score"), status,
-                job.get("description_snippet", job.get("jd_text", ""))[:2000],
-                now, now if status == "sent" else None,
-                app_result.get("cover_letter_path"),
-                app_result.get("tailored_resume_path"),
-                email.get("subject") if email else None,
-                email.get("body") if email else None,
-            ))
+            db.insert_job(job, app_result, email, status=status)
 
             # Also save email record
             if email:
-                job_row = conn.execute("SELECT id FROM jobs WHERE url = ?", (url,)).fetchone()
-                job_id = job_row[0] if job_row else 0
-                conn.execute("""
-                    INSERT INTO emails (job_id, hr_email, subject, body_text, status,
-                                       resume_path, cover_letter_path, created_at)
-                    VALUES (?,?,?,?,?,?,?,?)
-                """, (
-                    job_id, email.get("to"), email.get("subject"),
-                    email.get("body"), "drafted", 
-                    app_result.get("tailored_resume_path"),
-                    app_result.get("cover_letter_path"), now
-                ))
-
-            conn.commit()
+                conn = db._conn()
+                try:
+                    with conn.cursor() as cur:
+                        url = job.get("url") or f"{job.get('company','')}-{job.get('title','')}"
+                        cur.execute("SELECT id FROM jobs WHERE url = %s", (url,))
+                        row = cur.fetchone()
+                        job_id = row[0] if row else 0
+                        cur.execute("""
+                            INSERT INTO emails (job_id, hr_email, subject, body_text, status,
+                                               resume_path, cover_letter_path, created_at)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                        """, (
+                            job_id, email.get("to"), email.get("subject"),
+                            email.get("body"), "drafted",
+                            app_result.get("tailored_resume_path"),
+                            app_result.get("cover_letter_path"), now
+                        ))
+                    conn.commit()
+                except Exception as inner_e:
+                    conn.rollback()
+                    logger.error(f"[orchestrator] Email record save failed: {inner_e}")
+                finally:
+                    db._put_conn(conn)
         except Exception as e:
             logger.error(f"[orchestrator] DB save failed: {e}")
-        finally:
-            conn.close()
 
     # Helpers
     def _text_to_job_dict(self, text):
@@ -524,46 +516,19 @@ class Orchestrator:
 
     def _save_run_log(self):
         try:
-            conn = self._init_db()
-            values = (
-                self.results["run_id"],
-                self.results["triggered_by"],
-                self.results["started_at"],
-                self.results["finished_at"],
-                self.results["jobs_found"],
-                self.results["jobs_filtered"],
-                self.results["jobs_applied"],
-                self.results["emails_sent"],
-                len(self.results.get("errors", [])),
-                self.results["status"],
-                json.dumps(self.results),
+            from db.db_client import get_db
+            db = get_db()
+            run_id = self.results["run_id"]
+            db.start_run_log(run_id, self.results.get("triggered_by", ""))
+            db.update_run_log(run_id,
+                jobs_found=self.results.get("jobs_found", 0),
+                jobs_filtered=self.results.get("jobs_filtered", 0),
+                jobs_applied=self.results.get("jobs_applied", 0),
+                emails_sent=self.results.get("emails_sent", 0),
+                errors_count=len(self.results.get("errors", [])),
+                status=self.results["status"],
+                summary=self.results,
             )
-            existing = conn.execute(
-                "SELECT id FROM run_log WHERE run_id = ?",
-                (self.results["run_id"],),
-            ).fetchone()
-            if existing:
-                conn.execute("""
-                    UPDATE run_log
-                    SET triggered_by=?, started_at=?, finished_at=?,
-                        jobs_found=?, jobs_filtered=?, jobs_applied=?,
-                        emails_sent=?, errors_count=?, status=?, summary_json=?
-                    WHERE run_id=?
-                """, (
-                    values[1], values[2], values[3], values[4], values[5],
-                    values[6], values[7], values[8], values[9], values[10],
-                    values[0],
-                ))
-            else:
-                conn.execute("""
-                    INSERT INTO run_log
-                    (run_id, triggered_by, started_at, finished_at,
-                     jobs_found, jobs_filtered, jobs_applied,
-                     emails_sent, errors_count, status, summary_json)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?)
-                """, values)
-            conn.commit()
-            conn.close()
         except Exception as e:
             logger.warning(f"[orchestrator] Run log save failed: {e}")
 

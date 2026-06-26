@@ -1,49 +1,48 @@
 """
 Central LLM client for Applyr - all agents use this.
-Configured to use Groq through the LangChain Groq adapter.
+OpenRouter primary (REST), Groq fallback (LangChain).
 """
-import os
 import json
+import logging
+import os
 import re
 import time
-import logging
 from typing import Any, Optional
 
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, SystemMessage
 
-try:
-    from langchain_groq import ChatGroq
-except ImportError:  # pragma: no cover - surfaced by _ensure_groq_available
-    ChatGroq = None
-
 load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# Groq configuration
+# Groq fallback config
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_BASE_URL = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
 GROQ_FAST_MODEL = os.getenv("GROQ_FAST_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
 
+try:
+    from langchain_groq import ChatGroq
+except ImportError:
+    ChatGroq = None
 
-def _ensure_groq_available() -> None:
-    if ChatGroq is None:
-        raise ImportError(
-            "langchain-groq is not installed. Install it with: pip install langchain-groq"
+
+def get_llm(temperature: float = 0, model: Optional[str] = None) -> Any:
+    """Get the best available LLM (OpenRouter > Groq)."""
+    # Primary: OpenRouter via REST
+    or_key = os.getenv("OPENROUTER_API_KEY", "")
+    if or_key:
+        from core.services.llm_service import OpenRouterClient
+        return OpenRouterClient(
+            model=model or os.getenv("OPENROUTER_MODEL", "openai/gpt-4o"),
         )
+
+    # Fallback: Groq via LangChain
     if not GROQ_API_KEY or GROQ_API_KEY == "gsk_xxxxxxxxxxxxx":
-        raise EnvironmentError("GROQ_API_KEY is missing or still set to the placeholder")
-
-
-def _build_chat_groq(
-    *,
-    temperature: float,
-    model: Optional[str],
-    timeout: int,
-) -> Any:
-    _ensure_groq_available()
+        raise EnvironmentError("No LLM provider configured. Set OPENROUTER_API_KEY or GROQ_API_KEY in .env")
+    if ChatGroq is None:
+        raise ImportError("langchain-groq is not installed. Install it with: pip install langchain-groq")
     base_url = GROQ_BASE_URL.rstrip("/")
     if base_url.endswith("/openai/v1"):
         base_url = base_url[: -len("/openai/v1")]
@@ -53,39 +52,17 @@ def _build_chat_groq(
         base_url=base_url,
         temperature=temperature,
         max_retries=3,
-        timeout=timeout,
+        timeout=60,
     )
 
 
-def get_llm(temperature: float = 0, model: Optional[str] = None) -> Any:
-    """Get a ChatGroq instance configured for the Groq API.
-
-    Args:
-        temperature: LLM temperature (0 = deterministic, 1 = creative)
-        model: Override model name. Defaults to GROQ_MODEL env var.
-
-    Returns:
-        ChatGroq instance.
-    """
-    return _build_chat_groq(temperature=temperature, model=model, timeout=60)
-
-
 def get_fast_llm(temperature: float = 0) -> Any:
-    """Get a fast/cheap LLM for simple tasks (scoring, classification)."""
-    return _build_chat_groq(temperature=temperature, model=GROQ_FAST_MODEL, timeout=30)
+    """Get a fast/cheap LLM for simple tasks."""
+    return get_llm(temperature=temperature, model=GROQ_FAST_MODEL)
 
 
 def chat(prompt: str, system_prompt: str = "", temperature: float = 0) -> str:
-    """Simple one-shot chat completion via Groq.
-
-    Args:
-        prompt: User message
-        system_prompt: System instructions
-        temperature: LLM temperature
-
-    Returns:
-        LLM response text
-    """
+    """Simple one-shot chat completion (OpenRouter > Groq)."""
     llm = get_llm(temperature=temperature)
     messages = []
     if system_prompt:
@@ -105,57 +82,36 @@ def chat(prompt: str, system_prompt: str = "", temperature: float = 0) -> str:
 
 
 def chat_json(prompt: str, system_prompt: str = "", temperature: float = 0) -> dict:
-    """Chat completion that parses JSON from response.
-
-    Args:
-        prompt: User message
-        system_prompt: System instructions (should ask for JSON output)
-        temperature: LLM temperature
-
-    Returns:
-        Parsed JSON dict
-    """
+    """Chat completion that parses JSON from response."""
     response = chat(prompt, system_prompt, temperature)
     return parse_json_response(response)
 
 
 def parse_json_response(text: str) -> dict:
-    """Extract and parse JSON from LLM response text.
-
-    Handles markdown code fences, extra text around JSON, etc.
-    """
+    """Extract and parse JSON from LLM response text."""
     cleaned = text.strip()
-
-    # Remove markdown code fences
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
         cleaned = re.sub(r"\s*```$", "", cleaned)
-
-    # Try to find JSON object
     match = re.search(r"\{.*\}", cleaned, re.DOTALL)
     if match:
         cleaned = match.group(0)
-
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
-        # Try to find JSON array
         match = re.search(r"\[.*\]", cleaned, re.DOTALL)
         if match:
             return {"items": json.loads(match.group(0))}
         raise
 
 
-# Quick connectivity test
 if __name__ == "__main__":
     load_dotenv()
+    print(f"OpenRouter API Key: {'SET' if os.getenv('OPENROUTER_API_KEY') else 'MISSING'}")
     print(f"Groq API Key: {'SET' if GROQ_API_KEY else 'MISSING'}")
-    print(f"Model: {GROQ_MODEL}")
-    print(f"Base URL: {GROQ_BASE_URL}")
-
     try:
-        result = chat("Say 'Groq API is working!' in exactly those words.")
+        result = chat("Say 'LLM is working!' in exactly those words.")
         print(f"Response: {result}")
-        print("[OK] Groq API connection successful!")
+        print("[OK] LLM connection successful!")
     except Exception as e:
-        print(f"[FAIL] Groq API connection failed: {e}")
+        print(f"[FAIL] LLM connection failed: {e}")

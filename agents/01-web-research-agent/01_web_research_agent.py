@@ -12,6 +12,7 @@ Usage:
 import argparse
 import json
 import os
+import sys
 from typing import Annotated, TypedDict
 
 from dotenv import load_dotenv
@@ -29,6 +30,11 @@ from langgraph.graph.message import add_messages
 load_dotenv()
 
 # ── Groq client (loaded once) ─────────────────────────────────────────────────
+# Ensure the project root is on the import path so that ``utils`` can be imported
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 from utils.llm_client import get_llm
 
 
@@ -37,33 +43,54 @@ class ResearchState(TypedDict):
     messages:       Annotated[list, add_messages]
     query:          str          # raw search query
     profile:        dict         # loaded from profile.json
+    resume_data:    dict         # parsed resume data from DB (optional)
     search_results: list[dict]   # raw Tavily results
     job_listings:   list[dict]   # parsed, structured job objects
     report:         str          # human-readable summary
 
 
-# ── Node 1: build a smart query from profile ──────────────────────────────────
+# ── Node 1: build a smart query from profile + resume ────────────────────────
 def build_query(state: ResearchState) -> ResearchState:
     """
-    If a manual query was passed in, use it.
-    Otherwise build one from profile.json target_roles + skills.
+    Build search query from resume-extracted roles and skills.
+    Falls back to profile.json ONLY if no resume data is available.
     """
     if state.get("query"):
-        return state  # manual query takes priority
+        return state
 
     profile = state.get("profile", {})
-    prefs   = profile.get("job_preferences", {})
-    roles   = prefs.get("target_roles", ["software developer"])
-    skills  = profile.get("skills", {}).get("languages", [])[:3]
-    locs    = prefs.get("locations", ["remote"])
+    resume_data = state.get("resume_data") or {}
+    prefs = profile.get("job_preferences", {})
 
-    role_str  = " OR ".join(f'"{r}"' for r in roles[:2])
-    skill_str = " ".join(skills)
-    loc_str   = locs[0] if locs else "remote"
+    # Priority 1: resume-extracted roles
+    roles = resume_data.get("roles_json", []) or resume_data.get("roles", [])
+    # Priority 2: inferred roles from resume
+    if not roles:
+        parsed = resume_data.get("parsed_json", {}) or resume_data.get("parsed", {})
+        roles = parsed.get("roles", [])
+    # Priority 3: profile target_roles (no resume parsed yet)
+    if not roles:
+        roles = prefs.get("target_roles", ["Software Engineer"])
 
-    query = f"({role_str}) {skill_str} jobs internships {loc_str} 2024 site:linkedin.com OR site:internshala.com OR site:naukri.com"
+    # Priority 1: resume-extracted skills
+    skills = resume_data.get("skills_json", []) or resume_data.get("skills", [])
+    if not skills:
+        parsed = resume_data.get("parsed_json", {}) or resume_data.get("parsed", {})
+        skills = parsed.get("skills", [])
+    if not skills:
+        skill_dict = profile.get("skills", {})
+        skills = (skill_dict.get("languages", []) + skill_dict.get("frameworks", []) + skill_dict.get("tools", []))[:10]
 
-    print(f"[web_research] Auto-built query: {query}")
+    locs = prefs.get("target_locations", ["Remote"])
+
+    role_str = " OR ".join(f'"{r}"' for r in roles[:4])
+    skill_str = " ".join(skills[:8])
+    loc_str = locs[0] if locs else "Remote"
+
+    query = f"({role_str}) {skill_str} {loc_str} jobs 2025"
+
+    print(f"[web_research] Resume-driven query: {query}")
+    print(f"[web_research] Roles: {roles[:4]} | Skills: {skills[:8]} | Locations: {locs[:2]}")
     return {"query": query}
 
 
@@ -128,8 +155,14 @@ Return ONLY the JSON array, no other text."""
         HumanMessage(content=f"Extract job listings from these results:\n\n{results_text}"),
     ]
 
-    response  = llm.invoke(messages)
-    raw_json  = response.content.strip()
+    # Use structured output for reliable JSON parsing
+    try:
+        response = llm.invoke(messages, response_format={"type": "json_object"})
+    except Exception:
+        # Fallback for models that don't support response_format
+        response = llm.invoke(messages)
+
+    raw_json = response.content.strip()
 
     # Strip markdown fences if LLM wraps in ```json
     if raw_json.startswith("```"):
@@ -145,6 +178,16 @@ Return ONLY the JSON array, no other text."""
     except json.JSONDecodeError as e:
         print(f"[web_research] JSON parse error: {e}")
         job_listings = []
+
+    # Post-process: ensure company names are never None/empty
+    for job in job_listings:
+        company = (
+            job.get("company")
+            or job.get("organization")
+            or job.get("employer")
+            or "Unknown Company"
+        )
+        job["company"] = company
 
     print(f"[web_research] Extracted {len(job_listings)} structured job listings")
     return {"job_listings": job_listings, "messages": [response]}

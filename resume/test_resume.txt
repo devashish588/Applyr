@@ -1,0 +1,38 @@
+
+John Doe
+john.doe@example.com
++1 234-567-8900
+
+SUMMARY
+Experienced Software Engineer with 5 years of expertise in Python and cloud development.
+
+SKILLS
+Python, JavaScript, React, Node.js, AWS, Docker, Kubernetes, PostgreSQL, MongoDB, 
+Machine Learning, TensorFlow, FastAPI, Django, REST API, GraphQL, Git, Linux
+
+EXPERIENCE
+Senior Software Engineer | TechCorp | Jan 2021 - Present
+- Led development of cloud-based microservices architecture using AWS and Kubernetes
+- Mentored junior developers and conducted code reviews
+- Technologies: Python, FastAPI, AWS, Docker
+
+Software Engineer | StartupXYZ | Jun 2018 - Dec 2020
+- Developed full-stack web applications using React and Node.js
+- Implemented CI/CD pipelines using GitHub Actions
+- Technologies: JavaScript, React, Node.js, PostgreSQL
+
+EDUCATION
+Bachelor of Science in Computer Science
+University of Tech | 2018
+GPA: 3.8/4.0
+
+PROJECTS
+AI Chat Application | GitHub: github.com/johndoe/ai-chat
+- Built LLM-based conversational AI using LangChain and OpenAI API
+- Deployed on AWS Lambda with real-time WebSocket communication
+- Technologies: Python, LangChain, OpenAI, AWS, React
+
+Data Pipeline Tool | GitHub: github.com/johndoe/data-pipeline
+- Developed ETL tool for processing large datasets with Apache Spark
+- Implemented automated scheduling with Apache Airflow
+- Technologies: Python, Spark, Airflow, PostgreSQL

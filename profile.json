@@ -1,30 +1,64 @@
 {
   "personal": {
-    "name": "Your Full Name",
-    "email": "your.email@example.com",
-    "phone": "+1-XXX-XXX-XXXX",
-    "linkedin": "https://linkedin.com/in/yourprofile",
-    "github": "https://github.com/yourprofile",
+    "name": "Devashish Bose",
+    "email": "bosedevashish7@gmail.com",
+    "phone": "910264397",
+    "linkedin": "https://linkedin.com/in/devashish-bose",
+    "github": "",
     "portfolio": "https://yourportfolio.com",
     "city": "Your City",
     "pincode": "123456"
   },
   "skills": {
-    "languages": ["Python", "JavaScript", "SQL"],
-    "frameworks": ["Django", "React", "FastAPI"],
-    "tools": ["Git", "Docker", "AWS"],
-    "years_experience": 5,
-    "certifications": ["AWS Solutions Architect", "Google Cloud Associate"]
+    "languages": [
+      "Mac",
+      "Machine Learning",
+      "R",
+      "Python",
+      "Scikit-learn",
+      "Pandas",
+      "NumPy",
+      "REST",
+      "LLM",
+      "LangChain"
+    ],
+    "frameworks": [
+      "Django",
+      "React",
+      "FastAPI"
+    ],
+    "tools": [
+      "Git",
+      "Docker",
+      "AWS"
+    ],
+
+    "certifications": [
+      "AWS Solutions Architect",
+      "Google Cloud Associate"
+    ]
   },
   "job_preferences": {
-    "target_roles": ["Software Engineer", "Full Stack Developer", "Backend Engineer"],
-    "target_locations": ["Remote", "San Francisco", "New York"],
+    "target_roles": [
+      "Software Engineer",
+      "Full Stack Developer",
+      "Backend Engineer"
+    ],
+    "target_locations": [
+      "Remote",
+      "San Francisco",
+      "New York"
+    ],
     "min_salary": 100000,
     "remote_ok": true,
     "fulltime_only": true,
-    "interested_industries": ["Tech", "Finance", "HealthTech"]
+    "interested_industries": [
+      "Tech",
+      "Finance",
+      "HealthTech"
+    ]
   },
-  "experience_summary": "Senior software engineer with 5+ years building scalable systems",
+  "experience_summary": "ML engineer and quantitative analyst with internship experience in LLM post-training, full-stack development, and data analytics.",
   "key_achievements": [
     "Led migration of monolith to microservices, reducing latency by 40%",
     "Architected real-time data pipeline processing 1M+ events daily",

@@ -1,0 +1,306 @@
+{
+  "name": "Devashish Bose",
+  "email": "bosedevashish7@gmail.com",
+  "phone": "910264397",
+  "location": "",
+  "linkedin": null,
+  "github": null,
+  "portfolio": "",
+  "skills": [
+    "Mac",
+    "Machine Learning",
+    "R",
+    "Python",
+    "Scikit-learn",
+    "Pandas",
+    "NumPy",
+    "REST",
+    "LLM",
+    "LangChain",
+    "HuggingFace",
+    "Transformers",
+    "Pinecone",
+    "Lua",
+    "Apache",
+    "Spark",
+    "Hadoop",
+    "Power BI",
+    "Tableau",
+    "Excel",
+    "PostgreSQL",
+    "SQL",
+    "MySQL",
+    "MongoDB",
+    "Go",
+    "FastAPI",
+    "Flask",
+    "REST API",
+    "Git",
+    "GitHub",
+    "Linux",
+    "Jupyter"
+  ],
+  "skills_categorized": {
+    "languages": [
+      "R",
+      "Python",
+      "Lua",
+      "SQL",
+      "Go"
+    ],
+    "frameworks": [
+      "FastAPI",
+      "Flask"
+    ],
+    "databases": [
+      "PostgreSQL",
+      "MySQL",
+      "MongoDB"
+    ],
+    "ml_ai": [
+      "Machine Learning",
+      "Scikit-learn",
+      "LLM",
+      "LangChain",
+      "HuggingFace",
+      "Transformers"
+    ],
+    "cloud": [
+      "GitHub"
+    ],
+    "tools": [
+      "REST",
+      "Spark",
+      "Hadoop",
+      "Power BI",
+      "Tableau",
+      "Excel",
+      "REST API",
+      "Git",
+      "Linux"
+    ]
+  },
+  "projects": [
+    {
+      "name": "Consumer Segmentation & Quantitative Analytics Dashboard | Django \u00b7 Scikit-Learn \u00b7 RFM \u00b7 K-Means \u00b7 Python2024",
+      "description": "\u2013 Engineered a quantitative segmentation engine automating RFM analysis and K-Means clustering across 500K+ transactions, uncovering $8.9M in revenue opportunities \u2014 directly analogous to market analysis and quant research workflows. \u2013 Built churn prediction pipeline identifying 1,300+ at-risk users",
+      "tech_stack": [
+        "Django",
+        "Go",
+        "Python",
+        "R",
+        "Scikit-learn"
+      ],
+      "technologies": [
+        "Django",
+        "Go",
+        "Python",
+        "R",
+        "Scikit-learn"
+      ],
+      "github": "",
+      "deployment": ""
+    },
+    {
+      "name": "Energy Consumption Forecasting | Python \u00b7 LSTM \u00b7 Time-Series \u00b7 Power BI",
+      "description": "2024 \u2013 Forecasted industrial energy usage using LSTM time-series models, achieving MAPE of 8.5% \u2014 demonstrating hands-on experience with time-series forecasting directly relevant to financial data modeling. \u2013 Built interactive Power BI dashboards for scenario analysis and peak load simulation, enabl",
+      "tech_stack": [
+        "Power BI",
+        "Python",
+        "R"
+      ],
+      "technologies": [
+        "Power BI",
+        "Python",
+        "R"
+      ],
+      "github": "",
+      "deployment": ""
+    },
+    {
+      "name": "Predictive Maintenance using Sensor Data | Python \u00b7 Scikit-Learn \u00b7 Random Forest \u00b7 Pandas",
+      "description": "2024 \u2013 Processed NASA Turbofan engine dataset to predict machine failure cycles; engineered features and trained Random Forest achieving 87% accuracy. \u2013 Designed dashboards to visualize machine health metrics \u2014 demonstrating end-to-end ML pipeline development and model evaluation capabilities.",
+      "tech_stack": [
+        "Lua",
+        "Mac",
+        "Pandas",
+        "Python",
+        "R",
+        "REST",
+        "Scikit-learn"
+      ],
+      "technologies": [
+        "Lua",
+        "Mac",
+        "Pandas",
+        "Python",
+        "R",
+        "REST",
+        "Scikit-learn"
+      ],
+      "github": "",
+      "deployment": ""
+    },
+    {
+      "name": "RAG Document Search Pipeline | FastAPI \u00b7 LangChain \u00b7 HuggingFace \u00b7 ChromaDB \u00b7 Streamlit",
+      "description": "2024 \u2013 Built a modular AI pipeline processing 50+ documents/min with <200ms latency using RAG architecture \u2014 demonstrating ability to build and optimize production-grade ML systems at scale. \u2013 Integrated HuggingFace Transformers and ChromaDB for embedding generation and retrieval; applied prompt eng",
+      "tech_stack": [
+        "FastAPI",
+        "HuggingFace",
+        "LangChain",
+        "Lua",
+        "R",
+        "Transformers"
+      ],
+      "technologies": [
+        "FastAPI",
+        "HuggingFace",
+        "LangChain",
+        "Lua",
+        "R",
+        "Transformers"
+      ],
+      "github": "",
+      "deployment": ""
+    }
+  ],
+  "experience": [
+    {
+      "company": "",
+      "role": "",
+      "title": "systems. Strong analytical thinking, attention to detail, and a passion for applying ML to quantitative research and",
+      "start_date": "",
+      "end_date": null,
+      "description": "algorithmic decision-making. Immediate joiner \u2014 open to relocating to Jodhpur (Onsite). LLM Post-Training Intern Jul",
+      "technologies_used": [
+        "Go",
+        "LLM",
+        "R"
+      ]
+    },
+    {
+      "company": "",
+      "role": "",
+      "title": "2026",
+      "start_date": "",
+      "end_date": null,
+      "description": "Ethara AI (Remote) \u2013 Executed RLHF and Supervised Fine-Tuning (SFT) workflows to improve LLM response quality, alignment, and conversational consistency \u2014 building strong quantitative evaluation and analytical research skills. \u2013 Conducted systematic AI data annotation and model output evaluation against quality benchmarks, applying statistical thinking and pattern recognition in production pipelines. \u2013 Performed prompt engineering and optimization to enhance model reasoning across diverse task t",
+      "technologies_used": [
+        "LLM",
+        "Lua",
+        "R"
+      ]
+    },
+    {
+      "company": "",
+      "role": "",
+      "title": "2026",
+      "start_date": "",
+      "end_date": null,
+      "description": "Bluestock Fintech (Remote) \u2013 Shipped production-ready React components for Logic Looper (logic-looper-nine.vercel.app), translating user engagement data into interactive visual systems \u2014 gaining exposure to fintech data workflows. \u2013 Architected real-time data synchronization between IndexedDB and PostgreSQL for persistent user progress tracking, demonstrating strong backend data management and structured data thinking. \u2013 Implemented a GitHub-style activity heatmap and achievement system to drive",
+      "technologies_used": [
+        "Git",
+        "GitHub",
+        "PostgreSQL",
+        "R",
+        "React",
+        "SQL"
+      ]
+    }
+  ],
+  "education": [
+    {
+      "institution": "Madhav Institute of Technology and Science, Gwalior",
+      "degree": "2022 \u2013 2026",
+      "field": "B.Tech in Internet of Things \u2014 CGPA: 7.5",
+      "cgpa": "7.5",
+      "start_year": "20",
+      "end_year": "20"
+    }
+  ],
+  "certifications": [
+    "Power BI Virtual Internship \u2014 PwC Forage",
+    "Jul 2024",
+    "Introduction to SQL \u2014 Simplilearn",
+    "Mar 2025",
+    "R Programming \u2014 Simplilearn",
+    "Jan 2025",
+    "Python Basics \u2014 Infosys Springboard",
+    "Mar 2023"
+  ],
+  "target_roles": [
+    "data analyst",
+    "backend engineer",
+    "full stack engineer",
+    "data scientist",
+    "data engineer"
+  ],
+  "scored_roles": [
+    {
+      "role": "data analyst",
+      "score": 100
+    },
+    {
+      "role": "backend engineer",
+      "score": 72.9
+    },
+    {
+      "role": "full stack engineer",
+      "score": 61.7
+    },
+    {
+      "role": "data scientist",
+      "score": 61.5
+    },
+    {
+      "role": "data engineer",
+      "score": 60.0
+    }
+  ],
+  "quality_score": 92.0,
+  "quality_breakdown": {
+    "name": 10,
+    "email": 10,
+    "phone": 5,
+    "links": 0,
+    "skills": 20,
+    "experience": 20,
+    "education": 10,
+    "projects": 12,
+    "certifications": 5
+  },
+  "confidence": 100.0,
+  "parsed_at": "2026-06-21T16:54:22.180836",
+  "source_path": "D:\\Ai course\\Projects\\Applyr\\resume\\master_resume.pdf",
+  "total_pages": 2,
+  "sections_detected": [
+    "preamble",
+    "summary",
+    "experience",
+    "skills",
+    "languages",
+    "projects",
+    "education",
+    "leadership",
+    "certifications"
+  ],
+  "sections_missing": [],
+  "extraction_stats": {
+    "engine_used": null,
+    "chars_extracted": 6946,
+    "pages": 2,
+    "confidence": 100
+  },
+  "parse_log": [
+    "Starting parse: D:/Ai course/Projects/Applyr/resume/master_resume.pdf",
+    "File size: 124721 bytes",
+    "PDF extraction: PyMuPDF succeeded (6947 chars)",
+    "Level 1: Extracted 6946 chars, 2 page(s)",
+    "Level 2: Detected sections: ['preamble', 'summary', 'experience', 'skills', 'languages', 'projects', 'education', 'leadership', 'certifications']",
+    "Level 3: Extracted name=Devashish Bose, skills=32, experience=3",
+    "Confidence breakdown: 100 -> 100% (skills=32, exp=3, edu=1, proj=4)",
+    "Level 4: Confidence=100%",
+    "Level 5: Roles=['data analyst', 'backend engineer', 'full stack engineer', 'data scientist', 'data engineer']",
+    "Parse complete in 1.0s -- confidence 100%"
+  ]
+}

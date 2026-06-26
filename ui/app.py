@@ -1,18 +1,11 @@
 """
-AutoApply / Applyr — Flask Dashboard
-Single-file app: backend API + self-contained HTML dashboard (no templates folder needed).
-
-Fixes vs original:
-  - Removed calls to non-existent orchestrator methods (_step_manual_input, etc.)
-  - Removed dependency on missing db_client — now uses db/db_client.py
-  - orchestrator.run_full_pipeline() called correctly (matching what we built)
-  - Complete dashboard UI embedded — no templates/ folder needed
-  - SSE pipeline streaming works with correct orchestrator interface
-  - Resume parse uses correct method name (parse_file not parse_resume)
+Applyr v2.1 — Flask API Server
+Pure JSON API backend — no HTML rendering.
+The frontend is a separate Next.js app in frontend/.
 
 Run:
     python ui/app.py
-    # → http://localhost:5000
+    → http://localhost:5000/api/...
 """
 
 import json
@@ -29,7 +22,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()
 
-from flask import Flask, Response, jsonify, request, stream_with_context
+from flask import Flask, Response, jsonify, request, stream_with_context, render_template, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
@@ -38,8 +31,13 @@ sys.path.insert(0, str(ROOT))
 
 from db.db_client import get_db
 
+from core.services.match_service import MatchService, get_match_service
+from core.models import Profile, Resume, SeniorityLevel, MatchAnalysis
+from core.services.gmail_service import GmailService, get_gmail_service
+from core.services.startup_service import StartupDiscoveryService
+
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/api/*": {"origins": ["http://localhost:3000", "http://127.0.0.1:3000"]}})
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024
 app.config["UPLOAD_FOLDER"]      = os.getenv("UPLOAD_DIR", str(ROOT / "uploads"))
 app.config["SECRET_KEY"]         = os.getenv("SECRET_KEY", "dev-secret-change-me")
@@ -56,6 +54,11 @@ ALLOWED_RESUME = {"pdf", "docx", "doc", "txt"}
 # SSE event queues keyed by run_id
 _pipeline_queues: dict[str, queue.Queue] = {}
 
+# In-memory role inference cache (populated on resume upload)
+_inferred_roles: list[str] = []
+_search_strategy: dict = {}
+_startup_service = StartupDiscoveryService()
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 def _ext(filename: str) -> str:
@@ -64,714 +67,104 @@ def _ext(filename: str) -> str:
 def _allowed(filename, allowed_set):
     return _ext(filename) in allowed_set
 
-
-# ── Dashboard HTML (self-contained, no templates/ needed) ─────────────────────
-DASHBOARD_HTML = """<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Applyr — AI Job Application Agent</title>
-<style>
-  :root {
-    --bg:       #0d0f14;
-    --surface:  #161921;
-    --border:   #252830;
-    --accent:   #6c8fff;
-    --accent2:  #a78bfa;
-    --green:    #34d399;
-    --amber:    #fbbf24;
-    --red:      #f87171;
-    --text:     #e8eaf0;
-    --muted:    #6b7280;
-    --radius:   10px;
-    --mono:     'JetBrains Mono', 'Fira Code', monospace;
-    --sans:     'Inter', system-ui, sans-serif;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--text); font-family: var(--sans);
-         font-size: 14px; min-height: 100vh; }
-
-  /* ── Layout ── */
-  .shell   { display: flex; height: 100vh; overflow: hidden; }
-  .sidebar { width: 220px; background: var(--surface); border-right: 1px solid var(--border);
-             display: flex; flex-direction: column; flex-shrink: 0; padding: 20px 0; }
-  .main    { flex: 1; overflow-y: auto; padding: 28px 32px; }
-
-  /* ── Sidebar ── */
-  .logo { padding: 0 20px 24px; font-size: 18px; font-weight: 700; letter-spacing: -0.5px;
-          color: var(--text); }
-  .logo span { color: var(--accent); }
-  .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 20px;
-              color: var(--muted); cursor: pointer; border-radius: 0;
-              transition: all .15s; font-size: 13px; border: none; background: none;
-              width: 100%; text-align: left; }
-  .nav-item:hover, .nav-item.active { color: var(--text); background: rgba(108,143,255,.08); }
-  .nav-item.active { border-left: 2px solid var(--accent); }
-  .nav-icon { font-size: 16px; width: 18px; text-align: center; }
-  .sidebar-footer { margin-top: auto; padding: 16px 20px;
-                    border-top: 1px solid var(--border); }
-  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green);
-                display: inline-block; margin-right: 6px; animation: pulse 2s infinite; }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
-
-  /* ── Pages ── */
-  .page { display: none; }
-  .page.active { display: block; }
-  .page-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
-  .page-sub   { color: var(--muted); margin-bottom: 28px; font-size: 13px; }
-
-  /* ── Cards ── */
-  .card { background: var(--surface); border: 1px solid var(--border);
-          border-radius: var(--radius); padding: 20px; }
-  .card-title { font-size: 12px; font-weight: 600; text-transform: uppercase;
-                letter-spacing: .08em; color: var(--muted); margin-bottom: 12px; }
-
-  /* ── Stats row ── */
-  .stats { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; margin-bottom: 24px; }
-  .stat-val   { font-size: 32px; font-weight: 700; letter-spacing: -1px; }
-  .stat-label { font-size: 12px; color: var(--muted); margin-top: 4px; }
-  .stat-delta { font-size: 11px; color: var(--green); margin-top: 2px; }
-
-  /* ── Trigger buttons ── */
-  .actions { display: flex; gap: 12px; margin-bottom: 28px; flex-wrap: wrap; }
-  .btn { display: inline-flex; align-items: center; gap: 7px; padding: 9px 18px;
-         border-radius: 7px; font-size: 13px; font-weight: 500; cursor: pointer;
-         border: none; transition: all .15s; }
-  .btn-primary { background: var(--accent); color: #fff; }
-  .btn-primary:hover { background: #7c9fff; }
-  .btn-outline { background: transparent; color: var(--text);
-                 border: 1px solid var(--border); }
-  .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
-  .btn:disabled { opacity: .45; cursor: not-allowed; }
-
-  /* ── Pipeline progress ── */
-  .pipeline-wrap { margin-bottom: 24px; }
-  .pipeline-steps { display: flex; gap: 0; margin-bottom: 12px; }
-  .step { flex: 1; text-align: center; position: relative; }
-  .step:not(:last-child)::after { content:''; position:absolute; top:13px; left:60%;
-    width:80%; height:2px; background:var(--border); z-index:0; }
-  .step-dot { width: 26px; height: 26px; border-radius: 50%; background: var(--border);
-              margin: 0 auto 6px; display: flex; align-items: center; justify-content: center;
-              font-size: 11px; position: relative; z-index: 1; transition: all .3s; }
-  .step.done .step-dot   { background: var(--green); color: #000; }
-  .step.active .step-dot { background: var(--accent); color: #fff;
-                            box-shadow: 0 0 0 3px rgba(108,143,255,.25); }
-  .step.error .step-dot  { background: var(--red); color: #fff; }
-  .step-label { font-size: 11px; color: var(--muted); }
-  .step.done .step-label   { color: var(--green); }
-  .step.active .step-label { color: var(--accent); }
-  .progress-bar { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
-  .progress-fill { height: 100%; background: var(--accent); border-radius: 2px;
-                   transition: width .4s ease; }
-  .pipeline-log { font-family: var(--mono); font-size: 12px; color: var(--muted);
-                  margin-top: 10px; min-height: 18px; }
-
-  /* ── Table ── */
-  .table-wrap { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing:.06em;
-       color: var(--muted); padding: 8px 12px; border-bottom: 1px solid var(--border); }
-  td { padding: 10px 12px; border-bottom: 1px solid rgba(37,40,48,.6); vertical-align: middle; }
-  tr:hover td { background: rgba(255,255,255,.02); }
-  .empty-row td { text-align: center; color: var(--muted); padding: 32px; }
-
-  /* ── Badges ── */
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px;
-           font-size: 11px; font-weight: 500; }
-  .badge-green  { background: rgba(52,211,153,.15); color: var(--green); }
-  .badge-amber  { background: rgba(251,191,36,.12); color: var(--amber); }
-  .badge-red    { background: rgba(248,113,113,.12); color: var(--red); }
-  .badge-blue   { background: rgba(108,143,255,.15); color: var(--accent); }
-  .badge-gray   { background: rgba(107,114,128,.15); color: var(--muted); }
-
-  /* ── Score bar ── */
-  .score-bar { display: flex; align-items: center; gap: 8px; }
-  .score-track { flex: 1; height: 4px; background: var(--border); border-radius: 2px; }
-  .score-fill  { height: 100%; border-radius: 2px; }
-
-  /* ── Upload zone ── */
-  .drop-zone { border: 2px dashed var(--border); border-radius: var(--radius);
-               padding: 36px; text-align: center; cursor: pointer; transition: all .2s; }
-  .drop-zone:hover, .drop-zone.drag-over {
-    border-color: var(--accent); background: rgba(108,143,255,.04); }
-  .drop-zone .icon { font-size: 32px; margin-bottom: 10px; }
-  .drop-zone p { color: var(--muted); font-size: 13px; }
-  .drop-zone strong { color: var(--text); }
-
-  /* ── Textarea / input ── */
-  textarea, input[type=text] {
-    width: 100%; background: var(--bg); border: 1px solid var(--border);
-    border-radius: 7px; color: var(--text); padding: 10px 14px; font-size: 13px;
-    font-family: var(--sans); resize: vertical; outline: none; }
-  textarea:focus, input[type=text]:focus { border-color: var(--accent); }
-
-  /* ── Grid ── */
-  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
-  @media(max-width:900px) { .stats{grid-template-columns:1fr 1fr;} .grid2,.grid3{grid-template-columns:1fr;} }
-
-  /* ── Toast ── */
-  #toast { position: fixed; bottom: 24px; right: 24px; background: var(--surface);
-           border: 1px solid var(--border); border-radius: 8px; padding: 12px 18px;
-           font-size: 13px; opacity: 0; transform: translateY(8px);
-           transition: all .25s; pointer-events: none; z-index: 999; max-width: 300px; }
-  #toast.show { opacity: 1; transform: translateY(0); }
-
-  /* ── Env status ── */
-  .env-row { display: flex; align-items: center; justify-content: space-between;
-             padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
-  .env-row:last-child { border: none; }
-  .env-key { font-family: var(--mono); font-size: 12px; color: var(--muted); }
-
-  .mt16 { margin-top: 16px; }
-  .mt24 { margin-top: 24px; }
-  .gap12 { gap: 12px; }
-</style>
-</head>
-<body>
-
-<div class="shell">
-
-  <!-- Sidebar -->
-  <aside class="sidebar">
-    <div class="logo">App<span>lyr</span></div>
-
-    <button class="nav-item active" onclick="nav('dashboard')">
-      <span class="nav-icon"></span> Dashboard
-    </button>
-    <button class="nav-item" onclick="nav('run')">
-      <span class="nav-icon"></span> Run Pipeline
-    </button>
-    <button class="nav-item" onclick="nav('jobs')">
-      <span class="nav-icon"></span> Jobs
-    </button>
-    <button class="nav-item" onclick="nav('emails')">
-      <span class="nav-icon"></span> Drafts
-    </button>
-    <button class="nav-item" onclick="nav('history')">
-      <span class="nav-icon"></span> History
-    </button>
-    <button class="nav-item" onclick="nav('settings')">
-      <span class="nav-icon"></span> Settings
-    </button>
-
-    <div class="sidebar-footer">
-      <span class="status-dot"></span>
-      <span style="color:var(--muted);font-size:12px;">Agent online</span>
-    </div>
-  </aside>
-
-  <!-- Main -->
-  <main class="main">
-
-    <!-- ── Dashboard ── -->
-    <div id="page-dashboard" class="page active">
-      <div class="page-title">Dashboard</div>
-      <div class="page-sub">Overview of your job application pipeline</div>
-
-      <div class="stats" id="stat-cards">
-        <div class="card"><div class="stat-val" id="s-found">—</div>
-          <div class="stat-label">Jobs Found</div></div>
-        <div class="card"><div class="stat-val" id="s-filtered">—</div>
-          <div class="stat-label">Passed Filter</div></div>
-        <div class="card"><div class="stat-val" id="s-applied">—</div>
-          <div class="stat-label">Applications</div></div>
-        <div class="card"><div class="stat-val" id="s-sent">—</div>
-          <div class="stat-label">Emails Sent</div></div>
-      </div>
-
-      <div class="grid2">
-        <div class="card">
-          <div class="card-title">Recent Jobs</div>
-          <div class="table-wrap">
-            <table id="dash-jobs-table">
-              <thead><tr><th>Role</th><th>Company</th><th>Score</th><th>Status</th></tr></thead>
-              <tbody><tr class="empty-row"><td colspan="4">Loading...</td></tr></tbody>
-            </table>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-title">System Status</div>
-          <div id="env-status">Loading...</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── Run Pipeline ── -->
-    <div id="page-run" class="page">
-      <div class="page-title">Run Pipeline</div>
-      <div class="page-sub">Trigger automatically or feed a specific job description</div>
-
-      <div class="actions">
-        <button class="btn btn-primary" id="btn-run-now" onclick="runNow()">
-          ⚡ Run Now (auto-discover)
-        </button>
-      </div>
-
-      <!-- Pipeline progress -->
-      <div class="card pipeline-wrap" id="pipeline-card" style="display:none">
-        <div class="card-title">Pipeline Progress</div>
-        <div class="pipeline-steps">
-          <div class="step" id="ps-discover"><div class="step-dot">1</div><div class="step-label">Discover</div></div>
-          <div class="step" id="ps-parse"><div class="step-dot">2</div><div class="step-label">Parse</div></div>
-          <div class="step" id="ps-score"><div class="step-dot">3</div><div class="step-label">Score</div></div>
-          <div class="step" id="ps-tailor"><div class="step-dot">4</div><div class="step-label">Tailor</div></div>
-          <div class="step" id="ps-email"><div class="step-dot">5</div><div class="step-label">Email</div></div>
-        </div>
-        <div class="progress-bar"><div class="progress-fill" id="prog-fill" style="width:0%"></div></div>
-        <div class="pipeline-log" id="pipeline-log">Initializing...</div>
-      </div>
-
-      <div class="grid2 mt24">
-        <!-- Upload JD -->
-        <div class="card">
-          <div class="card-title">Upload JD (PDF / Image)</div>
-          <div class="drop-zone" id="jd-drop"
-               onclick="document.getElementById('jd-file').click()"
-               ondragover="event.preventDefault();this.classList.add('drag-over')"
-               ondragleave="this.classList.remove('drag-over')"
-               ondrop="handleJdDrop(event)">
-            <div class="icon">📄</div>
-            <p><strong>Click or drag</strong> a JD PDF / screenshot here</p>
-            <p style="margin-top:6px;font-size:11px;">PDF, PNG, JPG, TXT supported</p>
-          </div>
-          <input type="file" id="jd-file" style="display:none"
-                 accept=".pdf,.png,.jpg,.jpeg,.txt" onchange="uploadJd(this.files[0])">
-        </div>
-
-        <!-- Paste JD -->
-        <div class="card">
-          <div class="card-title">Paste JD Text</div>
-          <textarea id="jd-text" rows="6"
-                    placeholder="Paste the full job description here..."></textarea>
-          <button class="btn btn-primary mt16" onclick="pasteJd()" style="width:100%">
-            ▶ Run on this JD
-          </button>
-        </div>
-      </div>
-
-      <!-- Upload resume -->
-      <div class="card mt24">
-        <div class="card-title">Master Resume</div>
-        <div class="grid2" style="align-items:center">
-          <div>
-            <div id="resume-status-text" style="color:var(--muted);font-size:13px">Checking...</div>
-          </div>
-          <div>
-            <div class="drop-zone" id="resume-drop"
-                 onclick="document.getElementById('resume-file').click()"
-                 ondragover="event.preventDefault();this.classList.add('drag-over')"
-                 ondragleave="this.classList.remove('drag-over')"
-                 ondrop="handleResumeDrop(event)">
-              <div class="icon">📝</div>
-              <p><strong>Upload</strong> your resume</p>
-              <p style="font-size:11px;margin-top:4px">PDF, DOCX, TXT</p>
-            </div>
-            <input type="file" id="resume-file" style="display:none"
-                   accept=".pdf,.docx,.doc,.txt" onchange="uploadResume(this.files[0])">
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── Jobs ── -->
-    <div id="page-jobs" class="page">
-      <div class="page-title">Jobs</div>
-      <div class="page-sub">All discovered and processed job listings</div>
-      <div class="card">
-        <div class="table-wrap">
-          <table id="jobs-table">
-            <thead>
-              <tr>
-                <th>Role</th><th>Company</th><th>Location</th>
-                <th>Fit Score</th><th>Source</th><th>Status</th><th>Date</th>
-              </tr>
-            </thead>
-            <tbody><tr class="empty-row"><td colspan="7">Loading...</td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── Email Drafts ── -->
-    <div id="page-emails" class="page">
-      <div class="page-title">Email Drafts</div>
-      <div class="page-sub">Ready-to-send application emails</div>
-      <div class="card">
-        <div class="table-wrap">
-          <table id="emails-table">
-            <thead>
-              <tr><th>To</th><th>Subject</th><th>Company</th><th>Score</th><th>Status</th></tr>
-            </thead>
-            <tbody><tr class="empty-row"><td colspan="5">Loading...</td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── History ── -->
-    <div id="page-history" class="page">
-      <div class="page-title">Run History</div>
-      <div class="page-sub">Every pipeline run logged here</div>
-      <div class="card">
-        <div class="table-wrap">
-          <table id="history-table">
-            <thead>
-              <tr><th>Run ID</th><th>Trigger</th><th>Started</th><th>Found</th>
-                  <th>Applied</th><th>Sent</th><th>Status</th></tr>
-            </thead>
-            <tbody><tr class="empty-row"><td colspan="7">Loading...</td></tr></tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── Settings ── -->
-    <div id="page-settings" class="page">
-      <div class="page-title">Settings</div>
-      <div class="page-sub">Environment configuration and API key status</div>
-      <div class="grid2">
-        <div class="card">
-          <div class="card-title">API Keys</div>
-          <div id="settings-env">Loading...</div>
-        </div>
-        <div class="card">
-          <div class="card-title">Pipeline Config</div>
-          <div style="font-size:13px;line-height:2;color:var(--muted)">
-            Edit <code style="color:var(--accent)">.env</code> to change these values.
-          </div>
-          <div id="settings-config" style="margin-top:12px;font-family:var(--mono);font-size:12px;line-height:2"></div>
-        </div>
-      </div>
-    </div>
-
-  </main>
-</div>
-
-<div id="toast"></div>
-
-<script>
-// ── Navigation ────────────────────────────────────────────────────────────────
-function nav(page) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  document.getElementById('page-' + page).classList.add('active');
-  event.currentTarget.classList.add('active');
-  if (page === 'jobs')     loadJobs();
-  if (page === 'emails')   loadEmails();
-  if (page === 'history')  loadHistory();
-  if (page === 'settings') loadSettings();
-}
-
-// ── Toast ─────────────────────────────────────────────────────────────────────
-function toast(msg, color) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.style.borderColor = color || 'var(--border)';
-  t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 3000);
-}
-
-// ── Status checks ─────────────────────────────────────────────────────────────
-async function loadStatus() {
-  const r = await fetch('/api/status').then(r => r.json()).catch(() => ({}));
-
-  // Dashboard env card
-  const keys = r.env_keys || {};
-  document.getElementById('env-status').innerHTML = `
-    ${envRow('GROQ_API_KEY',    keys.GROQ_API_KEY)}
-    ${envRow('TAVILY_API_KEY',  keys.TAVILY_API_KEY)}
-    ${envRow('GEMINI_API_KEY',  keys.GEMINI_API_KEY)}
-    ${envRow('Resume uploaded', r.resume_uploaded)}
-  `;
-
-  // Resume status on Run page
-  document.getElementById('resume-status-text').innerHTML = r.resume_uploaded
-    ? '<span style="color:var(--green)">✓ Resume uploaded</span> — ' + r.resume_path
-    : '<span style="color:var(--amber)">⚠ No resume found</span> — upload one to the right';
-}
-
-function envRow(label, ok) {
-  return `<div class="env-row">
-    <span class="env-key">${label}</span>
-    <span class="badge ${ok ? 'badge-green' : 'badge-red'}">${ok ? '✓ Set' : '✗ Missing'}</span>
-  </div>`;
-}
-
-// ── Dashboard stats ───────────────────────────────────────────────────────────
-async function loadDashStats() {
-  const r = await fetch('/api/analytics').then(r => r.json()).catch(() => ({}));
-  const a = r.analytics || {};
-  document.getElementById('s-found').textContent    = a.total_jobs    ?? '0';
-  document.getElementById('s-filtered').textContent = a.tailored      ?? '0';
-  document.getElementById('s-applied').textContent  = a.applied       ?? '0';
-  document.getElementById('s-sent').textContent     = a.applied       ?? '0';
-}
-
-async function loadDashJobs() {
-  const r = await fetch('/api/jobs').then(r => r.json()).catch(() => ({}));
-  const jobs = (r.jobs || []).slice(0, 8);
-  const tbody = document.querySelector('#dash-jobs-table tbody');
-  if (!jobs.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="4">No jobs yet — run the pipeline</td></tr>';
-    return;
-  }
-  tbody.innerHTML = jobs.map(j => `
-    <tr>
-      <td>${j.title || '—'}</td>
-      <td>${j.company || '—'}</td>
-      <td>${scoreBar(j.fit_score)}</td>
-      <td>${statusBadge(j.status)}</td>
-    </tr>`).join('');
-}
-
-// ── Jobs table ────────────────────────────────────────────────────────────────
-async function loadJobs() {
-  const r = await fetch('/api/jobs').then(r => r.json()).catch(() => ({}));
-  const jobs = r.jobs || [];
-  const tbody = document.querySelector('#jobs-table tbody');
-  if (!jobs.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No jobs found yet</td></tr>';
-    return;
-  }
-  tbody.innerHTML = jobs.map(j => `
-    <tr>
-      <td>${j.title || '—'}</td>
-      <td>${j.company || '—'}</td>
-      <td>${j.location || '—'}</td>
-      <td>${scoreBar(j.fit_score)}</td>
-      <td><span class="badge badge-gray">${j.source || '—'}</span></td>
-      <td>${statusBadge(j.status)}</td>
-      <td style="color:var(--muted);font-size:11px">${fmtDate(j.scraped_at)}</td>
-    </tr>`).join('');
-}
-
-// ── Emails table ──────────────────────────────────────────────────────────────
-async function loadEmails() {
-  const r = await fetch('/api/emails').then(r => r.json()).catch(() => ({}));
-  const emails = r.emails || [];
-  const tbody = document.querySelector('#emails-table tbody');
-  if (!emails.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No email drafts yet</td></tr>';
-    return;
-  }
-  tbody.innerHTML = emails.map(e => `
-    <tr>
-      <td style="font-family:var(--mono);font-size:11px">${e.hr_email || '—'}</td>
-      <td>${e.email_subject || '—'}</td>
-      <td>${e.company || '—'}</td>
-      <td>${scoreBar(e.fit_score)}</td>
-      <td>${statusBadge(e.status)}</td>
-    </tr>`).join('');
-}
-
-// ── History table ─────────────────────────────────────────────────────────────
-async function loadHistory() {
-  const r = await fetch('/api/logs').then(r => r.json()).catch(() => ({}));
-  const runs = r.runs || [];
-  const tbody = document.querySelector('#history-table tbody');
-  if (!runs.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No runs yet</td></tr>';
-    return;
-  }
-  tbody.innerHTML = runs.map(run => `
-    <tr>
-      <td style="font-family:var(--mono);font-size:11px">${run.run_id || '—'}</td>
-      <td><span class="badge badge-blue">${run.triggered_by || '—'}</span></td>
-      <td style="color:var(--muted);font-size:11px">${fmtDate(run.started_at)}</td>
-      <td>${run.jobs_found ?? '—'}</td>
-      <td>${run.jobs_applied ?? '—'}</td>
-      <td>${run.emails_sent ?? '—'}</td>
-      <td>${statusBadge(run.status)}</td>
-    </tr>`).join('');
-}
-
-// ── Settings ──────────────────────────────────────────────────────────────────
-async function loadSettings() {
-  const r = await fetch('/api/status').then(r => r.json()).catch(() => ({}));
-  const keys = r.env_keys || {};
-  document.getElementById('settings-env').innerHTML =
-    Object.entries({
-      'GROQ_API_KEY':       keys.GROQ_API_KEY,
-      'TAVILY_API_KEY':     keys.TAVILY_API_KEY,
-      'GEMINI_API_KEY':     keys.GEMINI_API_KEY,
-      'SCRAPINGBEE_API_KEY':keys.SCRAPINGBEE_API_KEY,
-    }).map(([k,v]) => envRow(k, v)).join('');
-
-  document.getElementById('settings-config').innerHTML = [
-    ['AUTO_APPLY',              'false'],
-    ['DRY_RUN',                 'true'],
-    ['MIN_FIT_SCORE',           '50'],
-    ['MAX_EMAILS_PER_RUN',      '10'],
-    ['MAX_APPLICATIONS_PER_DAY','20'],
-  ].map(([k,v]) => `<div style="color:var(--muted)">${k} <span style="color:var(--accent)">${v}</span></div>`).join('');
-}
-
-// ── Pipeline trigger ──────────────────────────────────────────────────────────
-async function runNow() {
-  const btn = document.getElementById('btn-run-now');
-  btn.disabled = true;
-  btn.textContent = '⏳ Running...';
-  const r = await fetch('/api/run-now', {method:'POST'}).then(r=>r.json()).catch(e=>({error:e}));
-  if (r.run_id) {
-    showPipelineCard();
-    listenToRun(r.run_id);
-  } else {
-    toast('Failed to start pipeline: ' + (r.error || 'unknown'), 'var(--red)');
-    btn.disabled = false;
-    btn.textContent = '⚡ Run Now (auto-discover)';
-  }
-}
-
-async function uploadJd(file) {
-  if (!file) return;
-  const fd = new FormData();
-  fd.append('file', file);
-  const r = await fetch('/api/upload-jd', {method:'POST', body:fd}).then(r=>r.json()).catch(e=>({error:e}));
-  if (r.run_id) { showPipelineCard(); listenToRun(r.run_id); toast('JD uploaded — pipeline running'); }
-  else toast('Upload failed: ' + (r.error || 'unknown'), 'var(--red)');
-}
-
-async function pasteJd() {
-  const text = document.getElementById('jd-text').value.trim();
-  if (text.length < 30) { toast('Paste more JD text first', 'var(--amber)'); return; }
-  const r = await fetch('/api/paste-jd', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({jd_text: text})
-  }).then(r=>r.json()).catch(e=>({error:e}));
-  if (r.run_id) { showPipelineCard(); listenToRun(r.run_id); toast('JD received — pipeline running'); }
-  else toast('Failed: ' + (r.error || 'unknown'), 'var(--red)');
-}
-
-async function uploadResume(file) {
-  if (!file) return;
-  toast('Uploading resume...');
-  const fd = new FormData();
-  fd.append('file', file);
-  const r = await fetch('/api/upload-resume', {method:'POST', body:fd}).then(r=>r.json()).catch(e=>({error:e}));
-  if (r.success) { toast('Resume uploaded ✓', 'var(--green)'); loadStatus(); }
-  else toast('Upload failed: ' + (r.error || 'unknown'), 'var(--red)');
-}
-
-// Drag-and-drop helpers
-function handleJdDrop(e) {
-  e.preventDefault();
-  document.getElementById('jd-drop').classList.remove('drag-over');
-  const file = e.dataTransfer.files[0];
-  if (file) uploadJd(file);
-}
-function handleResumeDrop(e) {
-  e.preventDefault();
-  document.getElementById('resume-drop').classList.remove('drag-over');
-  const file = e.dataTransfer.files[0];
-  if (file) uploadResume(file);
-}
-
-// ── SSE pipeline progress ─────────────────────────────────────────────────────
-const STEP_MAP = {
-  init:'discover', discover:'discover', discover_done:'discover',
-  parse:'parse',   parse_done:'parse',
-  score:'score',   score_done:'score',
-  tailor:'tailor', tailor_done:'tailor',
-  email:'email',   email_done:'email',
-  done:'email',    error:'error'
-};
-
-function showPipelineCard() {
-  const card = document.getElementById('pipeline-card');
-  card.style.display = 'block';
-  card.scrollIntoView({behavior:'smooth'});
-  ['discover','parse','score','tailor','email'].forEach(s => {
-    const el = document.getElementById('ps-' + s);
-    el.classList.remove('done','active','error');
-  });
-  document.getElementById('prog-fill').style.width = '0%';
-  document.getElementById('pipeline-log').textContent = 'Starting...';
-}
-
-function listenToRun(runId) {
-  const es = new EventSource('/api/pipeline/stream/' + runId);
-  const steps = ['discover','parse','score','tailor','email'];
-  let lastStep = null;
-
-  es.onmessage = (e) => {
-    const data = JSON.parse(e.data);
-    const pct  = data.pct || 0;
-    const step = STEP_MAP[data.step];
-
-    document.getElementById('prog-fill').style.width = pct + '%';
-    document.getElementById('pipeline-log').textContent = data.msg || '';
-
-    if (step && step !== 'error') {
-      steps.forEach(s => {
-        const el = document.getElementById('ps-' + s);
-        const idx = steps.indexOf(s);
-        const cur = steps.indexOf(step);
-        el.classList.remove('done','active','error');
-        if (idx < cur) el.classList.add('done');
-        else if (idx === cur) el.classList.add('active');
-      });
-    }
-
-    if (data.step === 'done') {
-      steps.forEach(s => document.getElementById('ps-' + s).classList.replace('active','done') || document.getElementById('ps-' + s).classList.add('done'));
-      document.getElementById('prog-fill').style.width = '100%';
-      toast('Pipeline complete ✓', 'var(--green)');
-      document.getElementById('btn-run-now').disabled = false;
-      document.getElementById('btn-run-now').textContent = '⚡ Run Now (auto-discover)';
-      loadDashStats(); loadDashJobs();
-      es.close();
-    }
-    if (data.step === 'error') {
-      toast('Pipeline error: ' + data.msg, 'var(--red)');
-      document.getElementById('btn-run-now').disabled = false;
-      document.getElementById('btn-run-now').textContent = '⚡ Run Now (auto-discover)';
-      es.close();
-    }
-  };
-  es.onerror = () => { es.close(); };
-}
-
-// ── Util ──────────────────────────────────────────────────────────────────────
-function scoreBar(score) {
-  if (score == null) return '—';
-  const color = score >= 75 ? 'var(--green)' : score >= 50 ? 'var(--amber)' : 'var(--red)';
-  return `<div class="score-bar">
-    <div class="score-track"><div class="score-fill" style="width:${score}%;background:${color}"></div></div>
-    <span style="font-size:11px;color:${color};width:28px">${score}</span>
-  </div>`;
-}
-
-function statusBadge(status) {
-  const map = {
-    sent:'badge-green', draft:'badge-blue', ready:'badge-amber',
-    skipped:'badge-gray', found:'badge-gray', failed:'badge-red',
-    running:'badge-blue', completed:'badge-green', error:'badge-red'
-  };
-  return `<span class="badge ${map[status]||'badge-gray'}">${status||'—'}</span>`;
-}
-
-function fmtDate(iso) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleString('en-IN', {
-    month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'
-  });
-}
-
-// ── Init ──────────────────────────────────────────────────────────────────────
-loadStatus();
-loadDashStats();
-loadDashJobs();
-</script>
-</body>
-</html>"""
-
-
-# ── Page ──────────────────────────────────────────────────────────────────────
-@app.route("/")
-def index():
-    return DASHBOARD_HTML
+def _sanitize_company(company) -> str:
+    """Never return None for a company name."""
+    if not company or str(company).strip().lower() in ("none", "null", "n/a", ""):
+        return "Unknown Company"
+    return str(company).strip()
+
+def _infer_roles_from_skills(skills: list[str]) -> list[str]:
+    """Infer likely job roles from a skill set."""
+    skill_lower = {s.lower() for s in skills}
+    roles = []
+
+    ml_keywords = {"machine learning", "scikit-learn", "tensorflow", "pytorch",
+                   "keras", "xgboost", "deep learning", "nlp", "computer vision"}
+    data_keywords = {"pandas", "numpy", "sql", "power bi", "tableau", "excel",
+                     "data analysis", "statistics", "r", "spark"}
+    ai_keywords = {"langchain", "llm", "openai", "gpt", "transformers",
+                   "huggingface", "rag", "vector database"}
+    web_keywords = {"react", "next.js", "node.js", "express", "django", "flask",
+                    "fastapi", "html", "css", "javascript", "typescript"}
+    backend_keywords = {"python", "java", "go", "rust", "c++", "docker",
+                       "kubernetes", "aws", "gcp", "azure", "postgresql", "redis"}
+    devops_keywords = {"docker", "kubernetes", "terraform", "ci/cd", "jenkins",
+                      "github actions", "aws", "gcp"}
+
+    if skill_lower & ml_keywords:
+        roles.extend(["Machine Learning Engineer", "ML Intern"])
+    if skill_lower & data_keywords:
+        roles.extend(["Data Scientist", "Data Analyst"])
+    if skill_lower & ai_keywords:
+        roles.extend(["AI Engineer", "GenAI Engineer"])
+    if skill_lower & web_keywords:
+        roles.extend(["Full Stack Developer", "Frontend Developer"])
+    if skill_lower & backend_keywords:
+        roles.extend(["Backend Engineer", "Software Engineer"])
+    if skill_lower & devops_keywords:
+        roles.append("DevOps Engineer")
+
+    # Deduplicate preserving order
+    seen = set()
+    unique = []
+    for r in roles:
+        if r not in seen:
+            seen.add(r)
+            unique.append(r)
+    return unique or ["Software Engineer"]
+
+
+# ── Match helpers ──────────────────────────────────────────────────────────────
+
+def _load_profile_for_match() -> Profile:
+    """Load candidate profile from profile.json and resume_data."""
+    profile_path = os.getenv("PROFILE_PATH", str(ROOT / "profile.json"))
+    profile = Profile()
+    if os.path.exists(profile_path):
+        try:
+            with open(profile_path) as f:
+                data = json.load(f)
+            profile = Profile(**data)
+        except Exception as e:
+            logger.warning("Failed to load profile: %s", e)
+
+    # Try to enhance with resume data
+    try:
+        resume_data = get_db().get_resume_data()
+        if resume_data:
+            roles = resume_data.get("roles_json", [])
+            if roles and not profile.inferred_roles:
+                profile.inferred_roles = roles if isinstance(roles, list) else []
+            skills = resume_data.get("skills_json", {})
+            if isinstance(skills, dict):
+                for k, v in skills.items():
+                    if k not in profile.skills:
+                        profile.skills[k] = v
+            elif isinstance(skills, list):
+                if "parsed" not in profile.skills:
+                    profile.skills["parsed"] = skills
+    except Exception as e:
+        logger.warning("Failed to load resume data: %s", e)
+
+    return profile
+
+
+def _build_match_service() -> MatchService:
+    """Build a MatchService with profile and resume."""
+    profile = _load_profile_for_match()
+
+    # Try to build Resume model from resume_data
+    resume = None
+    try:
+        resume_data = get_db().get_resume_data()
+        if resume_data and resume_data.get("parsed_json"):
+            parsed = resume_data["parsed_json"]
+            if isinstance(parsed, dict):
+                resume = Resume(**parsed)
+    except Exception as e:
+        logger.warning("Failed to build Resume model: %s", e)
+
+    return MatchService(profile=profile, resume=resume)
 
 
 # ── SSE stream ────────────────────────────────────────────────────────────────
@@ -802,6 +195,34 @@ def pipeline_stream(run_id):
     )
 
 
+def _emit_event(run_id: str, step: str, msg: str, pct: int = 0,
+                agent: str = "", status: str = "running", **extra):
+    """Push an SSE event AND persist it to DB."""
+    ts = datetime.now().isoformat()
+    event = {
+        "step": step, "msg": msg, "pct": pct,
+        "agent": agent, "status": status,
+        "timestamp": ts, **extra
+    }
+    q = _pipeline_queues.get(run_id)
+    if q:
+        q.put(event)
+    # Persist to DB
+    try:
+        get_db().save_pipeline_event(run_id, {
+            "timestamp": ts,
+            "agent": agent,
+            "step": step,
+            "status": status,
+            "message": msg,
+            "duration_ms": extra.get("duration_ms"),
+            "output": extra.get("output"),
+            "error": extra.get("error"),
+        })
+    except Exception as e:
+        logger.warning(f"[app] Failed to persist pipeline event: {e}")
+
+
 def _run_pipeline_thread(run_id: str, job_text: str = None, job_file: str = None):
     """Run orchestrator in background, push SSE events."""
     q = queue.Queue()
@@ -810,68 +231,435 @@ def _run_pipeline_thread(run_id: str, job_text: str = None, job_file: str = None
     def _run():
         try:
             from pipeline.orchestrator import Orchestrator
-            orch = Orchestrator(run_id=run_id)
+            orch = Orchestrator(run_id=run_id, event_callback=_emit_event)
 
-            q.put({"step": "init",    "msg": "Initializing...",          "pct": 5})
-            q.put({"step": "discover","msg": "Searching for jobs...",     "pct": 10})
+            # ── HARD STOP: resume parsing failed or confidence too low ─────────
+            if orch.resume_blocked:
+                q.put({
+                    "step": "blocked",
+                    "pct": 0,
+                    "msg": orch.resume_block_reason,
+                    "blocked": True,
+                    "validation": {
+                        "name": bool(getattr(orch.parsed_resume, "name", None)) if orch.parsed_resume else False,
+                        "skills": bool(getattr(orch.parsed_resume, "skills", [])) if orch.parsed_resume else False,
+                        "experience": bool(getattr(orch.parsed_resume, "experience", [])) if orch.parsed_resume else False,
+                        "education": bool(getattr(orch.parsed_resume, "education", [])) if orch.parsed_resume else False,
+                        "projects": bool(getattr(orch.parsed_resume, "projects", [])) if orch.parsed_resume else False,
+                        "confidence": getattr(orch.parsed_resume, "confidence", 0) if orch.parsed_resume else 0,
+                    },
+                })
+                get_db().update_run_log(
+                    run_id,
+                    status="blocked",
+                    errors_count=1,
+                    summary={"status": "blocked", "reason": orch.resume_block_reason},
+                )
+                logger.warning(f"[app] Pipeline BLOCKED: {orch.resume_block_reason}")
+                return  # <-- STOP. Do not run pipeline.
 
+            _emit_event(run_id, "init", "Initializing pipeline...", 5, "orchestrator")
+            _emit_event(run_id, "discover", "Searching for jobs...", 10, "web_research")
+
+            t0 = time.time()
             results = orch.run_full_pipeline(
-                triggered_by = "manual" if (job_text or job_file) else "scheduled",
-                job_text     = job_text,
-                job_file     = job_file,
+                triggered_by="manual" if (job_text or job_file) else "scheduled",
+                job_text=job_text,
+                job_file=job_file,
             )
+            total_ms = int((time.time() - t0) * 1000)
 
-            # Push progress milestones based on results
-            q.put({"step": "discover_done", "pct": 30,
-                   "msg": f"Found {results.get('jobs_found', 0)} jobs",
-                   "count": results.get("jobs_found", 0)})
-            q.put({"step": "parse_done",    "pct": 50,
-                   "msg": f"Filtered to {results.get('jobs_filtered', 0)} new jobs"})
-            q.put({"step": "tailor_done",   "pct": 75,
-                   "msg": f"Tailored {results.get('jobs_applied', 0)} applications"})
-            q.put({"step": "email_done",    "pct": 90,
-                   "msg": f"Prepared {results.get('jobs_applied', 0)} draft(s)"})
+            _emit_event(run_id, "discover_done",
+                       f"Found {results.get('jobs_found', 0)} jobs",
+                       30, "web_research", "done",
+                       count=results.get("jobs_found", 0))
+            _emit_event(run_id, "parse_done",
+                       f"Filtered to {results.get('jobs_filtered', 0)} new jobs",
+                       50, "resume_parser", "done")
+            _emit_event(run_id, "score_done",
+                       f"Scored and ranked jobs",
+                       60, "fit_scorer", "done")
+            _emit_event(run_id, "tailor_done",
+                       f"Tailored {results.get('jobs_applied', 0)} applications",
+                       75, "job_application", "done")
+            _emit_event(run_id, "email_done",
+                       f"Prepared {results.get('jobs_applied', 0)} draft(s)",
+                       90, "email_drafting", "done")
 
             get_db().update_run_log(
                 run_id,
-                jobs_found    = results.get("jobs_found", 0),
-                jobs_filtered = results.get("jobs_filtered", 0),
-                jobs_applied  = results.get("jobs_applied", 0),
-                emails_sent   = results.get("emails_sent", 0),
-                errors_count  = len(results.get("errors", [])),
-                status        = results.get("status", "completed"),
-                summary       = results,
+                jobs_found=results.get("jobs_found", 0),
+                jobs_filtered=results.get("jobs_filtered", 0),
+                jobs_applied=results.get("jobs_applied", 0),
+                emails_sent=results.get("emails_sent", 0),
+                errors_count=len(results.get("errors", [])),
+                status=results.get("status", "completed"),
+                summary=results,
             )
             orch.save_run_summary()
 
-            q.put({"step": "done", "msg": "Pipeline complete!", "pct": 100, "results": results})
+            _emit_event(run_id, "done", "Pipeline complete!", 100,
+                       "orchestrator", "done", duration_ms=total_ms,
+                       results=results)
 
         except Exception as e:
             logger.error(f"[app] Pipeline thread error: {e}", exc_info=True)
-            q.put({"step": "error", "msg": str(e), "pct": 0})
+            _emit_event(run_id, "error", str(e), 0, "orchestrator", "error",
+                       error=str(e))
 
     threading.Thread(target=_run, daemon=True).start()
 
 
+# ── Dashboard ─────────────────────────────────────────────────────────────────
+
+@app.route("/")
+def dashboard():
+    return render_template("index.html")
+
+
 # ── API Routes ────────────────────────────────────────────────────────────────
+
 @app.route("/api/status")
 def api_status():
-    groq_key    = os.getenv("GROQ_API_KEY", "")
-    tavily_key  = os.getenv("TAVILY_API_KEY", "")
-    resume_path = os.getenv("MASTER_RESUME_PDF", str(ROOT / "resume/master_resume.pdf"))
+    groq_key       = os.getenv("GROQ_API_KEY", "")
+    tavily_key     = os.getenv("TAVILY_API_KEY", "")
+    resume_path    = os.getenv("MASTER_RESUME_PDF", str(ROOT / "resume/master_resume.pdf"))
+    apollo_key     = os.getenv("APOLLO_API_KEY", "")
+    hunter_key     = os.getenv("HUNTER_API_KEY", "")
+    clearbit_key   = os.getenv("CLEARBIT_API_KEY", "")
+    scrapingbee_key = os.getenv("SCRAPINGBEE_API_KEY", "")
+    gemini_key     = os.getenv("GEMINI_API_KEY", "")
+
+    resume_data = None
+    try:
+        resume_data = get_db().get_resume_data()
+    except Exception:
+        pass
+
+    # Email status via EmailSender (checks both Resend and Gmail)
+    try:
+        from email_module.sender import EmailSender
+        sender = EmailSender()
+        ps = sender.provider_status()
+        email_configured = ps.get("can_send", False)
+        email_provider = ps.get("active_provider")
+        email_account = ps.get("gmail", {}).get("account") or os.getenv("FROM_EMAIL")
+        gmail_status = ps.get("gmail", {}).get("authenticated", False)
+    except Exception:
+        email_configured = False
+        email_provider = None
+        email_account = None
+        gmail_status = False
+
     return jsonify({
         "status":           "online",
         "timestamp":        datetime.now().isoformat(),
         "resume_uploaded":  os.path.exists(resume_path),
+        "resume_parsed":    bool(resume_data and resume_data.get("parse_status") == "success"),
         "resume_path":      resume_path if os.path.exists(resume_path) else None,
+        "recruiters_count": len(get_db().get_all_recruiters()),
         "env_keys": {
             "GROQ_API_KEY":        bool(groq_key   and groq_key   != "gsk_xxxxxxxxxxxxx"),
             "TAVILY_API_KEY":      bool(tavily_key and tavily_key != "tvly_xxxxxxxxxxxxx"),
-            "GEMINI_API_KEY":      bool(os.getenv("GEMINI_API_KEY")),
-            "SCRAPINGBEE_API_KEY": bool(os.getenv("SCRAPINGBEE_API_KEY")),
+            "GEMINI_API_KEY":      bool(gemini_key),
+            "SCRAPINGBEE_API_KEY": bool(scrapingbee_key),
+            "APOLLO_API_KEY":      bool(apollo_key),
+            "CLEARBIT_API_KEY":    bool(clearbit_key),
+            "HUNTER_API_KEY":      bool(hunter_key),
+        },
+        "email": {
+            "configured": email_configured,
+            "from_email": email_account,
+            "provider": email_provider,
+            "gmail_status": "connected" if gmail_status else "not_authenticated",
+            "health": (
+                "healthy" if email_configured else
+                "missing_configuration"
+            ),
+        },
+        "recruiter_discovery": {
+            "apollo": bool(apollo_key),
+            "hunter": bool(hunter_key),
+            "clearbit": bool(clearbit_key),
+            "active": bool(apollo_key or hunter_key or clearbit_key),
         },
     })
 
+
+@app.route("/api/config")
+def api_config():
+    """Return pipeline config flags — for dry run banner, etc."""
+    return jsonify({
+        "dry_run":          os.getenv("DRY_RUN", "true").lower() == "true",
+        "auto_apply":       os.getenv("AUTO_APPLY", "false").lower() == "true",
+        "min_fit_score":    int(os.getenv("MIN_FIT_SCORE", "50")),
+        "max_emails_per_run": int(os.getenv("MAX_EMAILS_PER_RUN", "10")),
+        "max_per_day":      int(os.getenv("MAX_APPLICATIONS_PER_DAY", "20")),
+        "scheduler_enabled": os.getenv("SCHEDULER_ENABLED", "true").lower() == "true",
+        "scheduler_cron":   os.getenv("SCHEDULER_CRON", "0 9,12,15,18 * * *"),
+    })
+
+
+# ── Resume endpoints ─────────────────────────────────────────────────────────
+
+@app.route("/api/upload-resume", methods=["POST"])
+def api_upload_resume():
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    file = request.files["file"]
+    if not file.filename or not _allowed(file.filename, ALLOWED_RESUME):
+        return jsonify({"error": "Allowed: PDF, DOCX, TXT"}), 400
+
+    ext        = _ext(file.filename)
+    resume_dir = ROOT / "resume"
+    resume_dir.mkdir(parents=True, exist_ok=True)
+    name_map   = {"pdf": "master_resume.pdf", "docx": "master_resume.docx",
+                  "doc": "master_resume.docx", "txt": "master_resume.txt"}
+    save_path  = resume_dir / name_map.get(ext, "master_resume.txt")
+    file.save(save_path)
+    upload_time = datetime.now().isoformat()
+    file_size = os.path.getsize(save_path)
+    logger.info(f"[app] Resume saved: {save_path}")
+
+    result = {
+        "success": True,
+        "path": str(save_path),
+        "filename": file.filename,
+        "size": file_size,
+        "uploaded_at": upload_time,
+    }
+
+    # Parse resume
+    parsed = None
+    try:
+        from agents.resume_parser_agent import ResumeParserAgent
+        parsed = ResumeParserAgent().parse_file(str(save_path))
+        result["parsed"] = parsed.model_dump() if parsed else {}
+        result["parse_status"] = "success"
+    except Exception as e:
+        logger.warning(f"[app] Resume parse on upload failed: {e}")
+        result["parse_error"] = str(e)
+        result["parse_status"] = "failed"
+
+    # Infer roles from parsed skills
+    global _inferred_roles, _search_strategy
+    skills = parsed.skills if parsed else []
+    _inferred_roles = _infer_roles_from_skills(skills)
+
+    # Build search strategy
+    _search_strategy = {
+        "roles": _inferred_roles,
+        "locations": ["India", "Remote"],
+        "keywords": skills[:10],
+        "query": _build_search_query(_inferred_roles, skills),
+    }
+
+    # Persist to DB
+    health = {
+        "resume_parsed": result.get("parse_status") == "success",
+        "profile_generated": len(_inferred_roles) > 0,
+        "embedding_created": result.get("parse_status") == "success",
+        "ready_for_search": result.get("parse_status") == "success" and len(_inferred_roles) > 0,
+    }
+    try:
+        get_db().save_resume_data({
+            "filename": file.filename,
+            "file_size": file_size,
+            "uploaded_at": upload_time,
+            "parsed_at": datetime.now().isoformat(),
+            "parse_status": result.get("parse_status", "pending"),
+            "parsed_json": parsed.model_dump() if parsed else {},
+            "skills_json": skills,
+            "roles_json": _inferred_roles,
+            "health": health,
+        })
+    except Exception as e:
+        logger.warning(f"[app] Failed to persist resume data: {e}")
+
+    result["inferred_roles"] = _inferred_roles
+    result["health"] = health
+    return jsonify(result)
+
+
+def _build_search_query(roles: list[str], skills: list[str]) -> str:
+    role_part = " OR ".join(f'"{r}"' for r in roles[:4])
+    skill_part = " ".join(skills[:5])
+    return f"({role_part}) {skill_part} India OR Remote Entry Level Internship"
+
+
+@app.route("/api/resume-status")
+def api_resume_status():
+    resume_dir = ROOT / "resume"
+    for name in ["master_resume.pdf", "master_resume.docx", "master_resume.txt"]:
+        path = resume_dir / name
+        if path.exists():
+            return jsonify({
+                "uploaded": True, "path": str(path), "filename": name,
+                "size": path.stat().st_size,
+                "modified": datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
+            })
+    return jsonify({"uploaded": False})
+
+
+@app.route("/api/resume/parsed")
+def api_resume_parsed():
+    """Return full parsed resume data with consistent structure."""
+    data = get_db().get_resume_data()
+
+    # If DB has valid parsed data, return it
+    if data and data.get("parse_status") == "success":
+        parsed_json = data.get("parsed_json") or {}
+        skills_json = data.get("skills_json") or parsed_json.get("skills", [])
+        roles_json = data.get("roles_json") or parsed_json.get("roles", [])
+        return jsonify({
+            "success": True,
+            "filename": data.get("filename"),
+            "file_size": data.get("file_size"),
+            "uploaded_at": data.get("uploaded_at"),
+            "parse_status": "success",
+            "parsed_json": parsed_json,
+            "skills_json": skills_json,
+            "roles_json": roles_json,
+        })
+
+    # DB data is stale/failed or missing — re-parse from disk
+    resume_dir = ROOT / "resume"
+    for name in ["master_resume.pdf", "master_resume.docx", "master_resume.txt"]:
+        path = resume_dir / name
+        if path.exists():
+            try:
+                from agents.resume_parser_agent import ResumeParserAgent
+                parsed = ResumeParserAgent().parse_file(str(path))
+                resume_dict = parsed.model_dump() if parsed else {}
+                # Persist successful parse to DB
+                try:
+                    get_db().save_resume_data({
+                        "filename": name,
+                        "file_size": path.stat().st_size,
+                        "uploaded_at": datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
+                        "parsed_at": datetime.now().isoformat(),
+                        "parse_status": "success",
+                        "parsed_json": resume_dict,
+                        "skills_json": parsed.skills if parsed else [],
+                        "roles_json": parsed.roles if parsed else [],
+                        "health": {"resume_parsed": True, "profile_generated": True, "embedding_created": True, "ready_for_search": True},
+                    })
+                except Exception as e:
+                    logger.warning(f"[app] Failed to persist re-parsed resume: {e}")
+                return jsonify({
+                    "success": True,
+                    "filename": name,
+                    "file_size": path.stat().st_size,
+                    "uploaded_at": datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
+                    "parse_status": "success",
+                    "parsed_json": resume_dict,
+                    "skills_json": parsed.skills if parsed else [],
+                    "roles_json": parsed.roles if parsed else [],
+                })
+            except Exception as e:
+                return jsonify({"success": False, "error": str(e)}), 500
+
+    return jsonify({"success": False, "error": "No resume uploaded"}), 404
+
+
+@app.route("/api/resume/health")
+def api_resume_health():
+    """Return resume health checks."""
+    data = get_db().get_resume_data()
+    if data and data.get("health_json"):
+        return jsonify({"success": True, "health": data["health_json"]})
+
+    # Compute from current state
+    resume_path = os.getenv("MASTER_RESUME_PDF", str(ROOT / "resume/master_resume.pdf"))
+    uploaded = os.path.exists(resume_path)
+    return jsonify({
+        "success": True,
+        "health": {
+            "resume_parsed": uploaded and bool(data),
+            "profile_generated": bool(_inferred_roles),
+            "embedding_created": uploaded and bool(data),
+            "ready_for_search": uploaded and bool(_inferred_roles),
+        }
+    })
+
+
+# ── Profile endpoints ─────────────────────────────────────────────────────────
+
+@app.route("/api/profile", methods=["GET"])
+def api_profile_get():
+    """Return profile.json + inferred roles."""
+    profile_path = os.getenv("PROFILE_PATH", str(ROOT / "profile.json"))
+    if not os.path.exists(profile_path):
+        return jsonify({"error": "profile.json not found"}), 404
+    with open(profile_path) as f:
+        profile = json.load(f)
+    profile["inferred_roles"] = _inferred_roles or profile.get("job_preferences", {}).get("target_roles", [])
+    return jsonify({"success": True, "profile": profile})
+
+
+@app.route("/api/profile", methods=["PUT"])
+def api_profile_update():
+    """Update profile preferences."""
+    data = request.get_json() or {}
+    profile_path = os.getenv("PROFILE_PATH", str(ROOT / "profile.json"))
+    if not os.path.exists(profile_path):
+        return jsonify({"error": "profile.json not found"}), 404
+
+    with open(profile_path) as f:
+        profile = json.load(f)
+
+    # Merge updates
+    if "target_roles" in data:
+        profile.setdefault("job_preferences", {})["target_roles"] = data["target_roles"]
+    if "target_locations" in data:
+        profile.setdefault("job_preferences", {})["target_locations"] = data["target_locations"]
+    if "remote_ok" in data:
+        profile.setdefault("job_preferences", {})["remote_ok"] = data["remote_ok"]
+    if "personal" in data:
+        profile["personal"] = {**profile.get("personal", {}), **data["personal"]}
+
+    with open(profile_path, "w") as f:
+        json.dump(profile, f, indent=2)
+
+    return jsonify({"success": True, "profile": profile})
+
+
+# ── Search strategy ───────────────────────────────────────────────────────────
+
+@app.route("/api/search-strategy")
+def api_search_strategy():
+    """Return current search strategy derived from resume."""
+    if _search_strategy:
+        return jsonify({"success": True, "strategy": _search_strategy})
+
+    # Fallback to profile.json
+    profile_path = os.getenv("PROFILE_PATH", str(ROOT / "profile.json"))
+    if os.path.exists(profile_path):
+        with open(profile_path) as f:
+            profile = json.load(f)
+        prefs = profile.get("job_preferences", {})
+        skills = profile.get("skills", {})
+        all_skills = (
+            skills.get("languages", []) +
+            skills.get("frameworks", []) +
+            skills.get("tools", [])
+        )
+        roles = prefs.get("target_roles", ["Software Engineer"])
+        return jsonify({
+            "success": True,
+            "strategy": {
+                "roles": roles,
+                "locations": prefs.get("target_locations", ["Remote"]),
+                "keywords": all_skills[:10],
+                "query": _build_search_query(roles, all_skills),
+                "source": "profile.json (no resume parsed yet)",
+            }
+        })
+
+    return jsonify({"success": False, "error": "No strategy available"}), 404
+
+
+# ── Pipeline ──────────────────────────────────────────────────────────────────
 
 @app.route("/api/run-now", methods=["POST"])
 def api_run_now():
@@ -902,8 +690,8 @@ def api_upload_jd():
 
 @app.route("/api/paste-jd", methods=["POST"])
 def api_paste_jd():
-    data     = request.get_json() or {}
-    jd_text  = data.get("jd_text", "").strip()
+    data    = request.get_json() or {}
+    jd_text = data.get("jd_text", "").strip()
     if len(jd_text) < 30:
         return jsonify({"error": "JD text too short (min 30 chars)"}), 400
 
@@ -913,66 +701,154 @@ def api_paste_jd():
     return jsonify({"success": True, "run_id": run_id})
 
 
-@app.route("/api/upload-resume", methods=["POST"])
-def api_upload_resume():
-    if "file" not in request.files:
-        return jsonify({"error": "No file provided"}), 400
-    file = request.files["file"]
-    if not file.filename or not _allowed(file.filename, ALLOWED_RESUME):
-        return jsonify({"error": "Allowed: PDF, DOCX, TXT"}), 400
-
-    ext        = _ext(file.filename)
-    resume_dir = ROOT / "resume"
-    resume_dir.mkdir(parents=True, exist_ok=True)
-    name_map   = {"pdf": "master_resume.pdf", "docx": "master_resume.docx",
-                  "doc": "master_resume.docx", "txt": "master_resume.txt"}
-    save_path  = resume_dir / name_map.get(ext, "master_resume.txt")
-    file.save(save_path)
-    logger.info(f"[app] Resume saved: {save_path}")
-
-    result = {"success": True, "path": str(save_path), "size": os.path.getsize(save_path)}
-    try:
-        from agents.resume_parser_agent import ResumeParserAgent
-        parsed         = ResumeParserAgent().parse_file(str(save_path))
-        result["parsed"] = parsed
-    except Exception as e:
-        logger.warning(f"[app] Resume parse on upload failed: {e}")
-        result["parse_error"] = str(e)
-
-    return jsonify(result)
+@app.route("/api/pipeline/logs/<run_id>")
+def api_pipeline_logs(run_id):
+    """Return all pipeline events for a run."""
+    events = get_db().get_pipeline_events(run_id)
+    return jsonify({"success": True, "events": events, "total": len(events)})
 
 
-@app.route("/api/resume-status")
-def api_resume_status():
-    resume_dir = ROOT / "resume"
-    for name in ["master_resume.pdf", "master_resume.docx", "master_resume.txt"]:
-        path = resume_dir / name
-        if path.exists():
-            return jsonify({
-                "uploaded": True, "path": str(path), "filename": name,
-                "size": path.stat().st_size,
-                "modified": datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
-            })
-    return jsonify({"uploaded": False})
-
+# ── Jobs ──────────────────────────────────────────────────────────────────────
 
 @app.route("/api/jobs")
 def api_jobs():
     try:
         jobs = get_db().get_all_jobs(limit=100)
+        # Sanitize company names
+        for j in jobs:
+            j["company"] = _sanitize_company(j.get("company"))
         return jsonify({"success": True, "jobs": jobs, "total": len(jobs)})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/jobs/<int:job_id>")
+def api_job_detail(job_id):
+    """Return full job details — triggers match analysis if not cached."""
+    job = get_db().get_job_by_id(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    job["company"] = _sanitize_company(job.get("company"))
+
+    # Parse match details if stored
+    match_details = None
+    if job.get("match_details_json"):
+        try:
+            match_details = json.loads(job["match_details_json"])
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    # If no match details yet, compute on the fly
+    if not match_details or "final_score" not in match_details:
+        try:
+            service = _build_match_service()
+            required_skills_raw = job.get("required_skills", [])
+            if isinstance(required_skills_raw, str):
+                try:
+                    required_skills = json.loads(required_skills_raw)
+                except (json.JSONDecodeError, TypeError):
+                    required_skills = [s.strip() for s in required_skills_raw.split(",") if s.strip()]
+            elif isinstance(required_skills_raw, list):
+                required_skills = required_skills_raw
+            else:
+                required_skills = []
+
+            analysis = service.analyze(
+                job_id=job_id,
+                job_title=job.get("title", ""),
+                job_location=job.get("location", ""),
+                jd_text=job.get("jd_text", ""),
+                required_skills=required_skills,
+            )
+
+            match_json = service.to_json(analysis)
+            get_db().update_job_match(job_id, match_json, fit_score=int(analysis.final_score))
+            match_details = json.loads(match_json)
+        except Exception as e:
+            logger.warning("Background match failed for job %s: %s", job_id, e)
+
+    return jsonify({
+        "success": True,
+        "job": job,
+        "match": match_details,
+    })
+
+
+@app.route("/api/jobs/<int:job_id>/match")
+def api_job_match(job_id):
+    """Return unified MatchAnalysis — single source of truth for scoring."""
+    job = get_db().get_job_by_id(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    # Try stored match details (from pipeline)
+    if job.get("match_details_json"):
+        try:
+            details = json.loads(job["match_details_json"])
+            # If stored as MatchAnalysis, return it
+            if "final_score" in details or "skill_match" in details:
+                return jsonify({"success": True, "match": details})
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    # Compute on the fly using MatchService
+    try:
+        service = _build_match_service()
+        required_skills_raw = job.get("required_skills", [])
+        if isinstance(required_skills_raw, str):
+            try:
+                required_skills = json.loads(required_skills_raw)
+            except (json.JSONDecodeError, TypeError):
+                required_skills = [s.strip() for s in required_skills_raw.split(",") if s.strip()]
+        elif isinstance(required_skills_raw, list):
+            required_skills = required_skills_raw
+        else:
+            required_skills = []
+
+        analysis = service.analyze(
+            job_id=job_id,
+            job_title=job.get("title", ""),
+            job_location=job.get("location", ""),
+            jd_text=job.get("jd_text", ""),
+            required_skills=required_skills,
+        )
+
+        # Persist to DB for future use
+        match_json = service.to_json(analysis)
+        db = get_db()
+        db.update_job_match(job_id, match_json, fit_score=int(analysis.final_score))
+
+        return jsonify({
+            "success": True,
+            "match": json.loads(match_json),
+        })
+    except Exception as e:
+        logger.error("Match analysis failed: %s", e)
+        # Fallback: return stored fit_score
+        return jsonify({
+            "success": True,
+            "match": {
+                "final_score": job.get("fit_score", 0) or 0,
+                "recommendation": "Apply" if (job.get("fit_score", 0) or 0) >= 70 else ("Consider" if (job.get("fit_score", 0) or 0) >= 50 else "Skip"),
+                "explanation": "Match analysis temporarily unavailable",
+            }
+        })
+
+
+# ── Emails ────────────────────────────────────────────────────────────────────
+
 @app.route("/api/emails")
 def api_emails():
     try:
         emails = get_db().get_unsent_emails()
+        for e in emails:
+            e["company"] = _sanitize_company(e.get("company"))
         return jsonify({"success": True, "emails": emails, "total": len(emails)})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+# ── History ───────────────────────────────────────────────────────────────────
 
 @app.route("/api/logs")
 def api_logs():
@@ -983,35 +859,484 @@ def api_logs():
         return jsonify({"error": str(e)}), 500
 
 
+# ── Recruiters ────────────────────────────────────────────────────────────────
+
+@app.route("/api/recruiters")
+def api_recruiters():
+    """Return discovered recruiters with confidence and API status."""
+    try:
+        recruiters = get_db().get_all_recruiters()
+        api_status = {
+            "clearbit": bool(os.getenv("CLEARBIT_API_KEY")),
+            "hunter": bool(os.getenv("HUNTER_API_KEY")),
+        }
+        warnings = []
+        if not api_status["clearbit"]:
+            warnings.append("Clearbit API Missing — Limited company discovery")
+        if not api_status["hunter"]:
+            warnings.append("Hunter API Missing — Limited email discovery")
+        if not api_status["clearbit"] and not api_status["hunter"]:
+            warnings.append("Running in Limited Discovery Mode")
+
+        return jsonify({
+            "success": True,
+            "recruiters": recruiters,
+            "total": len(recruiters),
+            "api_status": api_status,
+            "warnings": warnings,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Analytics ─────────────────────────────────────────────────────────────────
+
 @app.route("/api/analytics")
 def api_analytics():
     try:
         db       = get_db()
         all_jobs = db.get_all_jobs(limit=1000)
         runs     = db.get_recent_run_logs(limit=50)
+        startups = db.get_startup_companies(limit=1000)
+        tracker  = db.get_application_tracker(limit=1000)
         total    = len(all_jobs)
-        applied  = sum(1 for j in all_jobs if j.get("status") == "sent")
-        tailored = sum(1 for j in all_jobs if j.get("status") in ("sent", "draft", "ready"))
-        avg      = sum(j.get("fit_score") or 0 for j in all_jobs) / max(total, 1)
-        sources  = {}
+
+        # Distinguish drafted vs submitted
+        drafted  = sum(1 for j in all_jobs if j.get("status") in ("sent", "draft", "ready"))
+        submitted = sum(1 for j in all_jobs if j.get("status") == "sent")
+        emails_drafted = drafted
+        emails_sent = submitted
+
+        avg = sum(j.get("fit_score") or 0 for j in all_jobs) / max(total, 1)
+        sources = {}
         for j in all_jobs:
             src = j.get("source", "unknown")
             sources[src] = sources.get(src, 0) + 1
+
+        tracker_sources = {}
+        status_counts = {}
+        followups_due = 0
+        interview_count = 0
+        offer_count = 0
+        response_count = 0
+        for item in tracker:
+            source = item.get("source", "unknown")
+            tracker_sources[source] = tracker_sources.get(source, 0) + 1
+            status = (item.get("application_status") or "saved").lower()
+            status_counts[status] = status_counts.get(status, 0) + 1
+            if status == "follow_up_due":
+                followups_due += 1
+            if status == "interview":
+                interview_count += 1
+            if status == "offer":
+                offer_count += 1
+            if status in ("interview", "offer", "rejected"):
+                response_count += 1
+
+        dry_run = os.getenv("DRY_RUN", "true").lower() == "true"
+        referral_contacts = len(db.get_company_contacts(limit=1000))
+
         return jsonify({"success": True, "analytics": {
-            "total_jobs": total, "applied": applied, "tailored": tailored,
-            "avg_score": round(avg, 1), "total_runs": len(runs),
+            "total_jobs": total,
+            "applications_drafted": drafted,
+            "applications_submitted": submitted,
+            "emails_drafted": emails_drafted,
+            "emails_sent": emails_sent,
+            "avg_score": round(avg, 1),
+            "total_runs": len(runs),
             "source_distribution": sources,
+            "startup_matches": len(startups),
+            "referral_opportunities": referral_contacts,
+            "official_careers_applications": sum(1 for j in all_jobs if (j.get("source") or "").lower() in ("company_careers", "greenhouse", "lever", "ashby", "workday")),
+            "followups_due": followups_due,
+            "interviews_scheduled": interview_count,
+            "offers_received": offer_count,
+            "applications_by_source": tracker_sources,
+            "application_status_breakdown": status_counts,
+            "referral_success_rate": round((interview_count / max(referral_contacts, 1)) * 100, 1),
+            "interview_conversion_rate": round((interview_count / max(len(tracker), 1)) * 100, 1),
+            "company_response_rate": round((response_count / max(len(tracker), 1)) * 100, 1),
+            "average_time_to_first_response_days": 0,
+            "dry_run": dry_run,
         }})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
+# ── Startup Discovery ────────────────────────────────────────────────────────
+
+@app.route("/api/startups", methods=["GET"])
+def api_startups_list():
+    try:
+        limit = int(request.args.get("limit", 20))
+        startups = get_db().get_startup_companies(limit=limit)
+        return jsonify({"success": True, "startups": startups, "total": len(startups)})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/startups/discover", methods=["POST"])
+def api_startups_discover():
+    try:
+        limit = int((request.get_json(silent=True) or {}).get("limit", 20))
+        startups = _startup_service.discover(limit=limit)
+        for startup in startups:
+            get_db().save_pipeline_event(startup.get("discovered_at", datetime.now().isoformat())[:19].replace("T", "-"), {
+                "timestamp": startup.get("discovered_at", datetime.now().isoformat()),
+                "agent": "startup_discovery",
+                "step": "startup_discovered",
+                "status": "done",
+                "message": f"Startup discovered: {startup.get('company')}",
+                "output": startup,
+            })
+        return jsonify({"success": True, "startups": startups, "total": len(startups)})
+    except Exception as e:
+        logger.error("[app] Startup discovery failed: %s", e, exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/startups/<company>/contacts", methods=["GET"])
+def api_startup_contacts(company: str):
+    try:
+        limit = int(request.args.get("limit", 6))
+        contacts = _startup_service.discover_contacts(company, limit=limit)
+        for contact in contacts:
+            get_db().save_pipeline_event(datetime.now().isoformat(), {
+                "timestamp": datetime.now().isoformat(),
+                "agent": "apollo",
+                "step": "recruiter_found",
+                "status": "done",
+                "message": f"Recruiter found: {contact.get('name')} at {company}",
+                "output": contact,
+            })
+        return jsonify({"success": True, "company": company, "contacts": contacts, "total": len(contacts)})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/startups/<company>/message", methods=["POST"])
+def api_startup_message(company: str):
+    try:
+        data = request.get_json(silent=True) or {}
+        contact_name = data.get("contact_name") or company
+        message = _startup_service.generate_linkedin_message(company, contact_name, data.get("project_hint"))
+        get_db().save_pipeline_event(datetime.now().isoformat(), {
+            "timestamp": datetime.now().isoformat(),
+            "agent": "outreach",
+            "step": "linkedin_message_generated",
+            "status": "done",
+            "message": f"LinkedIn message generated for {contact_name} at {company}",
+            "output": {"company": company, "contact_name": contact_name, "message": message},
+        })
+        return jsonify({"success": True, "company": company, "contact_name": contact_name, "message": message})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/applications", methods=["GET", "POST"])
+def api_application_tracker():
+    try:
+        if request.method == "POST":
+            data = request.get_json(silent=True) or {}
+            tracker = _startup_service.create_application_tracker_entry(data)
+            get_db().save_pipeline_event(datetime.now().isoformat(), {
+                "timestamp": datetime.now().isoformat(),
+                "agent": "application_tracker",
+                "step": "application_tracked",
+                "status": "done",
+                "message": f"Application tracked for {tracker.get('company')} - {tracker.get('role')}",
+                "output": tracker,
+            })
+            return jsonify({"success": True, "application": tracker})
+
+        items = _startup_service.get_tracker()
+        return jsonify({"success": True, "applications": items, "total": len(items)})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/applications/followups", methods=["GET"])
+def api_application_followups():
+    try:
+        items = _startup_service.get_followups_due()
+        return jsonify({"success": True, "applications": items, "total": len(items)})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ── Email Status & Test ──────────────────────────────────────────────────────
+
+@app.route("/api/email/status")
+def api_email_status():
+    """Return email provider configuration status using EmailSender."""
+    try:
+        from email_module.sender import EmailSender
+        sender = EmailSender()
+        ps = sender.provider_status()
+        resend_configured = ps.get("resend", {}).get("configured", False)
+        gs = ps.get("gmail", {})
+        gmail_configured = gs.get("authenticated", False)
+        gmail_account = gs.get("account") or os.getenv("FROM_EMAIL")
+        gmail_status = "connected" if gmail_configured else "not_authenticated"
+        configured = ps.get("can_send", False)
+        provider = ps.get("active_provider")
+    except Exception as e:
+        logger.warning(f"[app] EmailSender error: {e}")
+        resend_configured = False
+        gmail_configured = bool(os.path.exists(os.getenv("GMAIL_CREDENTIALS_PATH", "./email/credentials.json")))
+        gmail_account = None
+        gmail_status = "error"
+        configured = gmail_configured
+        provider = "gmail" if gmail_configured else None
+
+    return jsonify({
+        "success": True,
+        "configured": configured,
+        "provider": provider,
+        "from_email": gmail_account or os.getenv("FROM_EMAIL"),
+        "resend_configured": resend_configured,
+        "gmail": {
+            "configured": gmail_configured,
+            "account": gmail_account,
+            "status": gmail_status,
+            "has_credentials": gs.get("credentials", False) if isinstance(gs, dict) else False,
+            "has_token": gs.get("token", False) if isinstance(gs, dict) else False,
+            "token_expired": False,
+        },
+    })
+
+
+@app.route("/api/email/test", methods=["POST"])
+def api_email_test():
+    """Send a test email to verify provider configuration."""
+    try:
+        body = request.get_json(silent=True) or {}
+        to = body.get("to") or os.getenv("FROM_EMAIL")
+
+        # Try Gmail first
+        gmail = get_gmail_service()
+        if gmail.is_ready():
+            result = gmail.send_test(to=to)
+            return jsonify(result)
+
+        # Fallback to Resend
+        from email_module.sender import EmailSender
+        sender = EmailSender()
+        result = sender.send_test(to=to)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ── Granular Email Health (for Settings page diagnostics) ─────────────────────
+
+@app.route("/api/email-status")
+def api_email_diagnostics():
+    """Granular email health check for Settings page."""
+    try:
+        from email_module.sender import EmailSender
+        sender = EmailSender()
+        return jsonify({"success": True, **sender.provider_status()})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/email-test", methods=["POST"])
+def api_email_diagnostics_test():
+    """'Send Test Email' button on Settings page."""
+    try:
+        from email_module.sender import EmailSender
+        data = request.get_json(silent=True) or {}
+        to   = data.get("to")
+        sender = EmailSender()
+        result = sender.send_test(to=to)
+        return jsonify({"success": result["success"], **result})
+    except Exception as e:
+        logger.error(f"[app] Email test failed: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ── Gmail OAuth ───────────────────────────────────────────────────────────────
+
+@app.route("/api/gmail/auth-url", methods=["GET"])
+def api_gmail_auth_url():
+    """Generate Google OAuth authorization URL."""
+    gmail = get_gmail_service()
+    if not gmail.has_credentials_file:
+        return jsonify({
+            "success": False,
+            "error": "Gmail credentials not found. Set GMAIL_CREDENTIALS_PATH.",
+        }), 400
+
+    redirect_uri = request.host_url.rstrip("/") + "/api/gmail/callback"
+    auth_url, error = gmail.get_auth_url(redirect_uri)
+    if error:
+        return jsonify({"success": False, "error": error}), 500
+
+    return jsonify({"success": True, "auth_url": auth_url})
+
+
+@app.route("/api/gmail/callback", methods=["GET"])
+def api_gmail_callback():
+    """Handle Gmail OAuth callback — exchange code for token."""
+    code = request.args.get("code")
+    state = request.args.get("state")
+    error = request.args.get("error")
+
+    if error:
+        return jsonify({"success": False, "error": f"Google returned error: {error}"})
+
+    if not code:
+        return jsonify({"success": False, "error": "No authorization code received"}), 400
+
+    redirect_uri = request.host_url.rstrip("/") + "/api/gmail/callback"
+    gmail = get_gmail_service()
+    success, message = gmail.handle_callback(code, state or "", redirect_uri)
+
+    if success:
+        # Return a small HTML page that closes itself or shows success
+        return (
+            "<html><body style='background:#0a0a0f;color:#e4e4e7;display:flex;align-items:center;"
+            "justify-content:center;height:100vh;font-family:sans-serif;flex-direction:column;gap:8px;'>"
+            "<div style='font-size:40px'>✅</div>"
+            "<div style='font-size:16px;font-weight:600'>Gmail Connected</div>"
+            f"<div style='font-size:12px;color:#a1a1aa'>{message}</div>"
+            "<div style='font-size:11px;color:#71717a;margin-top:12px'>"
+            "You can close this tab and return to Applyr</div>"
+            "<script>window.close()</script>"
+            "</body></html>"
+        ), 200, {"Content-Type": "text/html; charset=utf-8"}
+    else:
+        return jsonify({"success": False, "error": message}), 500
+
+
+@app.route("/api/gmail/status", methods=["GET"])
+def api_gmail_status():
+    """Return Gmail connection status — never exposes tokens."""
+    gmail = get_gmail_service()
+    try:
+        status = gmail.get_status()
+        return jsonify({"success": True, **status})
+    except Exception as e:
+        return jsonify({"success": False, "status": "error", "error": str(e)})
+
+
+@app.route("/api/gmail/disconnect", methods=["POST"])
+def api_gmail_disconnect():
+    """Revoke Gmail token and disconnect."""
+    gmail = get_gmail_service()
+    gmail.revoke_token()
+    return jsonify({"success": True, "status": "disconnected"})
+
+
+# ── Setup Wizard Status ──────────────────────────────────────────────────────
+
+@app.route("/api/setup/status")
+def api_setup_status():
+    """Return setup completion status for onboarding wizard."""
+    resume_dir = ROOT / "resume"
+    resume_uploaded = any(
+        (resume_dir / name).exists()
+        for name in ["master_resume.pdf", "master_resume.docx", "master_resume.txt"]
+    )
+
+    resume_data = None
+    try:
+        resume_data = get_db().get_resume_data()
+    except Exception:
+        pass
+
+    resume_parsed = bool(resume_data and resume_data.get("parse_status") == "success")
+
+    groq_key = os.getenv("GROQ_API_KEY", "")
+    groq_ok = bool(groq_key and groq_key != "gsk_xxxxxxxxxxxxx")
+
+    tavily_key = os.getenv("TAVILY_API_KEY", "")
+    tavily_ok = bool(tavily_key and tavily_key != "tvly_xxxxxxxxxxxxx")
+
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    gemini_ok = bool(gemini_key)
+
+    resend_key = os.getenv("RESEND_API_KEY", "")
+    from_email = os.getenv("FROM_EMAIL", "")
+    resend_ok = bool(resend_key and from_email)
+    try:
+        gmail_ok = get_gmail_service().is_ready()
+    except Exception:
+        gmail_ok = False
+    email_ok = resend_ok or gmail_ok
+
+    hunter_key = os.getenv("HUNTER_API_KEY", "")
+    clearbit_key = os.getenv("CLEARBIT_API_KEY", "")
+    recruiter_ok = bool(hunter_key or clearbit_key)
+
+    steps = [
+        {"id": "resume_uploaded", "label": "Resume Uploaded", "ok": resume_uploaded,
+         "message": "Resume uploaded" if resume_uploaded else "No resume uploaded"},
+        {"id": "resume_parsed", "label": "Resume Parsed", "ok": resume_parsed,
+         "message": "Resume parsed successfully" if resume_parsed else "Resume not yet parsed"},
+        {"id": "groq", "label": "Groq Connected", "ok": groq_ok,
+         "message": "Groq API connected" if groq_ok else "Groq API key missing"},
+        {"id": "tavily", "label": "Tavily Connected", "ok": tavily_ok,
+         "message": "Tavily API connected" if tavily_ok else "Tavily API key missing"},
+        {"id": "gemini", "label": "Gemini Backup", "ok": gemini_ok,
+         "message": "Gemini configured" if gemini_ok else "Gemini key missing (optional)"},
+        {"id": "email", "label": "Email Configured", "ok": email_ok,
+         "message": f"Email ready ({from_email})" if email_ok else "Email not configured — set RESEND_API_KEY"},
+        {"id": "recruiter", "label": "Recruiter Discovery", "ok": recruiter_ok,
+         "message": "Recruiter discovery active" if recruiter_ok else "Limited — no Hunter or Clearbit key"},
+    ]
+
+    completed = sum(1 for s in steps if s["ok"])
+    total = len(steps)
+    percent = round(completed / total * 100) if total > 0 else 0
+
+    return jsonify({
+        "success": True,
+        "steps": steps,
+        "completed": completed,
+        "total": total,
+        "percent": percent,
+        "ready": percent >= 60,  # Ready to run if most critical steps are done
+    })
+
+
 # ── Run ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    logger.info("Starting Applyr on http://localhost:5000")
+    # Startup validation
+    logger.info("=" * 50)
+    logger.info("Applyr API — Starting up")
+
+    # Gmail check
+    gmail = get_gmail_service()
+    if gmail.has_credentials_file:
+        status = gmail.get_status()
+        if status.get("status") == "connected":
+            account = status.get("account") or "unknown"
+            logger.info("[Gmail] Connected — account: %s", account)
+        elif status.get("status") == "expired_token":
+            logger.warning("[Gmail] Token expired — will auto-refresh on send")
+        elif status.get("status") == "not_authenticated":
+            logger.warning("[Gmail] Credentials found but not authenticated — use Settings > Connect Gmail")
+        else:
+            logger.warning("[Gmail] Not configured — status: %s", status.get("status"))
+    else:
+        logger.info("[Gmail] Not configured — set GMAIL_CREDENTIALS_PATH")
+
+    # Resend check
+    resend_key = os.getenv("RESEND_API_KEY", "")
+    from_email = os.getenv("FROM_EMAIL", "")
+    if resend_key and from_email:
+        logger.info("[Resend] Configured — from: %s", from_email)
+    else:
+        logger.info("[Resend] Not configured")
+
+    logger.info("Starting server on http://localhost:5000")
+    logger.info("=" * 50)
+
     app.run(
-        debug      = os.getenv("DEBUG", "true").lower() == "true",
-        use_reloader = False,   # prevents killing background pipeline threads
-        host       = "0.0.0.0",
-        port       = int(os.getenv("FLASK_PORT", 5000)),
+        debug=os.getenv("DEBUG", "true").lower() == "true",
+        use_reloader=False,
+        host="0.0.0.0",
+        port=int(os.getenv("FLASK_PORT", 5000)),
     )

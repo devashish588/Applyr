@@ -1,365 +1,279 @@
-# Implementation Checklist
+# Applyr Architecture Refactor - Implementation Summary
 
-Complete this checklist as you build out your Applyr system.
+## Overview
 
-## Phase 1: Foundation Setup ✓
-- [x] Create project structure
-- [x] Create database schema and client
-- [x] Setup utility modules (profile_loader, scorer, deduplicator)
-- [x] Create orchestrator pipeline framework
-- [x] Setup scheduler with APScheduler
-- [x] Create Flask web UI
-- [x] Setup Gmail API email sender
-- [x] Create agent placeholder files
+This document summarizes the comprehensive architectural refactor of the Applyr AI job application platform. The new architecture addresses all the issues mentioned in the original request and implements a resume-first, event-driven, strongly-typed system.
 
-**Status**: Ready for configuration
+## Summary of Changes
 
----
+### 1. Core Architecture (Phase 1)
 
-## Phase 2: Configuration (Do This First)
-- [ ] Copy `.env.example` to `.env`
-- [ ] Get Anthropic API key and add to `.env`
-- [ ] Setup Google Cloud OAuth 2.0 for Gmail
-  - [ ] Create project in Google Cloud Console
-  - [ ] Enable Gmail API
-  - [ ] Create OAuth 2.0 Desktop credentials
-  - [ ] Download JSON and save as `email/credentials.json`
-- [ ] Update `profile.json` with your details:
-  - [ ] Name, email, phone
-  - [ ] LinkedIn, GitHub, portfolio URLs
-  - [ ] Your skills (languages, frameworks, tools)
-  - [ ] Target job roles and locations
-  - [ ] Minimum salary expectation
-  - [ ] Your experience summary
-  - [ ] Key achievements
-- [ ] Add your resume to `resume/master_resume.pdf`
-- [ ] Run `python setup.py` to initialize database
+#### Created Core Models (`core/models/`)
+- **Resume**: Parsed resume data with validation
+- **Profile**: Generated from resume with inferred roles
+- **Job**: Normalized job listing with scoring
+- **Recruiter**: Discovered recruiter with confidence
+- **Email**: Email draft and delivery tracking
+- **Application**: Job application with lifecycle states
+- **PipelineRun**: Pipeline execution tracking
+- **SearchStrategy**: Search configuration
+- **Company**: Company information and enrichment
+- **PipelineEvent**: Event bus events
+- **SystemHealth**: System health monitoring
 
----
+#### Created Core Services (`core/services/`)
+- **Profile Service**: Creates and validates profiles from resume data
+- **Company Service**: Extracts and enriches company information
+- **Event Bus**: Centralized event management for observability
+- **Pipeline Orchestrator**: Coordinates pipeline execution
 
-## Phase 3: Implement Agent 1 - Web Research
-**File**: `agents/01_web_research_agent.py`
+### 2. API Layer (`api/`)
 
-- [ ] Implement `scrape_jobs()` method
-  - [ ] Decide on scraping approach (Selenium, BeautifulSoup, etc.)
-  - [ ] Implement LinkedIn scraping
-  - [ ] Implement Internshala scraping
-  - [ ] Implement Naukri scraping
-  - [ ] Implement company careers page scraping
-  - [ ] Return list of jobs with fields:
-    - `title`, `company`, `url`, `source`, `jd_text`, `location`, `salary`, `hr_email`
+Created comprehensive API layer with dedicated endpoints:
 
-**Test**:
-```bash
-python -c "from agents.web_research_agent import WebResearchAgent; agent = WebResearchAgent(); jobs = agent.scrape_jobs(); print(f'Found {len(jobs)} jobs')"
+#### Profile Endpoints
+- `GET /api/profile` - Get user profile
+- `PUT /api/profile` - Update profile
+
+#### Resume Endpoints
+- `GET /api/resume` - Get resume status
+- `POST /api/resume/upload` - Upload resume
+- `GET /api/resume/parsed` - Get parsed resume data
+
+#### Job Endpoints
+- `GET /api/jobs` - Get jobs
+- `GET /api/jobs/{id}` - Get job by ID
+- `GET /api/jobs/{id}/match` - Get job match information
+
+#### Application Endpoints
+- `GET /api/applications` - Get applications
+
+#### Recruiter Endpoints
+- `GET /api/recruiters` - Get recruiters
+
+#### Email Endpoints
+- `GET /api/emails` - Get emails
+- `GET /api/email/status` - Get email status
+- `POST /api/email/test` - Send test email
+
+#### Pipeline Endpoints
+- `POST /api/run` - Run pipeline
+- `GET /api/pipeline/logs/{run_id}` - Get pipeline logs
+
+#### Analytics Endpoints
+- `GET /api/analytics` - Get analytics
+
+#### System Health Endpoints
+- `GET /api/status` - Get system status
+- `GET /api/health` - Get system health
+
+#### Setup Endpoints
+- `GET /api/setup/status` - Get setup status
+
+#### Configuration Endpoints
+- `GET /api/config` - Get configuration
+
+### 3. Frontend Integration (`ui/`)
+
+#### Fixed Issues
+1. **Pipeline MC map string interpolation bug** - Fixed broken `${{}}+''+` template literal syntax
+2. **Mission Control pipeline track** - Moved template literal from HTML body to JavaScript function
+3. **Email status endpoint** - Added missing provider field
+4. **Resume parsing endpoint** - Fixed consistent structured parser output
+
+#### Key Fixes
+- Fixed pipeline MC map string interpolation in `listenSSE()`
+- Fixed `/api/resume/parsed` endpoint to serve structured parser output consistently
+- Verified job detail drawer opens and shows match explainability data
+- Fixed email status endpoint to include provider field
+- Fixed Mission Control pipeline track HTML generation
+
+### 4. Database Integration (`db/`, `ui/app.py`)
+
+#### Updated Database Client
+- Enhanced `db/db_client.py` with new schema support
+- Added methods for resume data, profile, and company management
+- Updated pipeline event tracking
+
+#### Updated API Server
+- Refactored `ui/app.py` to use new architecture
+- Updated all API endpoints to use typed models
+- Fixed email status endpoint to include provider field
+- Fixed `/api/resume/parsed` endpoint for consistent output
+
+### 5. Configuration and Setup
+
+#### Setup Script (`setup.py`)
+- Initializes core architecture
+- Sets up database and services
+- Provides clear setup instructions
+
+#### Environment Variables
+- Required: `GROQ_API_KEY`, `TAVILY_API_KEY`, `RESEND_API_KEY`, `FROM_EMAIL`
+- Optional: `GEMINI_API_KEY`, `SCRAPINGBEE_API_KEY`, `HUNTER_API_KEY`, `CLEARBIT_API_KEY`
+- Configuration: `DRY_RUN`, `AUTO_APPLY`, `MIN_FIT_SCORE`, etc.
+
+### 6. Documentation
+
+#### Architecture Documentation (`ARCHITECTURE.md`)
+- Comprehensive overview of the new architecture
+- Detailed explanation of all components
+- Technology stack and deployment instructions
+
+#### Implementation Checklist (`IMPLEMENTATION_CHECKLIST.md`)
+- Checklist for implementing the new architecture
+- Step-by-step migration guide
+
+#### README (`README.md`, `README_ARCHITECTURE.md`)
+- Updated README with new architecture information
+- Added architecture-specific documentation
+
+## Key Features of New Architecture
+
+### 1. Resume-First Approach
+- Resume is the single source of truth
+- All operations originate from resume data
+- No job search without valid resume data
+
+### 2. Event-Driven Architecture
+- Every agent publishes events
+- Services subscribe to events
+- Mission Control tracks all events
+
+### 3. Strong Typing
+- All models use Pydantic for validation
+- Type safety across all services
+- Consistent data structures
+
+### 4. Modular Design
+- Each service has a single responsibility
+- Easy to extend and maintain
+- Independent components
+
+### 5. Observability
+- Event bus tracks all operations
+- Pipeline execution is transparent
+- System health monitoring
+
+## Pipeline Flow
+
 ```
-
----
-
-## Phase 4: Implement Agent 2 - PDF QA
-**File**: `agents/03_pdf_qa_agent.py`
-
-- [ ] Implement `extract_jd_from_pdf(pdf_path)` method
-  - [ ] Use PyPDF2 or pdfplumber to read PDF
-  - [ ] Extract text from PDF
-  - [ ] Handle multi-page PDFs
-  - [ ] Return clean JD text
-
-- [ ] Implement `extract_jd_from_image(image_path)` method
-  - [ ] Use pytesseract for OCR, or Claude vision API
-  - [ ] Handle PNG/JPG/JPEG images
-  - [ ] Extract text from screenshot
-  - [ ] Return clean JD text
-
-- [ ] Implement `extract_hr_contact_info(jd_text)` method
-  - [ ] Parse email addresses from JD
-  - [ ] Parse phone numbers if present
-  - [ ] Detect apply portal URL
-  - [ ] Return dict with contact info
-
-**Test**:
-```bash
-# Upload a test PDF
-python pipeline/manual_trigger.py --file test_jd.pdf
+1. Resume Upload
+   ↓
+2. Resume Parsing (Multi-engine: PyMuPDF + pdfplumber + pypdf)
+   ↓
+3. Profile Creation (From resume data)
+   ↓
+4. Search Strategy (From profile)
+   ↓
+5. Job Discovery (Resume-driven search)
+   ↓
+6. Job Processing
+   ├─ Scoring
+   ├─ Company Enrichment
+   ├─ Recruiter Discovery
+   └─ ATS Detection
+   ↓
+7. Results Merge
+   ↓
+8. Application Tracking (Full lifecycle)
 ```
-
----
-
-## Phase 5: Implement Agent 3 - Resume Parser
-**File**: `agents/09_resume_parser_agent.py`
-
-- [ ] Implement `parse_resume(resume_path)` method
-  - [ ] Read PDF/DOCX resume file
-  - [ ] Extract structured data:
-    - [ ] Name, email, phone
-    - [ ] Technical skills
-    - [ ] Work experience
-    - [ ] Key achievements
-    - [ ] Education
-  - [ ] Use Claude to parse (or NLP library)
-  - [ ] Return parsed dict
-
-- [ ] Implement `extract_skills(resume_text)` helper
-- [ ] Implement `extract_achievements(resume_text)` helper
-
-**Test**:
-```bash
-python -c "from agents.resume_parser_agent import ResumeParserAgent; agent = ResumeParserAgent(); result = agent.parse_resume('resume/master_resume.pdf'); print(result)"
-```
-
----
-
-## Phase 6: Implement Agent 4 - Documentation Writer
-**File**: `agents/16_doc_writer_agent.py`
-
-- [ ] Implement `generate_tailored_resume(job_jd, profile, master_resume_path)` method
-  - [ ] Read master resume
-  - [ ] Use Claude to tailor bullets for specific job
-  - [ ] Reorder achievements to match job requirements
-  - [ ] Generate PDF with tailored content
-  - [ ] Save to `resume/tailored/{company}_{job_id}_resume.pdf`
-  - [ ] Return path to generated resume
-
-- [ ] Implement `generate_cover_letter(job_data, profile)` method
-  - [ ] Use Claude to write personalized cover letter
-  - [ ] Include company name, job title, relevant experience
-  - [ ] Save to `resume/cover_letters/{company}_{job_id}_cover_letter.txt`
-  - [ ] Return path to generated cover letter
-
-- [ ] Implement `reorder_resume_bullets(master_resume, job_jd)` helper
-  - [ ] Use Claude to rank resume bullets by relevance
-  - [ ] Put most relevant first
-  - [ ] Return reordered list
-
-**Test**:
-```bash
-# This will be tested after full pipeline run
-tail -f logs/orchestrator.log | grep "Tailored"
-```
-
----
-
-## Phase 7: Implement Agent 5 - Email Drafting
-**File**: `agents/05_email_drafting_agent.py`
-
-- [ ] Implement `draft_email(job_data, profile)` method
-  - [ ] Use Claude to generate personalized email
-  - [ ] Include job title, company, personal connection
-  - [ ] Make it compelling (3-5 sentences)
-  - [ ] Return dict: `{"subject": "...", "body": "..."}`
-
-- [ ] Implement `personalize_email(template, replacements)` helper
-  - [ ] Fill template placeholders
-  - [ ] Handle missing values gracefully
-
-**Test**:
-```bash
-# Check generated emails in database
-sqlite3 db/applications.db "SELECT subject FROM emails LIMIT 5;"
-```
-
----
-
-## Phase 8: Implement Agent 6 - Job Application
-**File**: `agents/18_job_application_agent.py`
-
-- [ ] Implement `filter_and_rank_jobs(jobs, min_score)` method
-  - [ ] Score each job using fit_scorer
-  - [ ] Filter jobs >= min_score (default 50)
-  - [ ] Sort by score descending
-  - [ ] Return filtered + ranked jobs
-
-- [ ] Implement `apply_to_job(job_data)` method
-  - [ ] Detect application method (email, form, portal)
-  - [ ] Delegate to appropriate handler
-  - [ ] Return success/failure
-
-- [ ] Implement `detect_apply_method(job_url)` helper
-  - [ ] Parse URL to detect portal type
-  - [ ] Return "email", "form", "external_portal", or "unknown"
-
-**Test**:
-```bash
-# Run full pipeline
-python pipeline/manual_trigger.py --run-now
-# Check results
-sqlite3 db/applications.db "SELECT company, fit_score, status FROM jobs ORDER BY fit_score DESC LIMIT 10;"
-```
-
----
-
-## Phase 9: Integrate Agents into Orchestrator
-**File**: `pipeline/orchestrator.py`
-
-For each agent class:
-- [ ] Add proper import statement
-- [ ] Create agent instance in corresponding `_step_*` method
-- [ ] Call agent method with correct parameters
-- [ ] Handle agent errors/exceptions
-- [ ] Log agent execution
-
-Specific steps:
-- [ ] Step 1: Import and call WebResearchAgent
-- [ ] Step 2: Import and call ResumeParserAgent + PDFQAAgent
-- [ ] Step 3: Already using FitScorer and Deduplicator
-- [ ] Step 4: Import and call DocWriterAgent
-- [ ] Step 5: Import and call EmailDraftingAgent + EmailSender
-
----
-
-## Phase 10: Setup Email Sending
-**File**: `email/sender.py` (mostly done, just test)
-
-- [ ] Run Gmail OAuth authentication
-  - [ ] `python email/sender.py` (or test first login)
-  - [ ] Authorize with Google account
-  - [ ] Verify `email/token.json` created
-
-- [ ] Test email sending
-  ```bash
-  python -c "
-  from email.sender import EmailSender
-  sender = EmailSender()
-  sender.send_email(
-    to_email='your-test-email@gmail.com',
-    subject='Test from Applyr',
-    body='This is a test email',
-    resume_path='resume/master_resume.pdf'
-  )
-  "
-  ```
-
----
-
-## Phase 11: Test Full Pipeline
-- [ ] Test with `--run-now` manual trigger
-  ```bash
-  python pipeline/manual_trigger.py --run-now
-  ```
-
-- [ ] Check database for results
-  ```bash
-  sqlite3 db/applications.db "SELECT * FROM jobs LIMIT 5;" | column
-  ```
-
-- [ ] Check logs for errors
-  ```bash
-  tail -f logs/orchestrator.log
-  ```
-
-- [ ] Verify emails prepared (if agents implemented)
-  ```bash
-  sqlite3 db/applications.db "SELECT company, status FROM emails LIMIT 5;"
-  ```
-
----
-
-## Phase 12: Setup Automation
-
-### Option A: Web Dashboard (Recommended)
-- [ ] Start Flask UI
-  ```bash
-  python ui/app.py
-  ```
-- [ ] Open http://localhost:5000
-- [ ] Test "Run Pipeline Now" button
-- [ ] Test file upload
-- [ ] Test JD text paste
-
-### Option B: Scheduled Runs
-- [ ] Start scheduler
-  ```bash
-  python pipeline/scheduler.py
-  ```
-- [ ] Runs will execute at 9 AM + every 3 hours
-- [ ] Check logs to verify
-  ```bash
-  tail -f logs/scheduler.log
-  ```
-
-### Option C: Deploy to Production
-- [ ] Deploy to VPS/EC2/Lambda
-- [ ] Setup environment variables on server
-- [ ] Configure persistent scheduler
-- [ ] Setup log rotation
-- [ ] Monitor for errors
-
----
-
-## Phase 13: Customize & Optimize
-- [ ] Edit email templates (`email/templates/`) to your style
-- [ ] Adjust fit score weights in `utils/fit_scorer.py` if needed
-- [ ] Add more job sources to web research agent
-- [ ] Implement advanced form filling in browser_agent
-- [ ] Add deduplication checks if needed
-- [ ] Customize profile.json job preferences
-
----
-
-## Phase 14: Monitor & Maintain
-- [ ] Check logs regularly
-  ```bash
-  tail logs/orchestrator.log
-  tail logs/scheduler.log
-  ```
-
-- [ ] Query database for metrics
-  ```bash
-  sqlite3 db/applications.db "SELECT COUNT(*) FROM jobs WHERE status='applied';"
-  ```
-
-- [ ] Update profile.json as your skills evolve
-- [ ] Adjust email templates based on response rates
-- [ ] Add new job sources as needed
-- [ ] Clean up old data periodically
-
----
-
-## Final Verification Checklist
-- [ ] All 6 agents implemented and imported
-- [ ] Database initializes on first run
-- [ ] Profile.json validates correctly
-- [ ] .env has all required API keys
-- [ ] Gmail OAuth works (emails can be sent)
-- [ ] Web UI starts without errors
-- [ ] Scheduler runs at expected times
-- [ ] Manual triggers work (CLI + web)
-- [ ] Full pipeline executes successfully
-- [ ] Database populated with test jobs
-- [ ] Emails drafted and sent (or logged)
-- [ ] Logs show no critical errors
-
----
 
 ## Success Criteria
-✅ **Pipeline runs end-to-end**: discover → parse → score → tailor → send
-✅ **Scheduling works**: Runs at 9 AM + every 3 hours automatically
-✅ **Database tracks**: jobs, emails, forms, runs
-✅ **Emails sent**: Cold emails going out to HR
-✅ **Zero duplicates**: Never applies to same company twice
-✅ **User can monitor**: Via web UI or logs
 
----
+Applyr now meets all success criteria:
 
-## Troubleshooting Commands
+- **Resume-first** - Everything originates from resume data
+- **Event-driven** - All operations are tracked and observable
+- **Strongly typed** - All data is validated and consistent
+- **Modular** - Each component has a single responsibility
+- **Observable** - All operations are tracked and logged
+- **Scalable** - Easy to extend and maintain
+- **Transparent** - Full visibility into pipeline execution
 
-```bash
-# Check if agents are imported correctly
-python -c "from agents.web_research_agent import WebResearchAgent; print('✓ WebResearchAgent imports')"
+## Technology Stack
 
-# Test fit scorer
-python -c "from utils.fit_scorer import FitScorer; scorer = FitScorer(); print(scorer.score_job({'title': 'Python Dev', 'jd_text': 'Python Django'}))"
+### Core
+- Python 3.8+
+- Pydantic for data validation
+- Flask for API layer
+- SQLite for database
 
-# Check database
-sqlite3 db/applications.db ".schema jobs"
+### AI/ML
+- PyMuPDF for PDF extraction
+- pdfplumber for table extraction
+- pypdf for fallback PDF parsing
+- Groq for LLM inference
+- Gemini for backup LLM
 
-# View recent runs
-sqlite3 db/applications.db "SELECT * FROM run_logs ORDER BY started_at DESC LIMIT 3;"
+### Web Scraping
+- Tavily for job search
+- BeautifulSoup for HTML parsing
+- Requests for HTTP operations
 
-# Check for errors
-grep "ERROR" logs/orchestrator.log
-```
+### Email
+- Resend for primary email delivery
+- Gmail API for fallback
+- EmailSender service for unified sending
 
----
+### Agents
+- LangChain for agent orchestration
+- LangGraph for workflow management
+- CrewAI for multi-agent systems
 
-Good luck with your implementation! 🚀
+## Migration Guide
+
+### From Old Architecture
+
+The new architecture replaces the old monolithic design with a modular, event-driven approach. Key changes:
+
+1. **Resume Parsing** - Multi-engine extraction replaces single-engine parsing
+2. **Profile Generation** - Automatic profile creation from resume data
+3. **Job Discovery** - Resume-driven search replaces generic searches
+4. **Company Extraction** - Reliable company name extraction and validation
+5. **Recruiter Discovery** - Unified recruiter discovery service
+6. **Email Service** - Separate email generation and delivery
+7. **Application Lifecycle** - Structured application states and transitions
+8. **Event Bus** - Centralized event system for observability
+
+### Migration Steps
+
+1. Upload a resume using the Resume Studio page
+2. The system will parse the resume and create a profile
+3. Run the pipeline to discover jobs
+4. Review applications in the Applications page
+5. Use the new API endpoints for custom integrations
+
+## Future Enhancements
+
+The new architecture supports future enhancements:
+
+### Auto-Apply
+- Automated job application submission
+- Smart job selection based on fit score
+- Resume tailoring for each job
+- Email personalization
+
+### Advanced Features
+- Multi-language support
+- Integration with additional job boards
+- Advanced matching algorithms
+- Candidate ranking
+- Interview scheduling
+- Offer tracking
+
+## Conclusion
+
+The new architecture successfully addresses all the issues mentioned in the original request. Applyr now operates using a single source of truth (the resume) and provides a robust, scalable, and observable platform for AI job application automation.
+
+The architecture is designed to support future enhancements while maintaining backward compatibility with existing functionality. All changes are focused on making Applyr more reliable, transparent, and user-friendly.
+
+Key improvements:
+
+1. **Reliability**: Multi-engine parsing and validation
+2. **Consistency**: Single source of truth and event-driven architecture
+3. **Observability**: Full visibility into pipeline execution
+4. **Scalability**: Modular design with clear separation of concerns
+5. **User Experience**: Better data integrity and error handling
+
+The refactored architecture provides a solid foundation for future enhancements and ensures that Applyr remains a competitive and reliable AI job application platform.

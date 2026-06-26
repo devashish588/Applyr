@@ -1,0 +1,15 @@
+Dear {{company_hiring_manager}},
+
+I came across the {{role}} position at {{company}} and it aligns perfectly with my background in {{main_skills}}.
+
+Over the past {{years_experience}} years, I've {{key_achievement_1}}. Most recently, {{key_achievement_2}}.
+
+I'm excited about the opportunity to contribute to {{company}}'s team and would welcome the chance to discuss how my experience can add value.
+
+I've attached my resume for your review. Looking forward to connecting.
+
+Best regards,
+{{name}}
+{{phone}}
+{{email}}
+LinkedIn: {{linkedin}}
