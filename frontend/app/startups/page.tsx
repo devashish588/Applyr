@@ -2,8 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowRight, RefreshCw, Building2, Users, ClipboardCopy, WandSparkles, Target } from 'lucide-react';
+import { RefreshCw, Building2, Users, ClipboardCopy, WandSparkles, Check } from 'lucide-react';
 import Shell from '@/components/layout/Shell';
+import EmptyState from '@/components/ui/EmptyState';
+import ProgressBar from '@/components/ui/ProgressBar';
 import { discoverStartups, generateStartupMessage, getStartups, getStartupContacts } from '@/lib/api';
 
 export default function StartupsPage() {
@@ -13,23 +15,18 @@ export default function StartupsPage() {
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const loadStartups = async () => {
     setLoading(true);
     try {
       const r = await getStartups(20);
       setStartups(r.startups || []);
-      if (!selectedCompany && (r.startups || []).length > 0) {
-        setSelectedCompany((r.startups || [])[0]);
-      }
-    } finally {
-      setLoading(false);
-    }
+      if (!selectedCompany && (r.startups || []).length > 0) setSelectedCompany((r.startups || [])[0]);
+    } finally { setLoading(false); }
   };
 
-  useEffect(() => {
-    loadStartups().catch(() => {});
-  }, []);
+  useEffect(() => { loadStartups().catch(() => {}); }, []);
 
   useEffect(() => {
     if (!selectedCompany?.company) return;
@@ -40,17 +37,9 @@ export default function StartupsPage() {
       .finally(() => setBusy(false));
   }, [selectedCompany]);
 
-  const selectedScore = selectedCompany?.overall_score || 0;
-  const scoreBadge = selectedScore >= 80 ? 'var(--green)' : selectedScore >= 60 ? 'var(--amber)' : 'var(--red)';
-
   const handleDiscover = async () => {
     setBusy(true);
-    try {
-      await discoverStartups(20);
-      await loadStartups();
-    } finally {
-      setBusy(false);
-    }
+    try { await discoverStartups(20); await loadStartups(); } finally { setBusy(false); }
   };
 
   const handleMessage = async (contact: any) => {
@@ -59,190 +48,159 @@ export default function StartupsPage() {
     setMessage(r.message || '');
   };
 
-  const topStats = useMemo(() => {
-    return [
-      { label: 'Top score', value: startups[0]?.overall_score ?? '—' },
-      { label: 'Remote matches', value: startups.filter(s => s.is_remote).length },
-      { label: 'Target roles', value: selectedCompany?.matched_roles?.length || 0 },
-    ];
-  }, [startups, selectedCompany]);
+  const copyMessage = () => { navigator.clipboard.writeText(message); setCopied(true); setTimeout(() => setCopied(false), 2000); };
 
   return (
     <Shell>
-      <div className="space-y-6">
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="rounded-2xl border overflow-hidden"
-          style={{
-            background: 'linear-gradient(135deg, rgba(59,130,246,0.16), rgba(168,85,247,0.12) 45%, rgba(15,15,18,0.98) 100%)',
-            borderColor: 'rgba(255,255,255,0.08)',
-          }}
-        >
-          <div className="p-6 md:p-8 flex flex-col md:flex-row md:items-end md:justify-between gap-6">
-            <div>
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[11px] font-semibold uppercase tracking-[0.22em]" style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--text-secondary)' }}>
-                <Target size={12} />
-                Startup Discovery
-              </div>
-              <h1 className="mt-4 text-3xl font-black tracking-tight" style={{ color: 'var(--text)' }}>Find remote-first startups that fit your resume.</h1>
-              <p className="mt-3 max-w-2xl text-sm leading-6" style={{ color: 'var(--text-secondary)' }}>
-                Rank Wellfound, Otta, Remote OK, WWR, Ashby, and Y Combinator-style opportunities using resume match, role fit, tech stack, and remote compatibility.
-              </p>
-            </div>
-            <button
-              onClick={handleDiscover}
-              className="inline-flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-semibold transition-all shadow-lg shadow-blue-500/20"
-              style={{ background: 'var(--accent)', color: '#fff' }}
-            >
-              <RefreshCw size={14} className={busy ? 'animate-spin' : ''} />
-              Refresh discovery
-            </button>
+      <div className="space-y-5">
+        {/* Header */}
+        <div className="flex items-end justify-between">
+          <div>
+            <h1 className="text-page-title">Companies</h1>
+            <p className="text-body mt-0.5">{startups.length} companies ranked by fit</p>
           </div>
-        </motion.div>
-
-        <div className="grid grid-cols-3 gap-4">
-          {topStats.map(stat => (
-            <div key={stat.label} className="rounded-2xl p-5 card-hover" style={{ background: 'var(--surface)' }}>
-              <div className="text-[10px] uppercase tracking-[0.22em]" style={{ color: 'var(--text-muted)' }}>{stat.label}</div>
-              <div className="mt-3 text-2xl font-black" style={{ color: 'var(--text)' }}>{stat.value}</div>
-            </div>
-          ))}
+          <button onClick={handleDiscover} disabled={busy} className="btn btn-secondary btn-sm">
+            <RefreshCw size={12} className={busy ? 'animate-spin' : ''} /> Refresh
+          </button>
         </div>
 
-        <div className="grid grid-cols-[1.1fr_0.9fr] gap-5 items-start">
-          <div className="rounded-2xl overflow-hidden card-hover" style={{ background: 'var(--surface)' }}>
-            <div className="px-5 py-4 border-b flex items-center justify-between" style={{ borderColor: 'var(--border)' }}>
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Top 20 ranked startups</div>
-                <div className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Sorted by overall company score.</div>
+        {loading ? (
+          <div className="space-y-0">{[1,2,3,4].map(i => <div key={i} className="shimmer h-10 mb-px" />)}</div>
+        ) : startups.length === 0 ? (
+          <EmptyState
+            icon={<Building2 size={20} style={{ color: 'var(--text-faint)' }} />}
+            title="No companies discovered yet"
+            description="Run discovery to rank remote-first startups against your resume profile. Expected: 20+ companies."
+            primaryAction={{ label: 'Run Discovery', onClick: handleDiscover }}
+          />
+        ) : (
+          <div className="grid grid-cols-[1fr_1fr] gap-8 items-start">
+            {/* Company list — flat table */}
+            <div>
+              <div className="grid grid-cols-[1fr_70px] gap-3 px-1 py-2 text-[10px] uppercase tracking-wider font-medium"
+                style={{ color: 'var(--text-faint)', borderBottom: '1px solid var(--border)' }}>
+                <span>Company</span>
+                <span className="text-right">Score</span>
               </div>
-              <Building2 size={16} style={{ color: 'var(--accent)' }} />
-            </div>
-            <div className="max-h-[620px] overflow-y-auto divide-y" style={{ borderColor: 'var(--border)' }}>
-              {loading ? (
-                <div className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>Loading...</div>
-              ) : startups.length === 0 ? (
-                <div className="p-8 text-center" style={{ color: 'var(--text-muted)' }}>No startups yet. Run discovery to build the list.</div>
-              ) : startups.map((company, index) => (
-                <button
-                  key={`${company.company}-${index}`}
-                  onClick={() => setSelectedCompany(company)}
-                  className="w-full text-left px-5 py-4 transition-colors hover:bg-white/[0.02]"
-                  style={{ background: selectedCompany?.company === company.company ? 'rgba(59,130,246,0.08)' : 'transparent' }}
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <div className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{company.company}</div>
-                        {company.is_remote && <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: 'var(--green-muted)', color: 'var(--green)' }}>Remote</span>}
+              <div className="max-h-[600px] overflow-y-auto">
+                {startups.map((company, index) => {
+                  const isSelected = selectedCompany?.company === company.company;
+                  return (
+                    <button
+                      key={`${company.company}-${index}`}
+                      onClick={() => setSelectedCompany(company)}
+                      className="w-full text-left grid grid-cols-[1fr_70px] gap-3 px-1 py-2.5 items-center transition-colors"
+                      style={{
+                        background: isSelected ? 'var(--primary-muted)' : 'transparent',
+                        borderBottom: '1px solid var(--border-subtle)',
+                      }}
+                      onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'var(--surface-hover)'; }}
+                      onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = isSelected ? 'var(--primary-muted)' : 'transparent'; }}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium truncate" style={{ color: 'var(--text)' }}>{company.company}</span>
+                          {company.is_remote && <span className="text-[9px]" style={{ color: 'var(--green)' }}>Remote</span>}
+                        </div>
+                        <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-faint)' }}>
+                          {company.source}{company.location ? ` · ${company.location}` : ''}
+                        </div>
                       </div>
-                      <div className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>{company.source} · {company.location || 'Remote'}</div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {(company.matched_roles || []).slice(0, 3).map((role: string) => (
-                          <span key={role} className="text-[11px] px-2 py-0.5 rounded-md" style={{ background: 'var(--surface-2)', color: 'var(--text-muted)' }}>{role}</span>
+                      <span className="text-sm font-bold tabular-nums text-right"
+                        style={{ color: company.overall_score >= 75 ? 'var(--green)' : company.overall_score >= 55 ? 'var(--amber)' : 'var(--text-muted)' }}>
+                        {company.overall_score}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Detail panel — flat sections */}
+            <div className="space-y-6 sticky top-16">
+              {selectedCompany && (
+                <>
+                  <div>
+                    <div className="text-lg font-bold" style={{ color: 'var(--text)' }}>{selectedCompany.company}</div>
+                    <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                      Score {selectedCompany.overall_score}/100
+                    </div>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    {[
+                      ['Resume Match', selectedCompany.resume_match_score],
+                      ['Role Match', selectedCompany.role_match_score],
+                      ['Tech Stack', selectedCompany.tech_stack_match],
+                      ['Experience', selectedCompany.experience_match],
+                      ['Remote', selectedCompany.remote_compatibility],
+                    ].map(([label, value]) => (
+                      <div key={String(label)}>
+                        <div className="flex items-center justify-between text-xs mb-1">
+                          <span style={{ color: 'var(--text-muted)' }}>{label as string}</span>
+                          <span className="tabular-nums" style={{ color: 'var(--text-faint)' }}>{value as number}</span>
+                        </div>
+                        <ProgressBar value={value as number} height={3} />
+                      </div>
+                    ))}
+                  </div>
+
+                  {selectedCompany.summary && (
+                    <p className="text-xs leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                      {selectedCompany.summary}
+                    </p>
+                  )}
+
+                  <div style={{ borderTop: '1px solid var(--border)' }} />
+
+                  {/* Contacts */}
+                  <div>
+                    <div className="text-label mb-3">Contacts</div>
+                    {busy ? (
+                      <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Loading...</p>
+                    ) : contacts.length === 0 ? (
+                      <p className="text-xs" style={{ color: 'var(--text-muted)' }}>No contacts found.</p>
+                    ) : (
+                      <div className="space-y-0">
+                        {contacts.map((contact, idx) => (
+                          <div key={`${contact.name}-${idx}`} className="py-2.5" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <span className="text-sm font-medium" style={{ color: 'var(--text)' }}>{contact.name}</span>
+                                <span className="text-xs ml-2" style={{ color: 'var(--text-muted)' }}>{contact.role}</span>
+                              </div>
+                              <span className="text-xs tabular-nums" style={{ color: 'var(--text-faint)' }}>{contact.confidence}%</span>
+                            </div>
+                            {contact.email && (
+                              <div className="text-[11px] font-mono mt-0.5" style={{ color: 'var(--accent)' }}>{contact.email}</div>
+                            )}
+                            <button onClick={() => handleMessage(contact)} className="btn btn-ghost btn-sm mt-1.5" style={{ padding: '2px 6px', height: 22 }}>
+                              <WandSparkles size={10} /> Message
+                            </button>
+                          </div>
                         ))}
                       </div>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <div className="text-lg font-black" style={{ color: scoreBadge }}>{company.overall_score}</div>
-                      <div className="text-[10px] uppercase tracking-[0.22em]" style={{ color: 'var(--text-muted)' }}>overall</div>
-                    </div>
+                    )}
                   </div>
-                </button>
-              ))}
-            </div>
-          </div>
 
-          <div className="space-y-5">
-            <div className="rounded-2xl p-5 card-hover" style={{ background: 'var(--surface)' }}>
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Selected company</div>
-                  <div className="text-lg font-bold mt-1" style={{ color: 'var(--text)' }}>{selectedCompany?.company || 'Select a company'}</div>
-                </div>
-                <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: 'var(--accent-muted)', color: 'var(--accent)' }}>{selectedScore}/100</span>
-              </div>
-              {selectedCompany && (
-                <div className="space-y-3 text-sm">
-                  {[
-                    ['Resume match', selectedCompany.resume_match_score],
-                    ['Role match', selectedCompany.role_match_score],
-                    ['Tech stack', selectedCompany.tech_stack_match],
-                    ['Experience', selectedCompany.experience_match],
-                    ['Remote compatibility', selectedCompany.remote_compatibility],
-                  ].map(([label, value]) => (
-                    <div key={String(label)}>
-                      <div className="flex items-center justify-between text-xs mb-1" style={{ color: 'var(--text-muted)' }}><span>{label}</span><span>{value as number}/100</span></div>
-                      <div className="h-2 rounded-full" style={{ background: 'var(--border)' }}>
-                        <div className="h-2 rounded-full" style={{ width: `${value}%`, background: 'var(--accent)' }} />
-                      </div>
-                    </div>
-                  ))}
-                  <div className="pt-2 text-xs leading-6" style={{ color: 'var(--text-secondary)' }}>{selectedCompany.summary}</div>
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-2xl p-5 card-hover" style={{ background: 'var(--surface)' }}>
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Referral contacts</div>
-                  <div className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Apollo-ranked people at the selected company.</div>
-                </div>
-                <Users size={16} style={{ color: 'var(--purple)' }} />
-              </div>
-              <div className="space-y-3">
-                {busy ? (
-                  <div className="text-sm" style={{ color: 'var(--text-muted)' }}>Loading contacts...</div>
-                ) : contacts.length === 0 ? (
-                  <div className="text-sm" style={{ color: 'var(--text-muted)' }}>No contacts discovered yet.</div>
-                ) : contacts.map((contact, index) => (
-                  <div key={`${contact.name}-${index}`} className="rounded-xl p-4 border" style={{ background: 'var(--bg)', borderColor: 'var(--border)' }}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{contact.name}</div>
-                        <div className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{contact.role} · {contact.department || 'General'}</div>
-                        <div className="text-[11px] mt-1 font-mono" style={{ color: 'var(--accent)' }}>{contact.email || 'Email unavailable'}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-xs font-bold" style={{ color: 'var(--green)' }}>{contact.confidence || 0}%</div>
-                        <div className="text-[10px] uppercase tracking-[0.18em]" style={{ color: 'var(--text-muted)' }}>{contact.contact_type || 'contact'}</div>
-                      </div>
-                    </div>
-                    <div className="mt-3 flex gap-2">
-                      <button onClick={() => handleMessage(contact)} className="inline-flex items-center gap-2 text-xs px-3 py-2 rounded-lg" style={{ background: 'var(--accent-muted)', color: 'var(--accent)' }}>
-                        <WandSparkles size={12} /> Generate message
+                  {/* Generated message */}
+                  {message && (
+                    <div>
+                      <div className="text-label mb-2">Outreach</div>
+                      <pre className="text-xs leading-relaxed whitespace-pre-wrap py-3 px-3 rounded-md"
+                        style={{ background: 'var(--surface)', color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)' }}>
+                        {message}
+                      </pre>
+                      <button onClick={copyMessage} className="btn btn-ghost btn-sm mt-2">
+                        {copied ? <><Check size={11} /> Copied</> : <><ClipboardCopy size={11} /> Copy</>}
                       </button>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  )}
+                </>
+              )}
             </div>
-
-            {message && (
-              <div className="rounded-2xl p-5 card-hover" style={{ background: 'var(--surface)' }}>
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>LinkedIn outreach</div>
-                    <div className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Short networking note, under 120 words.</div>
-                  </div>
-                  <ClipboardCopy size={16} style={{ color: 'var(--accent)' }} />
-                </div>
-                <div className="rounded-xl p-4 text-sm leading-6" style={{ background: 'var(--bg)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
-                  {message}
-                </div>
-                <button
-                  onClick={() => navigator.clipboard.writeText(message)}
-                  className="mt-3 inline-flex items-center gap-2 text-xs px-3 py-2 rounded-lg"
-                  style={{ background: 'var(--green-muted)', color: 'var(--green)' }}
-                >
-                  <ArrowRight size={12} /> Copy to clipboard
-                </button>
-              </div>
-            )}
           </div>
-        </div>
+        )}
       </div>
     </Shell>
   );

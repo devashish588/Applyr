@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { History, Clock } from 'lucide-react';
+import { History, Clock, Briefcase, Send, Mail, CheckCircle2, XCircle, Loader2, Zap } from 'lucide-react';
 import Shell from '@/components/layout/Shell';
+import EmptyState from '@/components/ui/EmptyState';
 import { getRunHistory } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
 
@@ -15,91 +16,76 @@ export default function HistoryPage() {
     getRunHistory().then(r => setRuns(r.runs || [])).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  const statusStyle = (status: string) => {
-    if (status === 'completed') return { bg: 'var(--green-muted)', color: 'var(--green)' };
-    if (status === 'failed' || status === 'error') return { bg: 'var(--red-muted)', color: 'var(--red)' };
-    if (status === 'running') return { bg: 'var(--accent-muted)', color: 'var(--accent)' };
-    return { bg: 'var(--surface-2)', color: 'var(--text-muted)' };
+  const statusColor = (status: string) => {
+    if (status === 'completed') return 'var(--green)';
+    if (status === 'failed' || status === 'error') return 'var(--red)';
+    if (status === 'running') return 'var(--primary)';
+    return 'var(--text-muted)';
   };
 
   return (
     <Shell>
-      <div className="space-y-6">
+      <div className="space-y-5">
         <div>
-          <h1 className="text-xl font-bold" style={{ color: 'var(--text)' }}>Run History</h1>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-            Every pipeline run logged here
-          </p>
+          <h1 className="text-page-title">History</h1>
+          <p className="text-body mt-0.5">{runs.length} pipeline runs</p>
         </div>
 
-        <div className="rounded-xl overflow-hidden card-hover" style={{ background: 'var(--surface)' }}>
-          <table className="w-full text-sm">
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                {['Run ID', 'Trigger', 'Started', 'Found', 'Applied', 'Emails', 'Status'].map(h => (
-                  <th key={h} className="text-left text-[11px] uppercase tracking-wider font-semibold px-4 py-3"
-                      style={{ color: 'var(--text-muted)' }}>
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={7} className="text-center py-12" style={{ color: 'var(--text-muted)' }}>Loading...</td></tr>
-              ) : runs.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="text-center py-12" style={{ color: 'var(--text-muted)' }}>
-                    <History size={24} className="mx-auto mb-2 opacity-40" />
-                    No runs yet
-                  </td>
-                </tr>
-              ) : (
-                runs.map((run, i) => {
-                  const ss = statusStyle(run.status);
-                  return (
-                    <motion.tr
-                      key={i}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ delay: i * 0.03 }}
-                      className="hover:bg-white/[0.02]"
-                      style={{ borderBottom: '1px solid rgba(39,39,42,0.5)' }}
-                    >
-                      <td className="px-4 py-3 font-mono text-xs" style={{ color: 'var(--text-secondary)' }}>
-                        {run.run_id || '—'}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="text-[11px] px-2 py-0.5 rounded"
-                              style={{ background: 'var(--accent-muted)', color: 'var(--accent)' }}>
-                          {run.triggered_by || '—'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-[11px]" style={{ color: 'var(--text-muted)' }}>
-                        {formatDate(run.started_at)}
-                      </td>
-                      <td className="px-4 py-3 font-medium" style={{ color: 'var(--text)' }}>
-                        {run.jobs_found ?? '—'}
-                      </td>
-                      <td className="px-4 py-3" style={{ color: 'var(--text)' }}>
-                        {run.jobs_applied ?? '—'}
-                      </td>
-                      <td className="px-4 py-3" style={{ color: 'var(--text)' }}>
-                        {run.emails_sent ?? '—'}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="text-[11px] font-medium px-2 py-0.5 rounded"
-                              style={{ background: ss.bg, color: ss.color }}>
-                          {run.status || '—'}
-                        </span>
-                      </td>
-                    </motion.tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+        {loading ? (
+          <div className="space-y-0">
+            {[1,2,3].map(i => <div key={i} className="shimmer h-14 mb-px" />)}
+          </div>
+        ) : runs.length === 0 ? (
+          <EmptyState
+            icon={<History size={20} style={{ color: 'var(--text-faint)' }} />}
+            title="No runs yet"
+            description="Pipeline runs will appear here. Start your first run from Mission Control."
+            primaryAction={{ label: 'Go to Mission Control', onClick: () => window.location.href = '/pipeline' }}
+          />
+        ) : (
+          <div>
+            {/* Header */}
+            <div className="grid grid-cols-[1fr_100px_80px_80px_80px_100px] gap-3 px-1 py-2 text-[10px] uppercase tracking-wider font-medium"
+              style={{ color: 'var(--text-faint)', borderBottom: '1px solid var(--border)' }}>
+              <span>Run ID</span>
+              <span>Trigger</span>
+              <span>Found</span>
+              <span>Applied</span>
+              <span>Emails</span>
+              <span>Status</span>
+            </div>
+
+            {runs.map((run, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: i * 0.01 }}
+                className="grid grid-cols-[1fr_100px_80px_80px_80px_100px] gap-3 px-1 py-2.5 items-center transition-colors"
+                style={{ borderBottom: '1px solid var(--border-subtle)' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-hover)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+              >
+                <div className="min-w-0">
+                  <span className="text-xs font-mono truncate" style={{ color: 'var(--text)' }}>
+                    {run.run_id || '—'}
+                  </span>
+                  <div className="text-[10px] mt-0.5" style={{ color: 'var(--text-faint)' }}>
+                    {formatDate(run.started_at)}
+                  </div>
+                </div>
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{run.triggered_by || '—'}</span>
+                <span className="text-xs font-medium tabular-nums" style={{ color: 'var(--text-secondary)' }}>{run.jobs_found ?? '—'}</span>
+                <span className="text-xs font-medium tabular-nums" style={{ color: 'var(--text-secondary)' }}>{run.jobs_applied ?? '—'}</span>
+                <span className="text-xs font-medium tabular-nums" style={{ color: 'var(--text-secondary)' }}>{run.emails_sent ?? '—'}</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: statusColor(run.status) }} />
+                  <span className="text-xs capitalize" style={{ color: statusColor(run.status) }}>{run.status || '—'}</span>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        )}
       </div>
     </Shell>
   );

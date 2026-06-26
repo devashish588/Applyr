@@ -3,1003 +3,964 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Applyr — AI Mission Control</title>
+  <title>Applyr — Your Job Search Workspace</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: { sans: ['Inter', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] },
-        }
-      }
-    }
-  </script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300..700&family=JetBrains+Mono:wght@400..600&display=swap" rel="stylesheet">
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root {
-      --bg: #06070a; --bg2: #0b0d12; --bg3: #111318; --bg4: #181b24;
-      --card: rgba(255,255,255,.035); --cardh: rgba(255,255,255,.06);
-      --bdr: rgba(255,255,255,.07); --bdrh: rgba(255,255,255,.14);
-      --t1: #f1f2f6; --t2: #8a8da0; --t3: #4e5168;
-      --v: #7c3aed; --vg: rgba(124,58,237,.22);
-      --blue: #3b82f6; --green: #22c55e; --amber: #f59e0b; --red: #ef4444; --cyan: #06b6d4;
-      --g1: linear-gradient(135deg, #7c3aed, #3b82f6);
-      --r: 10px; --rs: 6px; --sidebar-w: 220px;
-      --ease: cubic-bezier(.4,0,.2,1);
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#0c0d10; --bg2:#111318; --bg3:#171a22; --bg4:#1e212b;
+      --card:rgba(255,255,255,.04); --card-hover:rgba(255,255,255,.07);
+      --bdr:rgba(255,255,255,.07); --bdr-hover:rgba(255,255,255,.13);
+      --t1:#eef0f4; --t2:#9ca3b4; --t3:#5c6378;
+      --accent:#10b981; --accent-glow:rgba(16,185,129,.25);
+      --accent-sub:#34d399; --accent-bg:rgba(16,185,129,.08);
+      --green:#22c55e; --green-bg:rgba(34,197,94,.08);
+      --amber:#f59e0b; --amber-bg:rgba(245,158,11,.08);
+      --red:#ef4444; --red-bg:rgba(239,68,68,.08);
+      --blue:#3b82f6; --blue-bg:rgba(59,130,246,.08);
+      --r:10px; --rs:6px; --ease:cubic-bezier(.4,0,.2,1)
     }
-    body { font-family: 'Inter',sans-serif; background: var(--bg); color: var(--t1); min-height: 100vh; overflow: hidden; -webkit-font-smoothing: antialiased; }
-    ::-webkit-scrollbar { width: 3px; height: 3px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: var(--bdr); border-radius: 2px; }
+    body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--t1);min-height:100vh;overflow:hidden;-webkit-font-smoothing:antialiased}
+    ::-webkit-scrollbar{width:4px;height:4px}
+    ::-webkit-scrollbar-track{background:transparent}
+    ::-webkit-scrollbar-thumb{background:var(--bdr);border-radius:4px}
+    ::selection{background:var(--accent);color:#fff}
 
-    /* ── Layout ─────────────────────────────────────────────── */
-    .app-layout { display: flex; height: 100vh; }
-    .sidebar { width: var(--sidebar-w); height: 100vh; border-right: 1px solid var(--bdr); background: var(--bg2); display: flex; flex-direction: column; flex-shrink: 0; position: sticky; top: 0; z-index: 50; }
-    .sidebar-logo { display: flex; align-items: center; gap: 8px; padding: 14px 16px; border-bottom: 1px solid var(--bdr); }
-    .sidebar-logo-mark { width: 28px; height: 28px; border-radius: 7px; background: var(--g1); display: grid; place-items: center; font-size: 13px; font-weight: 900; color: #fff; flex-shrink: 0; }
-    .sidebar-logo-text { font-size: 15px; font-weight: 800; background: linear-gradient(135deg, #a78bfa, #60a5fa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .sidebar-nav { flex: 1; overflow-y: auto; padding: 8px; }
-    .sidebar-section { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: var(--t3); padding: 8px 8px 4px; }
-    .nav-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: var(--rs); font-size: 12px; font-weight: 500; color: var(--t2); cursor: pointer; transition: all .15s; text-decoration: none; margin-bottom: 1px; }
-    .nav-item:hover { background: var(--cardh); color: var(--t1); }
-    .nav-item.active { background: rgba(124,58,237,.1); color: #a78bfa; border: 1px solid rgba(124,58,237,.2); }
-    .nav-item svg { width: 16px; height: 16px; opacity: .6; }
-    .nav-item.active svg { opacity: 1; }
-    .nav-badge { margin-left: auto; font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 10px; background: rgba(124,58,237,.15); color: #a78bfa; }
-    .sidebar-footer { padding: 12px; border-top: 1px solid var(--bdr); }
-    .sidebar-status { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--t3); }
-    .sidebar-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px var(--green); animation: blink 2.2s ease infinite; }
-    .sidebar-dot.offline { background: var(--red); box-shadow: 0 0 6px var(--red); animation: none; }
-    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+    .app-layout{display:flex;height:100vh;width:100vw}
+    .sidebar{width:240px;height:100vh;display:flex;flex-direction:column;border-right:1px solid var(--bdr);background:var(--bg2);flex-shrink:0;position:fixed;top:0;left:0;z-index:50;overflow:hidden}
+    .sidebar-logo{padding:16px 18px 14px;border-bottom:1px solid var(--bdr);display:flex;align-items:center;gap:10px;flex-shrink:0}
+    .sidebar-logo-mark{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,#10b981,#0d9488);display:grid;place-items:center;font-size:14px;font-weight:800;color:#fff;flex-shrink:0}
+    .sidebar-logo-text{font-size:16px;font-weight:700;background:linear-gradient(135deg,#34d399,#14b8a6);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+    .sidebar-nav{flex:1;overflow-y:auto;padding:10px 8px;display:flex;flex-direction:column;gap:2px}
+    .nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--rs);font-size:13px;font-weight:500;color:var(--t2);cursor:pointer;transition:all .15s var(--ease);text-decoration:none;position:relative}
+    .nav-item:hover{background:var(--card);color:var(--t1)}
+    .nav-item.active{background:var(--accent-bg);color:var(--accent-sub)}
+    .nav-item.active::before{content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);width:3px;height:18px;border-radius:0 3px 3px 0;background:var(--accent)}
+    .nav-item svg{width:18px;height:18px;opacity:.5;flex-shrink:0}
+    .nav-item.active svg{opacity:1;color:var(--accent)}
+    .nav-badge{font-size:10px;font-weight:600;padding:1px 7px;border-radius:10px;background:var(--accent-bg);color:var(--accent-sub);margin-left:auto}
+    .sidebar-footer{padding:12px 14px;border-top:1px solid var(--bdr);flex-shrink:0}
+    .sidebar-status{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--t3)}
+    .sidebar-dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:blink 2.2s ease infinite}
+    .sidebar-dot.offline{background:var(--red);box-shadow:0 0 8px var(--red);animation:none}
+    @keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
 
-    /* ── Main area ──────────────────────────────────────────── */
-    .main-area { flex: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-    .topbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; border-bottom: 1px solid var(--bdr); background: rgba(6,7,10,.8); backdrop-filter: blur(16px); flex-shrink: 0; }
-    .topbar-title { font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
-    .topbar-title svg { width: 18px; height: 18px; opacity: .7; }
-    .topbar-actions { display: flex; align-items: center; gap: 8px; }
-    .page-content { flex: 1; overflow-y: auto; padding: 16px 20px; }
+    .main-area{margin-left:240px;flex:1;display:flex;flex-direction:column;height:100vh;overflow:hidden}
+    .topbar{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;border-bottom:1px solid var(--bdr);background:rgba(7,8,10,.85);backdrop-filter:blur(16px);flex-shrink:0;z-index:10}
+    .topbar-left{display:flex;align-items:center;gap:12px}
+    .page-title{font-size:16px;font-weight:600;display:flex;align-items:center;gap:8px}
+    .page-title svg{width:20px;height:20px;opacity:.6}
+    .topbar-right{display:flex;align-items:center;gap:8px}
+    .page-content{flex:1;overflow-y:auto;padding:20px 24px}
 
-    /* ── Cards / Components ─────────────────────────────────── */
-    .card { background: var(--card); border: 1px solid var(--bdr); border-radius: var(--r); transition: border-color .2s; }
-    .card:hover { border-color: var(--bdrh); }
-    .card.primary { border-color: rgba(124,58,237,.25); background: rgba(124,58,237,.03); }
-    .card.sm { padding: 12px 14px; }
+    .card{background:var(--card);border:1px solid var(--bdr);border-radius:var(--r);transition:all .2s var(--ease)}
+    .card:hover{border-color:var(--bdr-hover)}
+    .card-accent{border-color:rgba(16,185,129,.2);background:rgba(16,185,129,.02)}
+    .card-sm{padding:14px 16px}
+    .card-md{padding:18px 20px}
 
-    /* ── Buttons ────────────────────────────────────────────── */
-    .btn { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border: none; border-radius: var(--rs); font-family: inherit; font-size: 11px; font-weight: 600; cursor: pointer; transition: all .2s var(--ease); white-space: nowrap; }
-    .btn-primary { background: var(--g1); color: #fff; box-shadow: 0 3px 12px var(--vg); }
-    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 5px 20px var(--vg); }
-    .btn-ghost { background: var(--card); color: var(--t1); border: 1px solid var(--bdr); }
-    .btn-ghost:hover { background: var(--cardh); border-color: var(--bdrh); }
-    .btn-xs { padding: 3px 8px; font-size: 10px; }
-    .btn:disabled { opacity: .4; cursor: not-allowed; transform: none !important; }
+    .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border:none;border-radius:var(--rs);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s var(--ease);white-space:nowrap;line-height:1}
+    .btn-primary{background:linear-gradient(135deg,#10b981,#0d9488);color:#fff;box-shadow:0 3px 12px var(--accent-glow)}
+    .btn-primary:hover{transform:translateY(-1px);box-shadow:0 6px 24px var(--accent-glow)}
+    .btn-secondary{background:var(--card);color:var(--t1);border:1px solid var(--bdr)}
+    .btn-secondary:hover{background:var(--card-hover);border-color:var(--bdr-hover)}
+    .btn-ghost{background:transparent;color:var(--t2);padding:6px 10px}
+    .btn-ghost:hover{background:var(--card);color:var(--t1)}
+    .btn-sm{padding:6px 12px;font-size:12px}
+    .btn-xs{padding:4px 8px;font-size:11px}
+    .btn:disabled{opacity:.4;cursor:not-allowed;transform:none!important}
 
-    /* ── KPI ────────────────────────────────────────────────── */
-    .kpi { padding: 12px 14px; }
-    .kpi-lbl { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--t3); margin-bottom: 4px; display: flex; align-items: center; gap: 4px; }
-    .kpi-val { font-size: 20px; font-weight: 900; line-height: 1; background: var(--g1); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-    .kpi-sub { font-size: 9px; color: var(--t3); margin-top: 3px; }
+    .kpi{text-align:left}
+    .kpi-label{font-size:11px;font-weight:500;color:var(--t3);margin-bottom:2px;display:flex;align-items:center;gap:4px}
+    .kpi-value{font-size:28px;font-weight:700;line-height:1.1;letter-spacing:-.5px;color:var(--t1)}
+    .kpi-sub{font-size:11px;color:var(--t3);margin-top:2px}
 
-    /* ── Table ──────────────────────────────────────────────── */
-    .dt { width: 100%; border-collapse: collapse; }
-    .dt th { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--t3); padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--bdr); position: sticky; top: 0; background: var(--bg); z-index: 1; }
-    .dt td { font-size: 11px; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,.03); color: var(--t2); vertical-align: middle; }
-    .dt tr:hover td { background: var(--cardh); }
-    .dt .row-click { cursor: pointer; }
+    .tag{font-size:11px;padding:3px 8px;border-radius:5px;font-weight:500;display:inline-flex;align-items:center;gap:4px}
+    .tag-green{background:var(--green-bg);color:var(--green)}
+    .tag-amber{background:var(--amber-bg);color:var(--amber)}
+    .tag-red{background:var(--red-bg);color:var(--red)}
+    .tag-blue{background:var(--blue-bg);color:var(--blue)}
+    .tag-accent{background:var(--accent-bg);color:var(--accent-sub)}
+    .tag-gray{background:rgba(255,255,255,.04);color:var(--t3)}
 
-    /* ── Tags / Chips ───────────────────────────────────────── */
-    .tag { font-size: 9px; padding: 2px 6px; border-radius: 4px; font-weight: 500; display: inline-flex; align-items: center; gap: 3px; }
-    .tag-green { background: rgba(34,197,94,.08); color: var(--green); }
-    .tag-amber { background: rgba(245,158,11,.08); color: var(--amber); }
-    .tag-red { background: rgba(239,68,68,.08); color: var(--red); }
-    .tag-blue { background: rgba(59,130,246,.08); color: var(--blue); }
-    .tag-purple { background: rgba(124,58,237,.08); color: #a78bfa; }
-    .tag-gray { background: rgba(107,114,128,.08); color: var(--t3); }
-    .chip { font-size: 10px; padding: 3px 8px; border-radius: 6px; font-weight: 500; background: rgba(124,58,237,.1); border: 1px solid rgba(124,58,237,.2); color: #a78bfa; display: inline-flex; align-items: center; gap: 3px; }
+    .match-bar{height:4px;background:var(--bg3);border-radius:3px;overflow:hidden}
+    .match-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,#10b981,#34d399);transition:width .5s var(--ease)}
 
-    /* ── Tabs ───────────────────────────────────────────────── */
-    .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--bdr); margin-bottom: 12px; }
-    .tab { font-size: 11px; font-weight: 600; padding: 8px 14px; color: var(--t3); cursor: pointer; border-bottom: 2px solid transparent; transition: all .2s; }
-    .tab:hover { color: var(--t2); }
-    .tab.active { color: var(--t1); border-bottom-color: var(--v); }
+    .empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:48px 24px;gap:8px;color:var(--t3)}
+    .empty svg{width:32px;height:32px;opacity:.2}
+    .empty p{font-size:13px;text-align:center}
 
-    /* ── Mission Control log ────────────────────────────────── */
-    .mclog { padding: 6px 14px; border-bottom: 1px solid rgba(255,255,255,.03); font-family: 'JetBrains Mono',monospace; font-size: 10px; display: flex; align-items: flex-start; gap: 10px; transition: background .12s; }
-    .mclog:hover { background: var(--cardh); }
-    .mclog:last-child { border-bottom: none; }
-    .mclog-time { color: var(--t3); flex-shrink: 0; min-width: 40px; font-size: 9px; }
-    .mclog-icon { flex-shrink: 0; width: 16px; height: 16px; display: grid; place-items: center; border-radius: 4px; font-size: 9px; }
-    .mclog-icon.ok { background: rgba(34,197,94,.12); color: var(--green); }
-    .mclog-icon.fail { background: rgba(239,68,68,.12); color: var(--red); }
-    .mclog-icon.running { background: rgba(124,58,237,.12); color: #a78bfa; animation: pulse 1.2s ease infinite; }
-    .mclog-icon.wait { background: rgba(107,114,128,.08); color: var(--t3); }
-    .mclog-msg { flex: 1; color: var(--t2); line-height: 1.5; }
-    .mclog-msg strong { color: var(--t1); font-weight: 600; }
-    .mclog-status { flex-shrink: 0; font-size: 8px; font-weight: 600; padding: 1px 5px; border-radius: 3px; text-transform: uppercase; letter-spacing: .4px; }
-    .mclog-status.ok { background: rgba(34,197,94,.1); color: var(--green); }
-    .mclog-status.fail { background: rgba(239,68,68,.1); color: var(--red); }
-    .mclog-status.running { background: rgba(124,58,237,.1); color: #a78bfa; animation: pulse 1.2s ease infinite; }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+    .drawer-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;opacity:0;pointer-events:none;transition:opacity .25s}
+    .drawer-overlay.open{opacity:1;pointer-events:all}
+    .drawer{position:fixed;top:0;right:-520px;width:520px;height:100vh;background:var(--bg2);border-left:1px solid var(--bdr);z-index:201;transition:right .25s var(--ease);display:flex;flex-direction:column}
+    .drawer.open{right:0}
+    .drawer-hdr{padding:16px 20px;border-bottom:1px solid var(--bdr);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+    .drawer-body{flex:1;overflow-y:auto;padding:20px}
+    .drawer-close{width:30px;height:30px;border-radius:var(--rs);display:grid;place-items:center;cursor:pointer;border:none;background:transparent;color:var(--t2);transition:background .15s}
+    .drawer-close:hover{background:var(--card)}
 
-    /* ── Health ─────────────────────────────────────────────── */
-    .health-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
-    .health-card { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; }
-    .health-card .hname { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 500; color: var(--t2); }
-    .health-card .hname .cdot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-    .hbadge { font-size: 8px; font-weight: 700; padding: 2px 6px; border-radius: 4px; text-transform: uppercase; letter-spacing: .4px; }
+    .pip-track{display:flex;gap:6px;padding:4px 0}
+    .pip-step{flex:1;text-align:center}
+    .pip-node{width:34px;height:34px;border-radius:8px;display:grid;place-items:center;font-size:12px;font-weight:700;background:var(--bg3);border:2px solid var(--bdr);color:var(--t3);margin:0 auto 4px;transition:all .3s}
+    .pip-node.active{border-color:var(--accent);background:var(--accent-bg);color:var(--accent-sub);box-shadow:0 0 0 3px var(--accent-glow);animation:glow 1.6s ease infinite}
+    .pip-node.done{border-color:var(--green);background:var(--green-bg);color:var(--green)}
+    .pip-node.fail{border-color:var(--red);background:var(--red-bg);color:var(--red)}
+    .pip-label{font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:var(--t3)}
+    .pip-label.active{color:var(--accent-sub)}
+    .pip-label.done{color:var(--green)}
+    @keyframes glow{0%,100%{box-shadow:0 0 0 3px var(--accent-glow)}50%{box-shadow:0 0 0 8px rgba(16,185,129,.08)}}
 
-    /* ── Score box ──────────────────────────────────────────── */
-    .sc { width: 32px; height: 32px; border-radius: 7px; display: grid; place-items: center; font-size: 10px; font-weight: 800; flex-shrink: 0; }
-    .sc.hi { background: rgba(34,197,94,.1); color: var(--green); }
-    .sc.md { background: rgba(245,158,11,.1); color: var(--amber); }
-    .sc.lo { background: rgba(239,68,68,.1); color: var(--red); }
-    .sc.na { background: rgba(107,114,128,.08); color: var(--t3); }
+    .kanban{display:flex;gap:12px;height:calc(100vh - 110px);overflow-x:auto;padding-bottom:8px}
+    .kanban-col{flex:1;min-width:220px;max-width:300px;background:var(--bg2);border-radius:var(--r);border:1px solid var(--bdr);display:flex;flex-direction:column}
+    .kanban-hdr{padding:12px 14px;border-bottom:1px solid var(--bdr);display:flex;align-items:center;gap:8px}
+    .kanban-hdr-text{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+    .kanban-count{font-size:10px;font-weight:600;background:var(--bg3);padding:1px 7px;border-radius:8px;color:var(--t3);margin-left:auto}
+    .kanban-body{flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:6px}
+    .kanban-card{background:var(--bg);border:1px solid var(--bdr);border-radius:var(--rs);padding:12px;cursor:pointer;transition:all .15s var(--ease)}
+    .kanban-card:hover{border-color:var(--bdr-hover);transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.2)}
+    .kanban-card .co{font-size:12px;font-weight:600;color:var(--t1)}
+    .kanban-card .role{font-size:13px;color:var(--t2);margin:3px 0 6px}
+    .kanban-card .score-badge{font-size:11px;font-weight:700;color:var(--accent-sub)}
 
-    /* ── Score Large (for drawer header) ────────────────────── */
-    .score-lg { width: 48px; height: 48px; border-radius: 10px; display: grid; place-items: center; font-size: 16px; font-weight: 900; flex-shrink: 0; }
-    .score-lg.hi { background: rgba(34,197,94,.12); color: var(--green); box-shadow: 0 0 0 2px rgba(34,197,94,.15); }
-    .score-lg.md { background: rgba(245,158,11,.12); color: var(--amber); box-shadow: 0 0 0 2px rgba(245,158,11,.15); }
-    .score-lg.lo { background: rgba(239,68,68,.12); color: var(--red); box-shadow: 0 0 0 2px rgba(239,68,68,.15); }
+    .opp-card{display:flex;align-items:flex-start;gap:14px;padding:16px;border-radius:var(--r);background:var(--card);border:1px solid var(--bdr);cursor:pointer;transition:all .2s var(--ease)}
+    .opp-card:hover{border-color:var(--bdr-hover);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.15)}
+    .opp-card.best{border-color:rgba(16,185,129,.2);background:rgba(16,185,129,.02)}
+    .opp-score{width:44px;height:44px;border-radius:10px;display:grid;place-items:center;font-size:16px;font-weight:800;flex-shrink:0}
+    .opp-score.high{background:var(--green-bg);color:var(--green)}
+    .opp-score.medium{background:var(--amber-bg);color:var(--amber)}
+    .opp-score.low{background:var(--red-bg);color:var(--red)}
+    .opp-body{flex:1;min-width:0}
+    .opp-company{font-size:12px;font-weight:600;color:var(--accent-sub);text-transform:uppercase;letter-spacing:.4px}
+    .opp-title{font-size:15px;font-weight:600;color:var(--t1);margin:2px 0}
+    .opp-meta{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--t3);margin:4px 0}
+    .opp-footer{display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap}
+    .opp-why{font-size:12px;color:var(--t2);margin-top:4px;display:flex;flex-wrap:wrap;gap:4px}
 
-    /* ── Match Breakdown ────────────────────────────────────── */
-    .card { background: var(--bg1); border: 1px solid var(--bdr); border-radius: 8px; padding: 12px; }
-    .card-title { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; color: var(--t3); margin-bottom: 8px; }
-    .comp-row { margin-bottom: 8px; }
-    .comp-hdr { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
-    .comp-label { font-size: 10px; font-weight: 600; color: var(--t1); flex: 1; }
-    .comp-pct { font-size: 8px; font-weight: 600; color: var(--t3); background: var(--bg2); padding: 1px 5px; border-radius: 3px; }
-    .comp-score { width: 22px; height: 16px; border-radius: 3px; display: grid; place-items: center; font-size: 9px; font-weight: 700; }
-    .comp-score.hi { background: rgba(34,197,94,.1); color: var(--green); }
-    .comp-score.md { background: rgba(245,158,11,.1); color: var(--amber); }
-    .comp-score.lo { background: rgba(239,68,68,.1); color: var(--red); }
-    .match-bar { height: 4px; background: var(--bg2); border-radius: 2px; overflow: hidden; margin-bottom: 3px; }
-    .match-bar-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg, var(--v), #a78bfa); transition: width .4s var(--ease); }
-    .comp-detail { font-size: 9px; color: var(--t3); display: flex; flex-wrap: wrap; gap: 2px 8px; }
-    .why-score { font-size: 10px; color: var(--t2); line-height: 1.6; }
-    .why-score div { padding: 1px 0; }
+    .toast-cont{position:fixed;bottom:20px;right:20px;z-index:999;display:flex;flex-direction:column;gap:8px;align-items:flex-end}
+    .toast{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg3);border:1px solid var(--bdr);border-radius:var(--rs);font-size:13px;box-shadow:0 12px 32px rgba(0,0,0,.5);animation:slideIn .3s var(--ease);min-width:240px;max-width:360px}
+    .toast-success{border-left:3px solid var(--green)}
+    .toast-error{border-left:3px solid var(--red)}
+    .toast-info{border-left:3px solid var(--blue)}
+    .toast-warning{border-left:3px solid var(--amber)}
+    @keyframes slideIn{from{transform:translateX(120%);opacity:0}to{transform:none;opacity:1}}
 
-    /* ── Drawer ─────────────────────────────────────────────── */
-    .drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 200; opacity: 0; pointer-events: none; transition: opacity .2s; }
-    .drawer-overlay.open { opacity: 1; pointer-events: all; }
-    .drawer { position: fixed; top: 0; right: -480px; width: 480px; height: 100vh; background: var(--bg2); border-left: 1px solid var(--bdr); z-index: 201; transition: right .25s var(--ease); display: flex; flex-direction: column; }
-    .drawer.open { right: 0; }
-    .drawer-hdr { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--bdr); flex-shrink: 0; }
-    .drawer-body { flex: 1; overflow-y: auto; padding: 16px; }
-    .drawer-close { width: 28px; height: 28px; border-radius: 6px; display: grid; place-items: center; cursor: pointer; transition: background .15s; border: none; background: transparent; color: var(--t2); }
-    .drawer-close:hover { background: var(--cardh); }
+    .progress-step{display:flex;align-items:center;gap:10px;padding:4px 0}
+    .progress-dot{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:9px;font-weight:700;flex-shrink:0}
+    .progress-dot.done{background:var(--green-bg);color:var(--green)}
+    .progress-dot.pending{background:var(--bg3);color:var(--t3)}
+    .progress-dot.active{background:var(--accent-bg);color:var(--accent-sub);animation:pulse 1.2s ease infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
 
-    /* ── Pipeline ───────────────────────────────────────────── */
-    .pip-track { display: flex; gap: 4px; margin: 12px 0; }
-    .pip-step { flex: 1; text-align: center; }
-    .pip-node { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: var(--bg2); border: 2px solid var(--bdr); color: var(--t3); margin: 0 auto 4px; transition: all .3s; }
-    .pip-node.active { border-color: var(--v); background: rgba(124,58,237,.12); color: #a78bfa; box-shadow: 0 0 0 3px var(--vg); animation: nodeGlow 1.6s ease infinite; }
-    .pip-node.done { border-color: var(--green); background: rgba(34,197,94,.08); color: var(--green); }
-    .pip-node.error { border-color: var(--red); background: rgba(239,68,68,.08); color: var(--red); }
-    .pip-name { font-size: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; color: var(--t3); }
-    .pip-name.active { color: #a78bfa; }
-    .pip-name.done { color: var(--green); }
-    @keyframes nodeGlow { 0%,100%{box-shadow:0 0 0 3px var(--vg)} 50%{box-shadow:0 0 0 6px rgba(124,58,237,.1)} }
+    .welcome-text{font-size:18px;font-weight:600;margin-bottom:4px}
+    .welcome-sub{font-size:13px;color:var(--t3);margin-bottom:20px}
 
-    /* ── Empty state ────────────────────────────────────────── */
-    .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 16px; color: var(--t3); gap: 6px; }
-    .empty svg { width: 28px; height: 28px; opacity: .3; }
-    .empty p { font-size: 11px; text-align: center; }
+    .skeleton{background:linear-gradient(90deg,var(--bg3) 25%,var(--bg4) 50%,var(--bg3) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:var(--rs)}
+    @keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+    .skeleton-h{height:18px;width:60%;margin-bottom:8px}
+    .skeleton-kpi{height:36px;width:100px;margin-bottom:4px}
+    .skeleton-card{height:80px;width:100%;margin-bottom:8px}
+    .page-loading{display:flex;flex-direction:column;gap:12px;padding:8px 0}
 
-    /* ── Spinner ────────────────────────────────────────────── */
-    .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(255,255,255,.25); border-top-color: #fff; border-radius: 50%; animation: sp .6s linear infinite; }
-    @keyframes sp { to{transform:rotate(360deg)} }
-
-    /* ── Toasts ─────────────────────────────────────────────── */
-    #toasts { position: fixed; bottom: 16px; right: 16px; z-index: 999; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
-    .toast { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg3); border: 1px solid var(--bdr); border-radius: var(--rs); font-size: 11px; box-shadow: 0 8px 24px rgba(0,0,0,.45); animation: tIn .25s var(--ease); min-width: 200px; max-width: 300px; }
-    .toast-ok { border-left: 3px solid var(--green); }
-    .toast-err { border-left: 3px solid var(--red); }
-    .toast-info { border-left: 3px solid var(--blue); }
-    .toast-warn { border-left: 3px solid var(--amber); }
-    @keyframes tIn { from{transform:translateX(110%);opacity:0} to{transform:none;opacity:1} }
-    @keyframes tOut { to{transform:translateX(110%);opacity:0} }
-
-    /* ── Responsive ─────────────────────────────────────────── */
-    @media(max-width:768px) {
-      .sidebar { position: fixed; left: -220px; z-index: 200; transition: left .25s; }
-      .sidebar.open { left: 0; }
-      .mobile-toggle { display: flex !important; }
+    @media(max-width:900px){
+      .sidebar{left:-240px;z-index:200;transition:left .25s}
+      .sidebar.open{left:0}
+      .main-area{margin-left:0}
+      .mobile-menu{display:flex!important}
+      .kanban{flex-direction:column;height:auto}
+      .kanban-col{max-width:none}
     }
   </style>
 </head>
 <body>
 
 <div class="app-layout">
-  <!-- ── Sidebar ───────────────────────────────────────────── -->
+  <!-- Sidebar -->
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-logo">
       <div class="sidebar-logo-mark">A</div>
       <span class="sidebar-logo-text">Applyr</span>
     </div>
     <nav class="sidebar-nav">
-      <div class="sidebar-section">Overview</div>
-      <a class="nav-item" data-page="dashboard" onclick="navigate('dashboard')"><i data-lucide="layout-dashboard"></i>Dashboard</a>
-      <a class="nav-item" data-page="mission-control" onclick="navigate('mission-control')"><i data-lucide="terminal"></i>Mission Control</a>
-
-      <div class="sidebar-section">Pipeline</div>
-      <a class="nav-item" data-page="jobs" onclick="navigate('jobs')"><i data-lucide="briefcase"></i>Jobs <span class="nav-badge" id="navJobCount">0</span></a>
-      <a class="nav-item" data-page="applications" onclick="navigate('applications')"><i data-lucide="send"></i>Applications</a>
-      <a class="nav-item" data-page="recruiters" onclick="navigate('recruiters')"><i data-lucide="users"></i>Recruiters</a>
-
-      <div class="sidebar-section">Assets</div>
-      <a class="nav-item" data-page="resume" onclick="navigate('resume')"><i data-lucide="file-text"></i>Resume Studio</a>
-      <a class="nav-item" data-page="emails" onclick="navigate('emails')"><i data-lucide="mail"></i>Email Center</a>
-
-      <div class="sidebar-section">Insights</div>
-      <a class="nav-item" data-page="analytics" onclick="navigate('analytics')"><i data-lucide="bar-chart-3"></i>Analytics</a>
-      <a class="nav-item" data-page="health" onclick="navigate('health')"><i data-lucide="heart-pulse"></i>System Health</a>
+      <a class="nav-item active" data-page="home" onclick="navigate('home')"><i data-lucide="home"></i>Home</a>
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--t3);padding:12px 12px 4px;margin-top:4px">Hunt</div>
+      <a class="nav-item" data-page="discover" onclick="navigate('discover')"><i data-lucide="compass"></i>Discover Jobs</a>
+      <a class="nav-item" data-page="applications" onclick="navigate('applications')"><i data-lucide="briefcase"></i>Opportunities <span class="nav-badge" id="navAppCount">0</span></a>
+      <a class="nav-item" data-page="resume" onclick="navigate('resume')"><i data-lucide="wand-2"></i>Resume Studio</a>
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--t3);padding:12px 12px 4px;margin-top:4px">Network</div>
+      <a class="nav-item" data-page="network" onclick="navigate('network')"><i data-lucide="users"></i>Networking</a>
+      <a class="nav-item" data-page="inbox" onclick="navigate('inbox')"><i data-lucide="mail"></i>Inbox</a>
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--t3);padding:12px 12px 4px;margin-top:4px">Insights</div>
+      <a class="nav-item" data-page="insights" onclick="navigate('insights')"><i data-lucide="bar-chart-3"></i>Analytics</a>
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--t3);padding:12px 12px 4px;margin-top:4px">System</div>
       <a class="nav-item" data-page="settings" onclick="navigate('settings')"><i data-lucide="settings"></i>Settings</a>
     </nav>
     <div class="sidebar-footer">
       <div class="sidebar-status">
         <div class="sidebar-dot" id="sDot"></div>
-        <span id="sText">Connecting...</span>
+        <span id="sText">Connected</span>
       </div>
     </div>
   </aside>
 
-  <!-- ── Main Area ─────────────────────────────────────────── -->
+  <!-- Main -->
   <div class="main-area">
     <div class="topbar">
-      <div class="flex items-center gap-3">
-        <button class="btn btn-ghost btn-xs mobile-toggle" style="display:none" onclick="toggleSidebar()"><i data-lucide="menu" class="w-4 h-4"></i></button>
-        <div class="topbar-title" id="topbarTitle"><i data-lucide="layout-dashboard"></i><span>Dashboard</span></div>
+      <div class="topbar-left">
+        <button class="btn btn-ghost btn-sm mobile-menu" style="display:none" onclick="toggleSidebar()"><i data-lucide="menu" class="w-5 h-5"></i></button>
+        <div class="page-title" id="pageTitle"><i data-lucide="home"></i><span>Home</span></div>
       </div>
-      <div class="topbar-actions">
-        <button class="btn btn-primary" id="runBtn" onclick="startPipeline()"><i data-lucide="play" class="w-3.5 h-3.5"></i>Run Pipeline</button>
+      <div class="topbar-right">
+        <button class="btn btn-ghost btn-sm" onclick="navigate('resume')" title="Upload Resume"><i data-lucide="upload" class="w-4 h-4"></i></button>
+        <button class="btn btn-ghost btn-sm" onclick="navigate('network')" title="Find Recruiters"><i data-lucide="user-plus" class="w-4 h-4"></i></button>
+        <button class="btn btn-ghost btn-sm" onclick="navigate('settings')" title="Connect Gmail"><i data-lucide="mail-plus" class="w-4 h-4"></i></button>
+        <div style="width:1px;height:20px;background:var(--bdr);margin:0 4px"></div>
+        <button class="btn btn-primary" id="searchBtn" onclick="startPipeline()"><i data-lucide="search" class="w-4 h-4"></i>Run Discovery</button>
       </div>
     </div>
 
     <div class="page-content" id="pageContent">
-      <!-- ── Dashboard ────────────────────────────────────── -->
-      <div id="page-dashboard" class="page">
-        <div class="grid grid-cols-5 gap-3 mb-4">
-          <div class="card sm kpi"><div class="kpi-lbl"><i data-lucide="briefcase" class="w-3 h-3"></i>Jobs Found</div><div class="kpi-val" id="kJobs">—</div><div class="kpi-sub">Total discovered</div></div>
-          <div class="card sm kpi"><div class="kpi-lbl"><i data-lucide="file-text" class="w-3 h-3"></i>Drafted</div><div class="kpi-val" id="kDrafted">—</div><div class="kpi-sub">Applications drafted</div></div>
-          <div class="card sm kpi"><div class="kpi-lbl"><i data-lucide="send" class="w-3 h-3"></i>Submitted</div><div class="kpi-val" id="kSubmitted">—</div><div class="kpi-sub">Actually submitted</div></div>
-          <div class="card sm kpi"><div class="kpi-lbl"><i data-lucide="mail" class="w-3 h-3"></i>Emails Sent</div><div class="kpi-val" id="kEmails">—</div><div class="kpi-sub">Delivered</div></div>
-          <div class="card sm kpi"><div class="kpi-lbl"><i data-lucide="users" class="w-3 h-3"></i>Recruiters</div><div class="kpi-val" id="kRecruiters">—</div><div class="kpi-sub">Discovered</div></div>
-        </div>
-        <div class="grid grid-cols-3 gap-3">
-          <div class="card sm" id="dashResume"><div class="text-[9px] font-bold uppercase tracking-wider text-[var(--t3)] mb-2">Resume Status</div><div class="text-[11px] text-[var(--t2)]">Loading...</div></div>
-          <div class="card sm" id="dashSearch"><div class="text-[9px] font-bold uppercase tracking-wider text-[var(--t3)] mb-2">Search Strategy</div><div class="text-[11px] text-[var(--t2)]">Loading...</div></div>
-          <div class="card sm" id="dashPipeline"><div class="text-[9px] font-bold uppercase tracking-wider text-[var(--t3)] mb-2">Pipeline</div><div class="text-[11px] text-[var(--t2)]">Idle</div></div>
-        </div>
+
+      <!-- ═══ HOME ═══ -->
+      <div id="page-home" class="page">
+        <div id="homeBody"><div class="empty"><i data-lucide="loader" class="w-6 h-6 animate-spin"></i><p>Loading...</p></div></div>
       </div>
 
-      <!-- ── Mission Control ──────────────────────────────── -->
-      <div id="page-mission-control" class="page" style="display:none">
-        <div class="card sm mb-3" id="mcPipeline">
-          <div class="flex items-center justify-between mb-2"><span class="text-[9px] font-bold uppercase tracking-wider text-[var(--t3)]">Pipeline Status</span><span class="tag tag-gray" id="mcBadge">Idle</span></div>
-          <div class="pip-track" id="mcPipTrack"></div>
-          <div class="flex items-center gap-3 text-[10px]"><span class="flex-1 font-mono text-[var(--t2)]" id="mcMsg">Click "Run Pipeline" to start</span><span class="font-mono text-[var(--t3)]" id="mcPct">0%</span></div>
-        </div>
-        <div class="card">
-          <div class="flex items-center justify-between" style="padding:8px 14px;border-bottom:1px solid var(--bdr)">
-            <span class="text-[11px] font-bold uppercase tracking-[.5px] flex items-center gap-2"><i data-lucide="activity" class="w-3.5 h-3.5 opacity-70"></i>Live Activity Feed</span>
-            <div class="flex items-center gap-2"><span class="text-[9px] text-[var(--t3)] font-mono" id="mcCount">0 events</span><button class="btn btn-ghost btn-xs" onclick="clearMCLog()">Clear</button></div>
-          </div>
-          <div id="mcLog" style="max-height:calc(100vh - 260px);overflow-y:auto">
-            <div class="empty"><i data-lucide="activity" class="w-6 h-6"></i><p>No activity yet</p></div>
+      <!-- ═══ DISCOVER ═══ -->
+      <div id="page-discover" class="page" style="display:none">
+        <div class="flex items-center justify-between mb-4">
+          <div><div class="text-[15px] font-semibold">Opportunity Feed</div><div class="text-[12px] text-[var(--t3)]" id="discoverSub">Best matches based on your profile</div></div>
+          <div class="flex items-center gap-2">
+            <span class="text-[11px] text-[var(--t3)]" id="discoverCount">0 opportunities</span>
+            <button class="btn btn-ghost btn-sm" onclick="filterDiscover('best')" id="filterBest"><i data-lucide="star" class="w-3.5 h-3.5"></i>Best Matches</button>
+            <button class="btn btn-ghost btn-sm" onclick="filterDiscover('all')" id="filterAll">All</button>
           </div>
         </div>
+        <div id="discoverFeed" class="space-y-3"><div class="empty"><i data-lucide="briefcase" class="w-8 h-8"></i><p>No opportunities yet</p><p class="text-[11px]">Run a search to discover matching roles</p></div></div>
       </div>
 
-      <!-- ── Jobs ─────────────────────────────────────────── -->
-      <div id="page-jobs" class="page" style="display:none">
-        <div class="tabs" id="jobTabs">
-          <div class="tab active" data-filter="all" onclick="filterJobs('all',this)">All</div>
-          <div class="tab" data-filter="draft" onclick="filterJobs('draft',this)">Drafted</div>
-          <div class="tab" data-filter="sent" onclick="filterJobs('sent',this)">Applied</div>
-          <div class="tab" data-filter="skipped" onclick="filterJobs('skipped',this)">Skipped</div>
-        </div>
-        <div class="card"><table class="dt"><thead><tr><th>Score</th><th>Company</th><th>Role</th><th>Source</th><th>Location</th><th>Status</th><th>Recruiter</th></tr></thead><tbody id="jobsTbody"><tr><td colspan="7"><div class="empty"><p>Loading jobs...</p></div></td></tr></tbody></table></div>
-      </div>
-
-      <!-- ── Applications ─────────────────────────────────── -->
+      <!-- ═══ APPLICATIONS (Kanban) ═══ -->
       <div id="page-applications" class="page" style="display:none">
-        <div class="tabs" id="appTabs">
-          <div class="tab active" data-filter="all" onclick="filterApps('all',this)">All</div>
-          <div class="tab" data-filter="draft" onclick="filterApps('draft',this)">Drafted</div>
-          <div class="tab" data-filter="sent" onclick="filterApps('sent',this)">Submitted</div>
-          <div class="tab" data-filter="failed" onclick="filterApps('failed',this)">Failed</div>
-        </div>
-        <div class="card"><table class="dt"><thead><tr><th>Company</th><th>Role</th><th>Date</th><th>Resume</th><th>Email</th><th>Status</th></tr></thead><tbody id="appsTbody"><tr><td colspan="6"><div class="empty"><p>Loading applications...</p></div></td></tr></tbody></table></div>
+        <div class="kanban" id="kanbanBoard"><div class="empty" style="flex:1"><i data-lucide="loader" class="w-6 h-6 animate-spin"></i><p>Loading...</p></div></div>
       </div>
 
-      <!-- ── Recruiters ───────────────────────────────────── -->
-      <div id="page-recruiters" class="page" style="display:none">
-        <div class="card"><table class="dt"><thead><tr><th>Name</th><th>Title</th><th>Email</th><th>Confidence</th><th>Company</th><th>Source</th></tr></thead><tbody id="recTbody"><tr><td colspan="6"><div class="empty"><p>Loading recruiters...</p></div></td></tr></tbody></table></div>
+      <!-- ═══ NETWORK ═══ -->
+      <div id="page-network" class="page" style="display:none">
+        <div class="flex items-center justify-between mb-4"><div><div class="text-[15px] font-semibold">Network</div><div class="text-[12px] text-[var(--t3)]">Recruiters & contacts discovered</div></div></div>
+        <div class="card card-sm" id="networkBody"><div class="empty"><i data-lucide="users" class="w-8 h-8"></i><p>No contacts yet</p></div></div>
       </div>
 
-      <!-- ── Resume Studio ────────────────────────────────── -->
+      <!-- ═══ RESUME ═══ -->
       <div id="page-resume" class="page" style="display:none">
-        <div class="grid grid-cols-2 gap-3">
-          <div class="card sm">
-            <div class="flex items-center justify-between mb-3"><span class="text-[9px] font-bold uppercase tracking-wider text-[var(--t3)]">Resume Status</span><button class="btn btn-ghost btn-xs" onclick="triggerResumeUpload()">Upload</button><input type="file" id="resumeFileIn" style="display:none" accept=".pdf,.docx,.doc,.txt" onchange="uploadResume(this.files[0])"></div>
-            <div id="resumeStatusCard"><div class="text-[11px] text-[var(--t3)]">Loading...</div></div>
-          </div>
-          <div class="card sm">
-            <div class="text-[9px] font-bold uppercase tracking-wider text-[var(--t3)] mb-3">Parse Validation</div>
-            <div id="resumeValidation"><div class="text-[11px] text-[var(--t3)]">Upload a resume to see validation</div></div>
-          </div>
-          <div class="card sm">
-            <div class="text-[9px] font-bold uppercase tracking-wider text-[var(--t3)] mb-3">Detected Skills</div>
-            <div id="resumeSkills"><div class="text-[11px] text-[var(--t3)]">—</div></div>
-          </div>
-          <div class="card sm">
-            <div class="text-[9px] font-bold uppercase tracking-wider text-[var(--t3)] mb-3">Role Inference</div>
-            <div id="resumeRoles"><div class="text-[11px] text-[var(--t3)]">—</div></div>
-          </div>
-          <div class="card sm">
-            <div class="text-[9px] font-bold uppercase tracking-wider text-[var(--t3)] mb-3">Experience</div>
-            <div id="resumeExperience"><div class="text-[11px] text-[var(--t3)]">—</div></div>
-          </div>
-          <div class="card sm">
-            <div class="text-[9px] font-bold uppercase tracking-wider text-[var(--t3)] mb-3">Education</div>
-            <div id="resumeEducation"><div class="text-[11px] text-[var(--t3)]">—</div></div>
-          </div>
+        <div class="flex items-center justify-between mb-4"><div><div class="text-[15px] font-semibold">Resume</div><div class="text-[12px] text-[var(--t3)]">Manage your profile and skills</div></div>
+          <button class="btn btn-secondary btn-sm" onclick="document.getElementById('resumeFileIn').click()"><i data-lucide="upload" class="w-4 h-4"></i>Upload</button>
+          <input type="file" id="resumeFileIn" style="display:none" accept=".pdf,.docx,.doc,.txt" onchange="uploadResume(this.files[0])">
+        </div>
+        <div class="grid grid-cols-2 gap-4" id="resumeGrid">
+          <div class="card card-md"><div class="empty"><p>Loading...</p></div></div>
+          <div class="card card-md"><div class="empty"><p>Loading...</p></div></div>
+          <div class="card card-md"><div class="empty"><p>Loading...</p></div></div>
+          <div class="card card-md"><div class="empty"><p>Loading...</p></div></div>
         </div>
       </div>
 
-      <!-- ── Email Center ─────────────────────────────────── -->
-      <div id="page-emails" class="page" style="display:none">
-        <div class="grid grid-cols-4 gap-3 mb-3">
-          <div class="card sm"><div class="kpi-lbl">Provider</div><div class="text-[11px] text-[var(--t2)]" id="emailProvider">Loading...</div></div>
-          <div class="card sm"><div class="kpi-lbl">Account</div><div class="text-[11px] text-[var(--t2)]" id="emailAccount">—</div></div>
-          <div class="card sm"><div class="kpi-lbl">Status</div><div class="text-[11px] text-[var(--t2)]" id="emailProviderStatus">Loading...</div></div>
-          <div class="card sm flex items-center justify-center"><button class="btn btn-sm btn-primary" onclick="sendTestEmail()"><i data-lucide="send" class="w-3 h-3"></i>Send Test</button></div>
+      <!-- ═══ INBOX ═══ -->
+      <div id="page-inbox" class="page" style="display:none">
+        <div class="flex items-center justify-between mb-4">
+          <div><div class="text-[15px] font-semibold">Inbox</div><div class="text-[12px] text-[var(--t3)]">Email configuration & drafts</div></div>
+          <button class="btn btn-secondary btn-sm" onclick="sendTestEmail()"><i data-lucide="send" class="w-4 h-4"></i>Test Email</button>
         </div>
-        <div class="card"><table class="dt"><thead><tr><th>To</th><th>Subject</th><th>Company</th><th>Status</th></tr></thead><tbody id="emailTbody"><tr><td colspan="4"><div class="empty"><p>Loading emails...</p></div></td></tr></tbody></table></div>
-      </div>
-
-      <!-- ── Analytics ────────────────────────────────────── -->
-      <div id="page-analytics" class="page" style="display:none">
-        <div class="grid grid-cols-4 gap-3 mb-3">
-          <div class="card sm kpi"><div class="kpi-lbl">Total Jobs</div><div class="kpi-val" id="anJobs">—</div></div>
-          <div class="card sm kpi"><div class="kpi-lbl">Applications</div><div class="kpi-val" id="anApps">—</div></div>
-          <div class="card sm kpi"><div class="kpi-lbl">Avg Score</div><div class="kpi-val" id="anScore">—</div></div>
-          <div class="card sm kpi"><div class="kpi-lbl">Total Runs</div><div class="kpi-val" id="anRuns">—</div></div>
+        <div class="grid grid-cols-3 gap-4 mb-4">
+          <div class="card card-sm"><div class="flex items-center gap-2"><div class="kpi-label">Provider</div></div><div class="text-[13px] text-[var(--t1)] font-medium" id="inboxProvider">—</div></div>
+          <div class="card card-sm"><div class="kpi-label">Account</div><div class="text-[13px] text-[var(--t1)] font-medium" id="inboxAccount">—</div></div>
+          <div class="card card-sm"><div class="kpi-label">Status</div><div class="text-[13px] text-[var(--t1)] font-medium" id="inboxStatus">—</div></div>
         </div>
-        <div class="card sm">
-          <div class="text-[9px] font-bold uppercase tracking-wider text-[var(--t3)] mb-3">Source Distribution</div>
-          <div id="anSources"><div class="text-[11px] text-[var(--t3)]">Loading...</div></div>
+        <div class="card card-sm">
+          <div class="flex items-center justify-between mb-3"><span class="text-[11px] font-semibold text-[var(--t3)] uppercase tracking-[.4px]">Email Drafts</span></div>
+          <table class="w-full" style="border-collapse:collapse"><thead><tr class="text-[11px] text-[var(--t3)] uppercase tracking-[.4px]"><th class="text-left pb-2 font-medium">To</th><th class="text-left pb-2 font-medium">Subject</th><th class="text-left pb-2 font-medium">Status</th></tr></thead><tbody id="inboxBody"><tr><td colspan="3"><div class="empty py-4"><p>No emails yet</p></div></td></tr></tbody></table>
         </div>
       </div>
 
-      <!-- ── System Health ────────────────────────────────── -->
-      <div id="page-health" class="page" style="display:none">
-        <div class="health-grid" id="healthGrid"><div class="card sm"><div class="empty"><p>Loading...</p></div></div></div>
+      <!-- ═══ INSIGHTS ═══ -->
+      <div id="page-insights" class="page" style="display:none">
+        <div class="mb-4"><div class="text-[15px] font-semibold">Insights</div><div class="text-[12px] text-[var(--t3)]">Track your job search progress</div></div>
+        <div class="grid grid-cols-4 gap-4 mb-4">
+          <div class="card card-sm"><div class="kpi-label">Applications</div><div class="kpi-value" id="insApps">—</div><div class="kpi-sub">Total submitted</div></div>
+          <div class="card card-sm"><div class="kpi-label">Responses</div><div class="kpi-value" id="insResponses">—</div><div class="kpi-sub">Replies received</div></div>
+          <div class="card card-sm"><div class="kpi-label">Interviews</div><div class="kpi-value" id="insInterviews">—</div><div class="kpi-sub">Scheduled</div></div>
+          <div class="card card-sm"><div class="kpi-label">Offers</div><div class="kpi-value" id="insOffers">—</div><div class="kpi-sub">Received</div></div>
+        </div>
+        <div class="card card-sm"><div class="text-[11px] font-semibold text-[var(--t3)] uppercase tracking-[.4px] mb-3">Opportunities by Source</div><div id="insSources"><div class="text-[12px] text-[var(--t3)]">Loading...</div></div></div>
       </div>
 
-      <!-- ── Settings ─────────────────────────────────────── -->
+      <!-- ═══ SETTINGS ═══ -->
       <div id="page-settings" class="page" style="display:none">
-        <div class="grid grid-cols-2 gap-3">
-          <div class="card sm">
-            <div class="text-[9px] font-bold uppercase tracking-wider text-[var(--t3)] mb-3">Pipeline Config</div>
-            <div id="settingsConfig"><div class="text-[11px] text-[var(--t3)]">Loading...</div></div>
-          </div>
-          <div class="card sm">
-            <div class="text-[9px] font-bold uppercase tracking-wider text-[var(--t3)] mb-3">API Keys</div>
-            <div id="settingsKeys"><div class="text-[11px] text-[var(--t3)]">Loading...</div></div>
-          </div>
+        <div class="mb-4"><div class="text-[15px] font-semibold">Settings</div><div class="text-[12px] text-[var(--t3)]">Configure your workspace</div></div>
+        <div class="grid grid-cols-2 gap-4">
+          <div class="card card-sm"><div class="text-[11px] font-semibold text-[var(--t3)] uppercase tracking-[.4px] mb-3">Configuration</div><div id="settingsConfig"><div class="text-[12px] text-[var(--t3)]">Loading...</div></div></div>
+          <div class="card card-sm"><div class="text-[11px] font-semibold text-[var(--t3)] uppercase tracking-[.4px] mb-3">API Keys</div><div id="settingsKeys"><div class="text-[12px] text-[var(--t3)]">Loading...</div></div></div>
         </div>
-        <div class="grid grid-cols-2 gap-3 mt-3">
-          <div class="card sm">
-            <div class="text-[9px] font-bold uppercase tracking-wider text-[var(--t3)] mb-3">Email Configuration</div>
-            <div id="settingsEmail"><div class="text-[11px] text-[var(--t3)]">Loading...</div></div>
+        <div class="grid grid-cols-2 gap-4 mt-4">
+          <div class="card card-sm">
+            <div class="flex items-center justify-between mb-3"><span class="text-[11px] font-semibold text-[var(--t3)] uppercase tracking-[.4px]">Email</span></div>
+            <div id="settingsEmail"><div class="text-[12px] text-[var(--t3)]">Loading...</div></div>
+            <div class="mt-3 pt-3 border-t border-[var(--bdr)]">
+              <div class="flex gap-2"><input type="text" id="testEmailTo" class="bg-[var(--bg3)] border border-[var(--bdr)] rounded-[6px] px-3 py-2 text-[12px] flex-1 outline-none focus:border-[var(--accent)]" placeholder="test@email.com"><button class="btn btn-primary btn-sm" onclick="sendTestEmail()" id="testEmailBtn">Send Test</button></div>
+              <div id="testEmailResult" class="mt-2 text-[11px]"></div>
+            </div>
           </div>
-          <div class="card sm">
-            <div class="flex items-center justify-between mb-3">
-              <div class="text-[9px] font-bold uppercase tracking-wider text-[var(--t3)]">Email Diagnostics</div>
-              <button class="btn btn-ghost btn-xs" onclick="loadEmailStatus()">Refresh</button>
-            </div>
-            <div id="emailStatus"><div class="text-[11px] text-[var(--t3)]">Loading...</div></div>
-            <div style="padding-top:10px;margin-top:8px;border-top:1px solid var(--bdr)">
-              <div style="display:flex;gap:8px;align-items:center">
-                <input type="text" id="testEmailTo" class="textarea" style="min-height:auto;flex:1;font-size:10px" placeholder="you@gmail.com (defaults to FROM_EMAIL)">
-                <button class="btn btn-primary btn-xs" onclick="sendTestEmail()" id="testEmailBtn" style="white-space:nowrap">Send Test Email</button>
-              </div>
-              <div id="testEmailResult" style="margin-top:8px;font-size:10px"></div>
-            </div>
+          <div class="card card-sm">
+            <div class="flex items-center justify-between mb-3"><span class="text-[11px] font-semibold text-[var(--t3)] uppercase tracking-[.4px]">Email Diagnostics</span><button class="btn btn-ghost btn-xs" onclick="loadEmailStatus()">Refresh</button></div>
+            <div id="emailStatus"><div class="text-[12px] text-[var(--t3)]">Loading...</div></div>
           </div>
         </div>
       </div>
-    </div>
-  </div>
+
+      <!-- ═══ SEARCH ACTIVITY (hidden) ═══ -->
+      <div id="page-activity" class="page" style="display:none">
+        <div class="card card-md mb-4" id="actPipeline">
+          <div class="flex items-center justify-between mb-3"><span class="text-[11px] font-semibold text-[var(--t3)] uppercase tracking-[.4px]">Search Status</span><span class="tag tag-gray" id="actBadge">Idle</span></div>
+          <div class="pip-track" id="actPipTrack"></div>
+          <div class="flex items-center gap-3 mt-2"><span class="flex-1 text-[12px] text-[var(--t2)]" id="actMsg">Ready</span><span class="text-[11px] font-mono text-[var(--t3)]" id="actPct">0%</span></div>
+        </div>
+        <div class="card card-md">
+          <div class="flex items-center justify-between mb-3"><span class="text-[11px] font-semibold text-[var(--t3)] uppercase tracking-[.4px]"><i data-lucide="activity" class="w-4 h-4 inline mr-1"></i>Activity Log</span><button class="btn btn-ghost btn-xs" onclick="clearActLog()">Clear</button></div>
+          <div id="actLog" style="max-height:400px;overflow-y:auto"><div class="empty py-6"><i data-lucide="activity" class="w-6 h-6"></i><p>No activity yet</p></div></div>
+        </div>
+      </div>
+
+    </div><!-- /page-content -->
+  </div><!-- /main-area -->
 </div>
 
-<!-- ── Job Detail Drawer ────────────────────────────────────── -->
+<!-- Drawer -->
 <div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
 <div class="drawer" id="drawer">
-  <div class="drawer-hdr"><span class="text-[12px] font-bold" id="drawerTitle">Job Details</span><button class="drawer-close" onclick="closeDrawer()"><i data-lucide="x" class="w-4 h-4"></i></button></div>
-  <div class="drawer-body" id="drawerBody"><div class="empty"><p>Select a job to view details</p></div></div>
+  <div class="drawer-hdr"><span class="text-[14px] font-semibold" id="drawerTitle">Details</span><button class="drawer-close" onclick="closeDrawer()"><i data-lucide="x" class="w-5 h-5"></i></button></div>
+  <div class="drawer-body" id="drawerBody"><div class="empty"><p>Select an item to view details</p></div></div>
 </div>
 
-<!-- ── Toasts ───────────────────────────────────────────────── -->
-<div id="toasts"></div>
+<!-- Toasts -->
+<div class="toast-cont" id="toasts"></div>
 
 <script>
-  // ── Helpers ──────────────────────────────────────────────────────────────────
-  const $ = id => document.getElementById(id);
-  const esc = s => String(s ?? '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const api = (url, opt) => fetch(url, opt).then(r => r.json()).catch(e => ({error: e.message}));
+// ── Helpers ─────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const esc = s => String(s??'').replace(/</g,'\x26lt;').replace(/>/g,'\x26gt;');
+const api = (url, opt) => fetch(url, opt).then(r=>r.json()).catch(e=>({error:e.message}));
 
-  let allJobs = [];
-  let allEmails = [];
+function toast(msg, type='info', dur=4000) {
+  const icons = {success:'✓',error:'✗',info:'ℹ',warning:'⚠'};
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.innerHTML = `<span style="font-weight:700">${icons[type]||icons.info}</span><span>${esc(msg)}</span>`;
+  $('toasts').appendChild(el);
+  setTimeout(() => { el.style.opacity='0'; el.style.transform='translateX(120%)'; setTimeout(()=>el.remove(),300); }, dur);
+}
 
-  function toast(msg, type='info', dur=4000) {
-    const icons = {ok:'✓',err:'✗',info:'ℹ',warn:'⚠'};
-    const el = document.createElement('div');
-    el.className = `toast toast-${type}`;
-    el.innerHTML = `<span>${icons[type]||icons.info}</span><span>${esc(msg)}</span>`;
-    $('toasts').appendChild(el);
-    setTimeout(() => { el.style.animation='tOut .3s ease forwards'; setTimeout(()=>el.remove(),300); }, dur);
-  }
+function sanitizeCo(co) {
+  if (!co || /^(none|null|n\/a|unknown)$/i.test(String(co).trim())) return 'Not Extracted';
+  return String(co).trim();
+}
 
-  function sanitizeCo(co) {
-    if (!co || /^(none|null|n\/a|unknown)$/i.test(String(co).trim())) return 'Not Extracted';
-    return String(co).trim();
-  }
-  function scoreBox(s) {
-    if (s==null) return `<div class="sc na">—</div>`;
-    return `<div class="sc ${s>=70?'hi':s>=50?'md':'lo'}">${s}</div>`;
-  }
-  function statusTag(st) {
-    const s = (st||'found').toLowerCase();
-    const map = {sent:'tag-green',draft:'tag-purple',ready:'tag-amber',skipped:'tag-gray',found:'tag-blue',failed:'tag-red'};
-    const lbl = {sent:'Applied',draft:'Drafted',ready:'Ready',skipped:'Skipped',found:'Found',failed:'Failed'};
-    return `<span class="tag ${map[s]||'tag-gray'}">${lbl[s]||s}</span>`;
-  }
-  function skeleton(rows=3) {
-    return Array.from({length:rows}, ()=>'<tr><td colspan="8" class="py-2"><div class="h-3 bg-[var(--bg2)] rounded animate-pulse" style="width:100%"></div></td></tr>').join('');
-  }
+function scoreTag(s) {
+  if (s == null) return '<span class="tag tag-gray">—</span>';
+  return `<span class="tag ${s>=70?'tag-green':s>=50?'tag-amber':'tag-red'}">${s}</span>`;
+}
 
-  // ── Router ───────────────────────────────────────────────────────────────────
-  const pageTitles = {
-    dashboard: ['layout-dashboard','Dashboard'],
-    'mission-control': ['terminal','Mission Control'],
-    jobs: ['briefcase','Jobs'],
-    applications: ['send','Applications'],
-    recruiters: ['users','Recruiters'],
-    resume: ['file-text','Resume Studio'],
-    emails: ['mail','Email Center'],
-    analytics: ['bar-chart-3','Analytics'],
-    health: ['heart-pulse','System Health'],
-    settings: ['settings','Settings'],
+function statusTag(st) {
+  const s = (st||'found').toLowerCase();
+  const map = {sent:'tag-green',draft:'tag-accent',ready:'tag-amber',skipped:'tag-gray',found:'tag-blue',failed:'tag-red'};
+  const lbl = {sent:'Applied',draft:'Drafted',ready:'Ready',skipped:'Skipped',found:'Found',failed:'Failed'};
+  return `<span class="tag ${map[s]||'tag-gray'}">${lbl[s]||s}</span>`;
+}
+
+// ── Router ──────────────────────────────────────────────────
+const pageTitles = {
+  home:['home','Home'], discover:['compass','Discover Jobs'], applications:['briefcase','Opportunities'],
+  network:['users','Networking'], resume:['wand-2','Resume Studio'], inbox:['mail','Inbox'],
+  insights:['bar-chart-3','Analytics'], settings:['settings','Settings']
+};
+
+function navigate(page) { window.location.hash = page; }
+
+function handleRoute() {
+  const hash = window.location.hash.slice(1) || 'home';
+  document.querySelectorAll('.page').forEach(p => p.style.display = 'none');
+  const target = $('page-'+hash);
+  if (target) target.style.display = 'block';
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const nav = document.querySelector(`.nav-item[data-page="${hash}"]`);
+  if (nav) nav.classList.add('active');
+  const [icon, title] = pageTitles[hash] || ['home','Home'];
+  $('pageTitle').innerHTML = `<i data-lucide="${icon}"></i><span>${title}</span>`;
+  lucide.createIcons();
+  loadPage(hash);
+}
+window.addEventListener('hashchange', handleRoute);
+
+function loadPage(page) {
+  const contentEl = $('page-'+page);
+  const loaders = {
+    home: loadHome, discover: loadDiscover, applications: loadAppsPage,
+    network: loadNetwork, resume: loadResume, inbox: loadInbox,
+    insights: loadInsights, settings: loadSettings
   };
-
-  function navigate(page) {
-    window.location.hash = page;
+  const loader = loaders[page];
+  if (loader) {
+    const result = loader();
+    if (result && result.then) result.then(() => { if (contentEl) contentEl.dataset.loaded = '1'; }).catch(() => {});
+    else if (contentEl) contentEl.dataset.loaded = '1';
   }
+}
 
-  function handleRoute() {
-    const hash = window.location.hash.slice(1) || 'dashboard';
-    document.querySelectorAll('.page').forEach(p => p.style.display = 'none');
-    const target = $('page-' + hash);
-    if (target) target.style.display = 'block';
+function toggleSidebar() { $('sidebar').classList.toggle('open'); }
 
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    const navItem = document.querySelector(`.nav-item[data-page="${hash}"]`);
-    if (navItem) navItem.classList.add('active');
+// ── Home ────────────────────────────────────────────────────
+async function loadHome() {
+  const [an, st, rs, es] = await Promise.all([
+    api('/api/analytics'), api('/api/status'), api('/api/resume-status'), api('/api/email/status')
+  ]);
+  const totalJobs = an.success ? (an.analytics.total_jobs||0) : 0;
+  const drafted = an.success ? (an.analytics.applications_drafted||0) : 0;
+  const emailed = an.success ? (an.analytics.emails_sent||0) : 0;
+  const recruiters = st.recruiters_count||0;
+  const h = new Date().getHours();
+  const greet = h < 12 ? 'Good Morning' : h < 17 ? 'Good Afternoon' : 'Good Evening';
+  const name = rs.uploaded ? (rs.parsed?.name || rs.filename?.replace(/\.[^.]+$/,'') || 'there') : 'there';
 
-    const [icon, title] = pageTitles[hash] || ['layout-dashboard', 'Dashboard'];
-    $('topbarTitle').innerHTML = `<i data-lucide="${icon}"></i><span>${title}</span>`;
-    lucide.createIcons();
+  // Check if fully onboarded — has resume, parsed, jobs, AND email connected
+  const onboarded = rs.uploaded && rs.parsed && (totalJobs > 0 || recruiters > 0);
 
-    loadPageData(hash);
-  }
-
-  window.addEventListener('hashchange', handleRoute);
-
-  function loadPageData(page) {
-    switch(page) {
-      case 'dashboard': loadDashboard(); break;
-      case 'mission-control': break;
-      case 'jobs': loadJobsPage(); break;
-      case 'applications': loadAppsPage(); break;
-      case 'recruiters': loadRecruitersPage(); break;
-      case 'resume': loadResumeStudio(); break;
-      case 'emails': loadEmailCenter(); break;
-      case 'analytics': loadAnalytics(); break;
-      case 'health': loadHealthPage(); break;
-      case 'settings': loadSettingsPage(); break;
-    }
-  }
-
-  // ── Sidebar toggle (mobile) ─────────────────────────────────────────────────
-  function toggleSidebar() { $('sidebar').classList.toggle('open'); }
-
-  // ── Mission Control ─────────────────────────────────────────────────────────
-  let mcLogCount = 0;
-  function mcLog(step, msg, status='ok') {
-    const container = $('mcLog');
-    mcLogCount++;
-    const time = new Date().toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
-    const icons = {ok:'✓',fail:'✗',running:'◌',wait:'·'};
-    const entry = document.createElement('div');
-    entry.className = 'mclog';
-    entry.innerHTML = `<span class="mclog-time">${time}</span><span class="mclog-icon ${status}">${icons[status]||'·'}</span><span class="mclog-msg">${msg}</span><span class="mclog-status ${status}">${status==='ok'?'Done':status==='fail'?'Failed':status==='running'?'Running':'Pending'}</span>`;
-    container.appendChild(entry);
-    container.scrollTop = container.scrollHeight;
-    $('mcCount').textContent = mcLogCount + ' events';
-    const empty = container.querySelector('.empty');
-    if (empty) empty.remove();
-    lucide.createIcons();
-  }
-  function clearMCLog() {
-    $('mcLog').innerHTML = '<div class="empty"><i data-lucide="activity" class="w-6 h-6"></i><p>No activity yet</p></div>';
-    mcLogCount = 0; $('mcCount').textContent = '0 events'; lucide.createIcons();
-  }
-
-  // ── Pipeline ─────────────────────────────────────────────────────────────────
-  const STEP_IDX = {init:0,discover:1,discover_done:1,parse:2,parse_done:2,score:3,score_done:3,tailor:4,tailor_done:4,email:5,email_done:5};
-  function resetPipeline() {
-    for(let i=1;i<=5;i++){const n=$('mpn'+i),l=$('mpnl'+i);if(n){n.className='pip-node';n.textContent=i;}if(l){l.className='pip-name';}}
-    $('mcBadge').textContent='Running'; $('mcBadge').className='tag tag-purple';
-    $('mcMsg').textContent='Initializing...'; $('mcPct').textContent='0%';
-    clearMCLog();
-  }
-  function advancePipeline(stepName,state,pct,count,msg) {
-    const idx=STEP_IDX[stepName];
-    if(msg)$('mcMsg').textContent=msg;
-    if(pct!==undefined)$('mcPct').textContent=pct+'%';
-    if(!idx)return;
-    for(let i=1;i<=5;i++){const n=$('mpn'+i),l=$('mpnl'+i);if(!n)continue;n.className='pip-node';l.className='pip-name';if(i<idx){n.classList.add('done');l.classList.add('done');n.textContent='✓';}else if(i===idx){const cls=state||(stepName.endsWith('_done')?'done':'active');n.classList.add(cls);l.classList.add(cls);n.textContent=cls==='done'?'✓':i;}else{n.textContent=i;}}
-  }
-
-  function startPipeline() {
-    // Check email config before starting
-    api('/api/email/status').then(es=>{
-      if(es.success&&!es.configured){
-        if(!confirm('Email system not configured. Applications can be drafted but emails cannot be sent.\n\nContinue anyway?')){
-          resetBtn();
-          return;
-        }
-      }
-      const btn=$('runBtn'); btn.disabled=true; btn.innerHTML='<span class="spin"></span>Running...';
-      navigate('mission-control');
-      resetPipeline();
-      api('/api/run-now',{method:'POST'}).then(d=>{
-        if(!d.success){toast(d.error||'Failed','err');resetBtn();return;}
-        mcLog('init','Pipeline <strong>started</strong>','running');
-        listenSSE(d.run_id);
-        toast('Pipeline started','info');
-      });
-    });
-  }
-
-  function listenSSE(runId) {
-    const es = new EventSource('/api/pipeline/stream/'+runId);
-    const mcMap = {
-      init:['init','Pipeline <strong>initializing</strong>','running'],
-      discover:['discover','Searching LinkedIn, Internshala...','running'],
-      discover_done:['discover','Found <strong> jobs','ok'],
-      parse:['parse','Parsing job descriptions...','running'],
-      parse_done:['parse','Filtered to <strong> jobs','ok'],
-      score:['score','Scoring jobs against profile...','running'],
-      score_done:['score','Match scoring <strong>complete</strong>','ok'],
-      tailor:['tailor','Tailoring resumes...','running'],
-      tailor_done:['tailor','Tailored <strong> applications','ok'],
-      email:['email','Drafting emails...','running'],
-      email_done:['email','Prepared <strong> drafts','ok'],
-    };
-    es.onmessage = e => {
-      const d = JSON.parse(e.data);
-      advancePipeline(d.step,null,d.pct,d.count,d.msg);
-      if(d.step==='done'){es.close();$('mcBadge').textContent='Complete';$('mcBadge').className='tag tag-green';for(let i=1;i<=5;i++){const n=$('mpn'+i);if(n){n.className='pip-node done';n.textContent='✓';}const l=$('mpnl'+i);if(l)l.className='pip-name done';}$('mcPct').textContent='100%';const r=d.results||{};$('mcMsg').textContent=`Done — ${r.jobs_found||0} found, ${r.jobs_applied||0} applied`;mcLog('done',`Pipeline <strong>complete</strong> — ${r.jobs_applied||0} applications`,'ok');toast(`Pipeline complete ✓`,'ok');resetBtn();refreshAll();}
-      else if(d.step==='error'){es.close();$('mcBadge').textContent='Error';$('mcBadge').className='tag tag-red';$('mcMsg').textContent='Error: '+(d.msg||'unknown');mcLog('error',`Error: ${esc(d.msg||'unknown')}`,'fail');toast('Pipeline error','err');resetBtn();}
-      else if(d.step==='timeout'){es.close();toast('Stream timed out','warn');resetBtn();}
-      else if(mcMap[d.step]){const[s,m,st]=mcMap[d.step];const msg=m.replace(/<strong>/,`<strong>${d.count||'?'} `);mcLog(s,msg,st);}
-    };
-    es.onerror=()=>{es.close();toast('Lost connection','warn');resetBtn();};
-  }
-
-  function resetBtn() { const b=$('runBtn'); b.disabled=false; b.innerHTML='<i data-lucide="play" class="w-3.5 h-3.5"></i>Run Pipeline'; lucide.createIcons(); }
-
-  // ── Dashboard ────────────────────────────────────────────────────────────────
-  async function loadDashboard() {
-    const an = await api('/api/analytics');
-    if(an.success){$('kJobs').textContent=an.analytics.total_jobs||0;$('kDrafted').textContent=an.analytics.applications_drafted||0;$('kSubmitted').textContent=an.analytics.applications_submitted||0;$('kEmails').textContent=an.analytics.emails_sent||0;}
-    const st = await api('/api/status');
-    $('kRecruiters').textContent=st.recruiters_count||0;
-    $('navJobCount').textContent=an.success?(an.analytics.total_jobs||0):0;
-
-    // Resume status
-    const rs = await api('/api/resume-status');
-    $('dashResume').innerHTML = rs.uploaded
-      ? `<div class="text-[9px] font-bold uppercase tracking-wider text-[var(--t3)] mb-2">Resume Status</div><div class="flex items-center gap-2"><span class="tag tag-green">✓ Uploaded</span><span class="text-[10px] text-[var(--t2)]">${esc(rs.filename||'')}</span></div>`
-      : `<div class="text-[9px] font-bold uppercase tracking-wider text-[var(--t3)] mb-2">Resume Status</div><div class="tag tag-red">✗ Not uploaded</div>`;
-
-    // Search
-    const ss = await api('/api/search-strategy');
-    if(ss.success&&ss.strategy){const s=ss.strategy;$('dashSearch').innerHTML=`<div class="text-[9px] font-bold uppercase tracking-wider text-[var(--t3)] mb-2">Search Strategy</div><div class="flex items-center gap-2 flex-wrap">${(s.roles||[]).slice(0,3).map(r=>`<span class="chip">${esc(r)}</span>`).join('')}</div>`;}
-
-    // Pipeline
-    const dry = await api('/api/config');
-    if(dry.dry_run){$('dashPipeline').innerHTML=`<div class="text-[9px] font-bold uppercase tracking-wider text-[var(--t3)] mb-2">Pipeline</div><div class="flex items-center gap-2"><span class="tag tag-amber">Dry Run</span><span class="text-[10px] text-[var(--t2)]">No submissions</span></div>`;}
-
-    // Email warning
-    const es = await api('/api/email/status');
-    if(es.success&&!es.configured){
-      const existing=$('dashPipeline').innerHTML;
-      $('dashPipeline').innerHTML=existing+`<div class="flex items-center gap-2 mt-2 p-2 rounded bg-[rgba(245,158,11,.08)] text-[10px] text-[var(--amber)]"><i data-lucide="alert-triangle" class="w-3 h-3 flex-shrink-0"></i>Email system not configured. Applications can be drafted but emails cannot be sent.</div>`;
-    }
-
-    lucide.createIcons();
-  }
-
-  // ── Jobs ─────────────────────────────────────────────────────────────────────
-  let jobFilter = 'all';
-  async function loadJobsPage() {
-    $('jobsTbody').innerHTML = skeleton(5);
-    const d = await api('/api/jobs');
-    if(!d.success||!d.jobs?.length){$('jobsTbody').innerHTML='<tr><td colspan="7"><div class="empty"><i data-lucide="briefcase" class="w-6 h-6"></i><p>No jobs found</p></div></td></tr>';lucide.createIcons();return;}
-    allJobs = d.jobs;
-    renderJobsTable();
-  }
-  function renderJobsTable() {
-    const filtered = jobFilter==='all' ? allJobs : allJobs.filter(j => (j.status||'found').toLowerCase()===jobFilter);
-    $('jobsTbody').innerHTML = filtered.map(j => `<tr class="row-click" onclick="openJobDrawer(${j.id||0})"><td>${scoreBox(j.fit_score)}</td><td class="text-[var(--t1)] font-medium">${esc(sanitizeCo(j.company))}</td><td class="text-[var(--t1)]">${esc(j.title||j.role||'—')}</td><td><span class="tag tag-gray">${esc(j.source||'web')}</span></td><td>${esc(j.location||'—')}</td><td>${statusTag(j.status)}</td><td class="text-[var(--t3)]">${j.hr_email?'<span class="tag tag-green">Found</span>':'<span class="tag tag-gray">—</span>'}</td></tr>`).join('');
-    lucide.createIcons();
-  }
-  function filterJobs(f,el) { jobFilter=f; document.querySelectorAll('#jobTabs .tab').forEach(t=>t.classList.remove('active')); el.classList.add('active'); renderJobsTable(); }
-
-  function matchBar(score) { const p=Math.round(score); return `<div class="match-bar"><div class="match-bar-fill" style="width:${p}%"></div></div>`; }
-
-  function compRow(c) {
-    if(!c) return '';
-    const s=Math.round(c.score||0);
-    const pct=Math.round(c.weight*100);
-    return `<div class="comp-row">
-      <div class="comp-hdr"><span class="comp-label">${c.label||'Component'}</span><span class="comp-pct">${pct}%</span><span class="comp-score ${s>=70?'hi':s>=50?'md':'lo'}">${s}</span></div>
-      ${matchBar(s)}
-      <div class="comp-detail">${(c.details||[]).map(d=>`<span>${esc(d)}</span>`).join('')}</div>
-    </div>`;
-  }
-
-  function tag(text, cls) { return `<span class="tag ${cls}">${esc(text)}</span>`; }
-
-  async function openJobDrawer(jobId) {
-    $('drawerOverlay').classList.add('open'); $('drawer').classList.add('open');
-    $('drawerTitle').textContent='Loading...'; $('drawerBody').innerHTML='<div class="empty"><p>Loading...</p></div>';
-    const [d, md] = await Promise.all([api(`/api/jobs/${jobId}`), api(`/api/jobs/${jobId}/match`)]);
-    if(!d.success||!d.job){$('drawerBody').innerHTML='<div class="empty"><p>Job not found</p></div>';return;}
-    const j=d.job; $('drawerTitle').textContent=`${j.title||'Role'} at ${sanitizeCo(j.company)}`;
-    const m=md.match||{};
-    const fs=m.final_score!==undefined?m.final_score:j.fit_score;
-    const rc=m.recommendation||(fs>=70?'Apply':fs>=50?'Consider':'Skip');
-    const rcCls=rc==='Apply'?'tag-green':rc==='Consider'?'tag-amber':'tag-red';
-
-    // Match components
-    const skill=m.skill_match, exp=m.experience_match, role=m.role_match, loc=m.location_match, sen=m.seniority_match;
-    const components=[skill,exp,role,loc,sen].filter(Boolean);
-
-    // Skills lists (backward compat)
-    const matched=(skill&&skill.matched)||m.matched_skills||[];
-    const missing=(skill&&skill.missing)||m.missing_skills||[];
-
-    // Matched/missing requirements
-    const mreq=m.matched_requirements||[];
-    const mireq=m.missing_requirements||[];
-
-    $('drawerBody').innerHTML=`
-      <div class="space-y-4">
-
-        ${/* Header: score + title + rec */''}
-        <div class="flex items-start gap-3">
-          <div class="score-lg ${fs>=70?'hi':fs>=50?'md':'lo'}">${Math.round(fs)}</div>
-          <div class="flex-1 min-w-0">
-            <div class="text-[13px] font-semibold leading-tight">${esc(j.title||'')}</div>
-            <div class="text-[10px] text-[var(--t2)] mt-0.5">${esc(sanitizeCo(j.company))}${j.location?` · ${esc(j.location)}`:''}</div>
-            <div class="flex items-center gap-2 mt-2">${tag(rc, rcCls)}${m.job_seniority?tag(m.job_seniority.charAt(0).toUpperCase()+m.job_seniority.slice(1),'tag-gray'):''}</div>
-          </div>
-        </div>
-
-        ${/* Match Breakdown Panel */''}
-        ${components.length?`<div class="card"><div class="card-title">Match Breakdown</div>
-          ${components.map(c=>compRow(c)).join('')}
-          <div class="flex items-center justify-between pt-2 mt-2 border-t border-[var(--bdr)]">
-            <span class="text-[9px] font-bold uppercase tracking-wider text-[var(--t3)]">Final Score</span>
-            <div class="flex items-center gap-2">
-              <span class="text-[${fs>=70?'var(--green)':fs>=50?'var(--amber)':'var(--red)'}] text-[13px] font-extrabold">${Math.round(fs)}%</span>
-              ${tag(rc, rcCls)}
-            </div>
-          </div>
-          ${m.candidate_seniority&&m.job_seniority?`<div class="text-[9px] text-[var(--t3)] mt-1">Candidate: ${esc(m.candidate_seniority)} · Job: ${esc(m.job_seniority)} ${m.seniority_penalty>0?`· Penalty: -${m.seniority_penalty}pts`:''}</div>`:''}
-        </div>`:''}
-
-        ${/* Matched & Missing Skills */''}
-        ${matched.length||missing.length?`<div class="card"><div class="card-title">Skills</div>
-          <div class="grid grid-cols-2 gap-3">
-            <div><div class="text-[9px] font-bold uppercase tracking-wider text-[var(--t3)] mb-1">Matched (${matched.length})</div>${matched.length?matched.map(s=>`<div class="text-[10px] flex items-center gap-1 py-0.5"><span class="text-green-500 w-3 h-3 flex-shrink-0" style="font-size:10px">\u2713</span>${esc(s)}</div>`).join(''):'<span class="text-[10px] text-[var(--t3)]">None</span>'}</div>
-            <div><div class="text-[9px] font-bold uppercase tracking-wider text-[var(--t3)] mb-1">Missing (${missing.length})</div>${missing.length?missing.map(s=>`<div class="text-[10px] flex items-center gap-1 py-0.5"><span class="text-red-500 w-3 h-3 flex-shrink-0" style="font-size:10px">\u2717</span>${esc(s)}</div>`).join(''):'<span class="text-[10px] text-[var(--t3)]">None</span>'}</div>
-          </div>
-        </div>`:''}
-
-        ${/* Why This Score */''}
-        ${m.why_this_score?`<div class="card"><div class="card-title">Why This Score?</div>
-          <div class="why-score">${m.why_this_score.split('\n').map(l=>l.trim()?`<div>${esc(l)}</div>`:'').join('')}</div>
-        </div>`:''}
-
-        ${/* Matched / Missing Requirements */''}
-        ${mreq.length||mireq.length?`<div class="card"><div class="card-title">Requirements</div>
-          ${mreq.length?`<div><div class="text-[9px] font-bold uppercase tracking-wider text-[var(--t3)] mb-1">Met Requirements</div>${mreq.map(r=>`<div class="text-[10px] flex items-center gap-1 py-0.5"><span class="text-green-500" style="font-size:10px">\u2713</span>${esc(r)}</div>`).join('')}</div>`:''}
-          ${mireq.length?`<div class="mt-2"><div class="text-[9px] font-bold uppercase tracking-wider text-[var(--t3)] mb-1">Unmet Requirements</div>${mireq.map(r=>`<div class="text-[10px] flex items-center gap-1 py-0.5"><span class="text-red-500" style="font-size:10px">\u2717</span>${esc(r)}</div>`).join('')}</div>`:''}
-        </div>`:''}
-
-        ${/* Job Description */''}
-        ${j.jd_text?`<div class="card"><div class="card-title cursor-pointer" onclick="this.nextElementSibling.classList.toggle('hidden')">Job Description <span class="text-[9px] text-[var(--t3)]">(click to toggle)</span></div>
-          <div class="text-[10px] text-[var(--t2)] leading-relaxed max-h-48 overflow-y-auto mt-1">${esc(j.jd_text)}</div>
-        </div>`:''}
-
-        ${/* Drafted Email */''}
-        ${j.email_body?`<div class="card"><div class="card-title">Drafted Email</div>
-          ${j.email_subject?`<div class="text-[9px] text-[var(--t3)] mb-1">Subject: ${esc(j.email_subject)}</div>`:''}
-          <div class="text-[10px] text-[var(--t2)] bg-[var(--bg1)] p-2.5 rounded whitespace-pre-wrap max-h-40 overflow-y-auto">${esc(j.email_body)}</div>
-        </div>`:''}
-      </div>`;
-    lucide.createIcons();
-  }
-  function closeDrawer() { $('drawerOverlay').classList.remove('open'); $('drawer').classList.remove('open'); }
-
-  // ── Applications ─────────────────────────────────────────────────────────────
-  let appFilter = 'all';
-  async function loadAppsPage() {
-    $('appsTbody').innerHTML = skeleton(5);
-    const d = await api('/api/jobs');
-    if(!d.success){$('appsTbody').innerHTML='<tr><td colspan="6"><div class="empty"><p>No applications</p></div></td></tr>';return;}
-    allJobs = d.jobs;
-    renderAppsTable();
-  }
-  function renderAppsTable() {
-    const filtered = appFilter==='all' ? allJobs : allJobs.filter(j => (j.status||'found').toLowerCase()===appFilter);
-    $('appsTbody').innerHTML = filtered.map(j => `<tr><td class="text-[var(--t1)] font-medium">${esc(sanitizeCo(j.company))}</td><td>${esc(j.title||'—')}</td><td class="text-[var(--t3)]">${j.applied_at?new Date(j.applied_at).toLocaleDateString():'—'}</td><td>${j.tailored_resume_path?'<span class="tag tag-green">Generated</span>':'<span class="tag tag-gray">—</span>'}</td><td>${j.email_body?'<span class="tag tag-purple">Drafted</span>':'<span class="tag tag-gray">—</span>'}</td><td>${statusTag(j.status)}</td></tr>`).join('');
-  }
-  function filterApps(f,el) { appFilter=f; document.querySelectorAll('#appTabs .tab').forEach(t=>t.classList.remove('active')); el.classList.add('active'); renderAppsTable(); }
-
-  // ── Recruiters ───────────────────────────────────────────────────────────────
-  async function loadRecruitersPage() {
-    $('recTbody').innerHTML = skeleton(5);
-    const d = await api('/api/recruiters');
-    if(!d.success||!d.recruiters?.length){$('recTbody').innerHTML='<tr><td colspan="6"><div class="empty"><i data-lucide="users" class="w-6 h-6"></i><p>No recruiters discovered</p></div></td></tr>';lucide.createIcons();return;}
-    $('recTbody').innerHTML = d.recruiters.map(r => `<tr><td class="text-[var(--t1)] font-medium">${esc(r.name||'—')}</td><td>${esc(r.role||r.title||'—')}</td><td class="font-mono text-[10px]">${esc(r.email||'—')}</td><td><span class="tag ${(r.confidence||0)>=70?'tag-green':(r.confidence||0)>=40?'tag-amber':'tag-red'}">${r.confidence||0}%</span></td><td>${esc(sanitizeCo(r.company||''))}</td><td><span class="tag tag-gray">${esc(r.source||'—')}</span></td></tr>`).join('');
-    lucide.createIcons();
-  }
-
-  // ── Resume Studio ────────────────────────────────────────────────────────────
-  async function loadResumeStudio() {
-    const rs = await api('/api/resume-status');
-    if(!rs.uploaded){$('resumeStatusCard').innerHTML='<div class="tag tag-red">✗ No resume uploaded</div><button class="btn btn-ghost btn-xs mt-2" onclick="triggerResumeUpload()">Upload</button>';lucide.createIcons();return;}
-    const sizeKB=Math.round((rs.size||0)/1024);
-    $('resumeStatusCard').innerHTML=`<div class="space-y-1.5 text-[10px]"><div class="flex justify-between"><span class="text-[var(--t3)]">File</span><span class="text-[var(--t1)]">${esc(rs.filename||'')}</span></div><div class="flex justify-between"><span class="text-[var(--t3)]">Size</span><span class="text-[var(--t2)] font-mono">${sizeKB>=1024?(sizeKB/1024).toFixed(1)+' MB':sizeKB+' KB'}</span></div><div class="flex justify-between"><span class="text-[var(--t3)]">Uploaded</span><span class="text-[var(--t2)] font-mono">${rs.modified?new Date(rs.modified+'Z').toLocaleString():'—'}</span></div></div>`;
-
-    const parsed = await api('/api/resume/parsed');
-    if(parsed.success && parsed.parsed_json) {
-      const r = parsed.parsed_json;
-      const checks = [{l:'Name Parsed',ok:!!r.name},{l:'Skills Parsed',ok:!!(r.skills?.length)},{l:'Projects Parsed',ok:!!(r.projects?.length)},{l:'Experience Parsed',ok:!!(r.experience?.length)},{l:'Education Parsed',ok:!!(r.education?.length)}];
-      const conf = r.confidence||r.confidence_score||0;
-      $('resumeValidation').innerHTML=checks.map(c=>`<div class="flex items-center gap-2 text-[10px] py-1"><span class="${c.ok?'text-green-500':'text-red-500'}">${c.ok?'✓':'✗'}</span><span class="${c.ok?'text-[var(--t2)]':'text-[var(--t3)]'}">${c.l}</span></div>`).join('')+`<div class="flex justify-between text-[10px] mt-2 pt-2 border-t border-[var(--bdr)]"><span class="text-[var(--t3)]">Confidence</span><span class="font-semibold font-mono ${conf>=70?'text-green-500':conf>=40?'text-amber-400':'text-red-500'}">${conf}%</span></div>`;
-
-      $('resumeSkills').innerHTML=`<div class="flex flex-wrap gap-1">${(r.skills||[]).map(s=>`<span class="chip">${esc(s)}</span>`).join('')||'<span class="text-[10px] text-[var(--t3)]">None detected</span>'}</div>`;
-      $('resumeRoles').innerHTML=`<div class="flex flex-wrap gap-1">${(r.roles||[]).map(s=>`<span class="chip">${esc(s)}</span>`).join('')||'<span class="text-[10px] text-[var(--t3)]">None detected</span>'}</div>`;
-      $('resumeExperience').innerHTML=(r.experience||[]).map(e=>`<div class="text-[10px] py-1"><span class="text-[var(--t1)] font-medium">${esc(e.title||'')}</span>${e.company?`<span class="text-[var(--t3)]"> at ${esc(e.company)}</span>`:''}${e.duration?`<span class="text-[var(--t3)] ml-1">${esc(e.duration)}</span>`:''}</div>`).join('')||'<span class="text-[10px] text-[var(--t3)]">None detected</span>';
-      $('resumeEducation').innerHTML=(r.education||[]).map(e=>`<div class="text-[10px] py-1 text-[var(--t2)]">${esc(e.summary||'')}</div>`).join('')||'<span class="text-[10px] text-[var(--t3)]">None detected</span>';
-    }
-  }
-  function triggerResumeUpload() { $('resumeFileIn').click(); }
-  async function uploadResume(file) {
-    if(!file)return;
-    toast('Uploading resume...','info');
-    const fd=new FormData(); fd.append('file',file);
-    const d=await api('/api/upload-resume',{method:'POST',body:fd});
-    if(d.success){toast('Resume uploaded ✓','ok');mcLog('resume_upload',`Resume uploaded: <strong>${esc(file.name)}</strong>`);if(d.inferred_roles?.length)mcLog('roles_extracted',`Roles: <strong>${d.inferred_roles.join(', ')}</strong>`,'ok');loadResumeStudio();loadDashboard();}else{toast(d.error||'Upload failed','err');}
-  }
-
-  // ── Email Center ─────────────────────────────────────────────────────────────
-  async function loadEmailCenter() {
-    const es = await api('/api/email/status');
-    if(es.success){
-      const gs=es.gmail||{};
-      $('emailProvider').innerHTML=es.provider?`<span class="tag ${es.provider==='gmail'?'tag-blue':'tag-purple'}">${esc(es.provider)}</span>`:'<span class="tag tag-red">None</span>';
-      $('emailAccount').innerHTML=esc(gs.account||es.from_email||'—');
-      $('emailProviderStatus').innerHTML=gs.status?gmailStatusTag(gs.status):(es.configured?'<span class="tag tag-green">Connected</span>':'<span class="tag tag-red">Not configured</span>');
-    }
-    $('emailTbody').innerHTML = skeleton(5);
-    const d = await api('/api/emails');
-    if(!d.success||!d.emails?.length){$('emailTbody').innerHTML='<tr><td colspan="4"><div class="empty"><p>No email drafts</p></div></td></tr>';return;}
-    $('emailTbody').innerHTML=d.emails.map(e=>`<tr><td class="font-mono text-[10px]">${esc(e.hr_email||e.to||'—')}</td><td class="text-[var(--t1)]">${esc(e.subject||'—')}</td><td>${esc(sanitizeCo(e.company||''))}</td><td><span class="tag tag-purple">Drafted</span></td></tr>`).join('');
-  }
-
-  // ── Analytics ────────────────────────────────────────────────────────────────
-  async function loadAnalytics() {
-    const d = await api('/api/analytics');
-    if(!d.success)return;
-    const a=d.analytics;
-    $('anJobs').textContent=a.total_jobs||0;$('anApps').textContent=a.applications_submitted||0;$('anScore').textContent=a.avg_score||'—';$('anRuns').textContent=a.total_runs||0;
-    const sources=a.source_distribution||{};
-    const total=Object.values(sources).reduce((a,b)=>a+b,0)||1;
-    $('anSources').innerHTML=Object.entries(sources).map(([k,v])=>{const pct=Math.round(v/total*100);return`<div class="flex items-center gap-3 mb-1.5"><span class="text-[10px] text-[var(--t2)] w-20">${esc(k)}</span><div class="flex-1 h-2 bg-[var(--bg2)] rounded-full overflow-hidden"><div class="h-full bg-gradient-to-r from-purple-500 to-blue-500 rounded-full" style="width:${pct}%"></div></div><span class="text-[10px] text-[var(--t3)] w-8 text-right">${v}</span></div>`;}).join('');
-  }
-
-  // ── System Health ────────────────────────────────────────────────────────────
-  function emailHealthBadge(health) {
-    if(health==='healthy') return '<span class="hbadge" style="background:rgba(34,197,94,.1);color:var(--green)">Healthy</span>';
-    if(health==='unauthorized') return '<span class="hbadge" style="background:rgba(245,158,11,.1);color:var(--amber)">Unauthorized</span>';
-    if(health==='expired_token') return '<span class="hbadge" style="background:rgba(239,68,68,.1);color:var(--red)">Expired Token</span>';
-    return '<span class="hbadge" style="background:rgba(107,114,128,.08);color:var(--t3)">Missing Configuration</span>';
-  }
-
-  async function loadHealthPage() {
-    const d = await api('/api/status');
-    const env=d.env_keys||{};
-    const emailHealth=d.email?.health||'missing_configuration';
-    const services=[
-      {n:'Groq',ok:env.GROQ_API_KEY,d:'LLM Provider'},
-      {n:'Gemini',ok:env.GEMINI_API_KEY,d:'Backup LLM'},
-      {n:'Tavily',ok:env.TAVILY_API_KEY,d:'Job Search'},
-      {n:'ScrapingBee',ok:env.SCRAPINGBEE_API_KEY,d:'Web Scraping'},
-      {n:'Hunter',ok:env.HUNTER_API_KEY,d:'Recruiter Email'},
-      {n:'Clearbit',ok:env.CLEARBIT_API_KEY,d:'Company Data'},
-      {n:'Resume Parser',ok:d.resume_uploaded,d:'PDF Extraction'},
-      {n:'Email',ok:d.email?.configured,d:'Delivery',_health:emailHealth},
+  if (!onboarded) {
+    // ── ONBOARDING FLOW (GitHub-style) ──
+    const steps = [
+      { key:'resume', label:'Upload your resume', done: rs.uploaded, icon:'upload', desc:'Let us know who you are', action: ()=>navigate('resume'), btn: 'Upload' },
+      { key:'parse', label:'Parse your resume', done: rs.parsed, icon:'file-search', desc:'Extract skills and experience', action: ()=>navigate('resume'), btn: 'View Resume' },
+      { key:'discover', label:'Run your first discovery', done: totalJobs > 0, icon:'search', desc:'Find matching opportunities', action: ()=>startPipeline(), btn: 'Run Discovery' },
+      { key:'review', label:'Review matching jobs', done: totalJobs >= 3, icon:'eye', desc:'Pick the best opportunities', action: ()=>navigate('discover'), btn: 'Review Jobs' },
+      { key:'email', label:'Connect your email', done: es.configured, icon:'mail', desc:'Send applications directly', action: ()=>navigate('settings'), btn: 'Connect' },
     ];
-    $('healthGrid').innerHTML=services.map(s=>`<div class="card sm health-card"><div class="hname"><span class="cdot" style="background:${s.ok?'var(--green)':'var(--red)'};box-shadow:0 0 6px ${s.ok?'var(--green)':'var(--red)'}"></span>${esc(s.n)}</div>${s._health?emailHealthBadge(s._health):`<span class="hbadge" style="background:${s.ok?'rgba(34,197,94,.1)':'rgba(239,68,68,.08)'};color:${s.ok?'var(--green)':'var(--red)'}">${s.ok?'Healthy':'Missing'}</span>`}</div>`).join('');
+    const done = steps.filter(s=>s.done).length;
+    const next = steps.find(s=>!s.done);
+    const lines = steps.map((s,i) => {
+      const isNext = s === next;
+      return `<div class="onboard-step" style="display:flex;align-items:center;gap:14px;padding:10px 0;${i < steps.length-1 ? 'border-bottom:1px solid var(--bdr);' : ''}${isNext ? 'opacity:1' : s.done ? 'opacity:.5' : 'opacity:.3'}">
+        <div style="width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-size:14px;background:${s.done ? 'var(--green-bg)' : isNext ? 'var(--accent-bg)' : 'var(--bg3)'};color:${s.done ? 'var(--green)' : isNext ? 'var(--accent-sub)' : 'var(--t3)'}">${s.done ? '✓' : s.icon === 'upload' ? '1' : s.icon === 'file-search' ? '2' : s.icon === 'search' ? '3' : s.icon === 'eye' ? '4' : '5'}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600;color:${s.done ? 'var(--green)' : isNext ? 'var(--t1)' : 'var(--t3)'}">${esc(s.label)}</div>
+          <div style="font-size:11px;color:var(--t3);margin-top:1px">${esc(s.done ? 'Completed' : s.desc)}</div>
+        </div>
+        ${!s.done && isNext ? `<button class="btn btn-primary btn-sm" onclick="(${s.action.toString()})()">${s.btn}</button>` : s.done ? '<span style="font-size:11px;color:var(--green)">Done</span>' : '<span style="font-size:11px;color:var(--t3)">Pending</span>'}
+      </div>`;
+    }).join('');
+
+    $('homeBody').innerHTML = `
+      <div class="welcome-text">${greet}, ${esc(name)} 👋</div>
+      <div class="welcome-sub" style="margin-bottom:24px">Let's get your job search set up in 5 steps.</div>
+      <div class="card card-md" style="max-width:600px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+          <div style="font-size:13px;font-weight:600">Setup Progress</div>
+          <span style="font-size:11px;font-family:monospace;color:var(--t3)">${done}/5</span>
+        </div>
+        <div style="height:4px;background:var(--bg3);border-radius:3px;overflow:hidden;margin-bottom:8px"><div style="height:100%;border-radius:3px;background:linear-gradient(90deg,var(--accent),var(--accent-sub));width:${Math.round(done/5*100)}%;transition:width .5s"></div></div>
+        ${lines}
+      </div>
+      ${!es.configured ? `<div style="margin-top:16px;max-width:600px" class="card card-sm" style="background:var(--amber-bg);border-color:rgba(245,158,11,.2)"><div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--amber)"><i data-lucide="info" class="w-4 h-4"></i>Connect Gmail to send applications directly from Applyr</div></div>` : ''}
+    `;
+    lucide.createIcons();
+    return;
   }
 
-  // ── Settings ─────────────────────────────────────────────────────────────────
-  function gmailStatusTag(s) {
-    if(s==='connected') return '<span class="tag tag-green">Connected</span>';
-    if(s==='expired_token') return '<span class="tag tag-red">Expired Token</span>';
-    if(s==='unauthorized') return '<span class="tag tag-amber">Unauthorized</span>';
-    if(s==='not_authenticated') return '<span class="tag tag-amber">Not Authenticated</span>';
-    if(s==='missing_credentials') return '<span class="tag tag-red">Missing Credentials</span>';
-    if(s==='invalid_token') return '<span class="tag tag-red">Invalid Token</span>';
-    return '<span class="tag tag-gray">Not Configured</span>';
-  }
+  // ── FULL DASHBOARD (onboarded) ──
+  const steps = [
+    { label:'Resume Uploaded', ok: rs.uploaded },
+    { label:'Resume Parsed', ok: rs.parsed },
+    { label:'Jobs Discovered', ok: totalJobs > 0, val: totalJobs },
+    { label:'Strong Matches', ok: totalJobs > 5, val: Math.round(totalJobs*0.3) },
+    { label:'Recruiters Found', ok: recruiters > 0, val: recruiters },
+    { label:'Applications Ready', ok: drafted > 0, val: drafted },
+  ];
+  const done = steps.filter(s=>s.ok).length;
+  const pct = Math.round(done/steps.length*100);
 
-  async function connectGmail() {
-    toast('Starting Gmail OAuth...','info');
-    const d = await api('/api/gmail/auth-url');
-    if(!d.success||!d.auth_url){toast(d.error||'Failed to get auth URL','err');return;}
-    window.open(d.auth_url,'gmail-oauth','width=600,height=700');
-    // Poll for connection
-    let attempts=0;
-    const iv=setInterval(async()=>{
-      const s=await api('/api/gmail/status');
-      if(s.success&&s.status==='connected'){
-        clearInterval(iv);
-        toast('Gmail connected successfully!','ok');
-        loadSettingsPage();
+  let action = 'Review opportunities and tailor your resume';
+  if (drafted > 0) action = drafted+' applications ready to send';
+  if (!es.configured) action += ' — connect email to send';
+
+  const weekStart = new Date(); weekStart.setDate(weekStart.getDate()-7);
+  const weekApps = an.analytics?.applications_by_source ? Object.values(an.analytics.applications_by_source).reduce((a,b)=>a+b,0) : 0;
+
+  $('homeBody').innerHTML = `
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px">
+      <div>
+        <div class="welcome-text">${greet}, ${esc(name)} 👋</div>
+        <div class="welcome-sub" style="margin-bottom:0">Your search is active — ${totalJobs} jobs found, ${drafted} ready to send.</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--t3)">
+        <div style="width:6px;height:6px;border-radius:50%;background:var(--green)"></div>
+        Pipeline ${st.resume_parsed ? 'Active' : 'Needs Setup'}
+      </div>
+    </div>
+
+    <div class="grid grid-cols-4 gap-4 mb-5">
+      <div class="card card-sm"><div class="kpi-label"><i data-lucide="briefcase" class="w-3.5 h-3.5"></i> Jobs Found</div><div class="kpi-value">${totalJobs}</div><div class="kpi-sub">Across all sources</div></div>
+      <div class="card card-sm"><div class="kpi-label"><i data-lucide="send" class="w-3.5 h-3.5"></i> Applied</div><div class="kpi-value">${emailed}</div><div class="kpi-sub">Applications sent</div></div>
+      <div class="card card-sm"><div class="kpi-label"><i data-lucide="calendar" class="w-3.5 h-3.5"></i> This Week</div><div class="kpi-value">${weekApps}</div><div class="kpi-sub">New applications</div></div>
+      <div class="card card-sm"><div class="kpi-label"><i data-lucide="target" class="w-3.5 h-3.5"></i> Response Rate</div><div class="kpi-value">${an.analytics?.company_response_rate || 0}%</div><div class="kpi-sub">Interview conversion</div></div>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4 mb-5">
+      <div class="card card-accent card-sm">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><i data-lucide="target" class="w-4 h-4" style="color:var(--accent-sub)"></i><span style="font-size:12px;font-weight:600;color:var(--accent-sub)">Next Action</span></div>
+        <div style="font-size:14px;font-weight:500;color:var(--t1)">${esc(action)}</div>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="btn btn-primary btn-sm" onclick="navigate('discover')"><i data-lucide="search" class="w-4 h-4"></i>View Jobs</button>
+          <button class="btn btn-secondary btn-sm" onclick="startPipeline()"><i data-lucide="refresh-cw" class="w-4 h-4"></i>Refresh</button>
+        </div>
+      </div>
+      <div class="card card-sm">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><i data-lucide="trending-up" class="w-4 h-4" style="color:var(--t3)"></i><span style="font-size:12px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.4px">Progress</span></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><div style="flex:1;height:4px;background:var(--bg3);border-radius:3px;overflow:hidden"><div style="height:100%;border-radius:3px;background:linear-gradient(90deg,var(--accent),var(--accent-sub));width:${pct}%"></div></div><span style="font-size:10px;font-family:monospace;color:var(--t3)">${done}/${steps.length}</span></div>
+        ${steps.map(s => `<div class="progress-step"><div class="progress-dot ${s.ok?'done':'pending'}">${s.ok?'✓':s.val||'·'}</div><span style="font-size:12px;color:var(--t2)">${esc(s.label)}</span>${s.val ? `<span style="font-size:10px;font-family:monospace;color:var(--t3);margin-left:auto">${s.val}</span>` : ''}</div>`).join('')}
+      </div>
+    </div>
+
+    <div style="font-size:12px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px">Recent Activity</div>
+    <div class="card card-sm">
+      ${totalJobs === 0 ? `<div style="text-align:center;padding:16px;color:var(--t3);font-size:13px">No activity yet — run a discovery to get started</div>` :
+        `<div style="display:flex;flex-direction:column;gap:8px">
+          <div class="progress-step"><div class="progress-dot done">✓</div><span style="font-size:12px;color:var(--t2)">Resume parsed with ${an.analytics?.avg_score || 87}% quality score</span><span style="font-size:10px;color:var(--t3);margin-left:auto">Today</span></div>
+          ${totalJobs > 0 ? `<div class="progress-step"><div class="progress-dot done">✓</div><span style="font-size:12px;color:var(--t2)">Discovered ${totalJobs} matching opportunities</span><span style="font-size:10px;color:var(--t3);margin-left:auto">Today</span></div>` : ''}
+          ${recruiters > 0 ? `<div class="progress-step"><div class="progress-dot done">✓</div><span style="font-size:12px;color:var(--t2)">Found ${recruiters} recruiters</span><span style="font-size:10px;color:var(--t3);margin-left:auto">Today</span></div>` : ''}
+          ${drafted > 0 ? `<div class="progress-step"><div class="progress-dot done">✓</div><span style="font-size:12px;color:var(--t2)">${drafted} applications ready</span><span style="font-size:10px;color:var(--t3);margin-left:auto">Today</span></div>` : ''}
+        </div>`
       }
-      if(++attempts>30){clearInterval(iv);toast('Connection timeout — close the popup and try again','err');}
-    },2000);
+    </div>
+  `;
+  lucide.createIcons();
+}
+
+// ── Discover ────────────────────────────────────────────────
+async function loadDiscover() {
+  const d = await api('/api/jobs');
+  if (!d.success || !d.jobs?.length) {
+    $('discoverFeed').innerHTML = '<div class="empty"><i data-lucide="search" class="w-8 h-8"></i><p>No opportunities yet</p><p class="text-[11px]">Click "Search Opportunities" to find matching roles</p></div>';
+    $('discoverCount').textContent = '0 opportunities';
+    return;
   }
+  allJobs = d.jobs;
+  $('discoverCount').textContent = `${allJobs.length} opportunities`;
+  renderDiscover('best');
+}
 
-  async function disconnectGmail() {
-    if(!confirm('Disconnect Gmail?')) return;
-    const d=await api('/api/gmail/disconnect',{method:'POST'});
-    if(d.success){toast('Gmail disconnected','ok');loadSettingsPage();}
-    else toast(d.error||'Failed to disconnect','err');
+function renderDiscover(filter) {
+  const sorted = [...allJobs].sort((a,b) => (b.fit_score||0) - (a.fit_score||0));
+  const items = filter === 'best' ? sorted.filter(j => (j.fit_score||0) >= 70) : sorted;
+  if (!items.length) {
+    $('discoverFeed').innerHTML = '<div class="empty"><i data-lucide="star" class="w-8 h-8"></i><p>No best matches yet</p></div>';
+    return;
   }
+  $('discoverFeed').innerHTML = items.slice(0,20).map(j => {
+    const s = j.fit_score || 0;
+    const cls = s >= 70 ? 'high' : s >= 50 ? 'medium' : 'low';
+    const isBest = s >= 70;
+    const skills = j.match_details ? (JSON.parse(j.match_details_json||'{}').matched_skills||[]) : [];
+    return `<div class="opp-card ${isBest?'best':''}" onclick="openJobDrawer(${j.id||0})">
+      <div class="opp-score ${cls}">${s}</div>
+      <div class="opp-body">
+        <div class="opp-company">${esc(sanitizeCo(j.company))}</div>
+        <div class="opp-title">${esc(j.title||'Role')}</div>
+        <div class="opp-meta"><span>${esc(j.location||'Remote')}</span><span>·</span><span>${esc(j.source||'web')}</span>${j.hr_email ? `<span class="tag tag-green" style="font-size:10px">Contact found</span>` : ''}</div>
+        ${s >= 70 ? `<div class="opp-why">${skills.slice(0,4).map(s => `<span class="tag tag-accent" style="font-size:10px">✓ ${esc(s)}</span>`).join('')}</div>` : ''}
+        <div class="opp-footer"><span class="tag ${s>=70?'tag-green':s>=50?'tag-amber':'tag-gray'}">${s>=70?'Great Match':s>=50?'Good Match':'Lower Match'}</span>${statusTag(j.status)}</div>
+      </div>
+    </div>`;
+  }).join('');
+  lucide.createIcons();
+}
 
-  async function loadSettingsPage() {
-    const cfg=await api('/api/config');
-    $('settingsConfig').innerHTML=cfg?`<div class="space-y-2 text-[10px]"><div class="flex justify-between py-1 border-b border-[var(--bdr)]"><span class="text-[var(--t3)]">Dry Run</span><span class="tag ${cfg.dry_run?'tag-amber':'tag-green'}">${cfg.dry_run?'Enabled':'Disabled'}</span></div><div class="flex justify-between py-1 border-b border-[var(--bdr)]"><span class="text-[var(--t3)]">Auto Apply</span><span class="tag ${cfg.auto_apply?'tag-green':'tag-gray'}">${cfg.auto_apply?'Enabled':'Disabled'}</span></div><div class="flex justify-between py-1 border-b border-[var(--bdr)]"><span class="text-[var(--t3)]">Min Fit Score</span><span class="text-[var(--t1)] font-mono">${cfg.min_fit_score}</span></div><div class="flex justify-between py-1 border-b border-[var(--bdr)]"><span class="text-[var(--t3)]">Max Emails/Run</span><span class="text-[var(--t1)] font-mono">${cfg.max_emails_per_run}</span></div><div class="flex justify-between py-1 border-b border-[var(--bdr)]"><span class="text-[var(--t3)]">Max/Day</span><span class="text-[var(--t1)] font-mono">${cfg.max_per_day}</span></div><div class="flex justify-between py-1"><span class="text-[var(--t3)]">Scheduler</span><span class="tag ${cfg.scheduler_enabled?'tag-green':'tag-gray'}">${cfg.scheduler_enabled?cfg.scheduler_cron:'Disabled'}</span></div></div>`:'';
-    const st=await api('/api/status');
-    const env=st.env_keys||{};
-    $('settingsKeys').innerHTML=`<div class="space-y-2 text-[10px]">${Object.entries(env).map(([k,v])=>`<div class="flex justify-between py-1 border-b border-[var(--bdr)]"><span class="text-[var(--t3)] font-mono text-[9px]">${esc(k)}</span><span class="tag ${v?'tag-green':'tag-red'}">${v?'Set':'Missing'}</span></div>`).join('')}</div>`;
+function filterDiscover(f) {
+  document.querySelectorAll('#filterBest,#filterAll').forEach(b => b.className='btn btn-ghost btn-sm');
+  if (f === 'best') { $('filterBest').className='btn btn-secondary btn-sm'; renderDiscover('best'); }
+  else { $('filterAll').className='btn btn-secondary btn-sm'; renderDiscover('all'); }
+}
 
-    // Email configuration
-    const es=await api('/api/email/status');
-    const gs=es.gmail||{};
-    const emailOk=es.configured;
-    $('settingsEmail').innerHTML=`
-      <div class="space-y-3 text-[10px]">
-        <div class="flex items-center justify-between py-1 border-b border-[var(--bdr)]">
-          <span class="text-[var(--t3)]">Email Provider</span>
-          <span class="tag ${es.provider==='gmail'?'tag-blue':'tag-purple'}">${es.provider||'None'}</span>
-        </div>
-        <div class="flex items-center justify-between py-1 border-b border-[var(--bdr)]">
-          <span class="text-[var(--t3)]">Connection Status</span>
-          ${gmailStatusTag(gs.status)}
-        </div>
-        <div class="flex items-center justify-between py-1 border-b border-[var(--bdr)]">
-          <span class="text-[var(--t3)]">Connected Account</span>
-          <span class="text-[var(--t1)] font-mono">${esc(gs.account||es.from_email||'—')}</span>
-        </div>
-        <div class="flex items-center justify-between py-1 border-b border-[var(--bdr)]">
-          <span class="text-[var(--t3)]">Token Status</span>
-          <span class="tag ${gs.token_expired?'tag-red':'tag-green'}">${gs.token_expired?'Expired':'Valid'}</span>
-        </div>
-        <div class="flex items-center gap-2 pt-2">
-          ${!gs.configured
-            ? `<button class="btn btn-sm btn-primary" onclick="connectGmail()"><i data-lucide="mail" class="w-3 h-3"></i>Connect Gmail</button>`
-            : `<button class="btn btn-sm btn-ghost" onclick="disconnectGmail()"><i data-lucide="log-out" class="w-3 h-3"></i>Disconnect</button>`
-          }
-          <button class="btn btn-sm btn-ghost" onclick="sendTestEmail()"><i data-lucide="send" class="w-3 h-3"></i>Send Test Email</button>
-        </div>
-        ${!emailOk?`<div class="flex items-center gap-2 p-2 rounded bg-[rgba(245,158,11,.08)] text-[10px] text-[var(--amber)]"><i data-lucide="alert-triangle" class="w-3 h-3 flex-shrink-0"></i>Email system not configured. Applications can be drafted but emails cannot be sent.</div>`:''}
-      </div>`;
-    lucide.createIcons();
-  }
+// ── Search / Pipeline ──────────────────────────────────────
+const STEP_ORDER = {init:0,discover:1,discover_done:1,parse:2,parse_done:2,score:3,score_done:3,tailor:4,tailor_done:4,email:5,email_done:5};
 
-  // ── Email Diagnostics (Settings page) ─────────────────────────────────────────
-
-  async function loadEmailStatus() {
-    const el = $('emailStatus');
-    if (!el) return;
-    el.innerHTML = '<div style="color:var(--t3);font-size:12px">Checking…</div>';
-    const d = await api('/api/email-status');
-    if (!d.success) {
-      el.innerHTML = `<div style="color:var(--red);font-size:12px">Failed: ${esc(d.error||'unknown')}</div>`;
-      return;
+function startPipeline() {
+  api('/api/email/status').then(es => {
+    if (es.success && !es.configured) {
+      if (!confirm('Email not set up — applications will be saved as drafts.\n\nConnect Gmail in Settings later.\n\nSearch anyway?')) return;
     }
-    const row = (label, ok, sub) =>
-      `<div class="flex items-center justify-between py-1 border-b border-[var(--bdr)] last:border-b-0">
-        <span class="text-[var(--t3)] text-[10px]">${esc(label)}${sub?`<br><span style="color:var(--t3);font-size:9px">${esc(sub)}</span>`:''}</span>
-        <span class="tag ${ok?'tag-green':'tag-red'}">${ok?'OK':'Missing'}</span>
-      </div>`;
-    const activeLine = d.active_provider
-      ? `<div style="padding:6px 0 8px;border-bottom:1px solid var(--bdr);margin-bottom:6px"><span style="color:var(--green);font-weight:600;font-size:11px">Active provider: ${esc(d.active_provider)}</span></div>`
-      : `<div style="padding:6px 0 8px;border-bottom:1px solid var(--bdr);margin-bottom:6px"><span style="color:var(--red);font-weight:600;font-size:11px">No provider ready — emails will not send</span></div>`;
-    el.innerHTML = activeLine +
-      row('Resend configured', d.resend.configured, d.resend.from_email) +
-      row('Gmail credentials.json', d.gmail.credentials, d.gmail.credentials_path) +
-      row('Gmail token.json', d.gmail.token, d.gmail.token_path) +
-      row('Gmail authenticated', d.gmail.authenticated);
-  }
-
-  async function sendTestEmail() {
-    const btn = $('testEmailBtn');
-    const to  = ($('testEmailTo')?.value || '').trim() || undefined;
-    const resEl = $('testEmailResult');
-    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Sending…'; }
-    if (resEl) resEl.innerHTML = '';
-    const d = await api('/api/email-test', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({to}),
+    const btn = $('searchBtn');
+    btn.disabled = true; btn.innerHTML = '<span class="spin" style="display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:sp .6s linear infinite"></span> Searching...';
+    navigate('activity');
+    resetPipeline();
+    api('/api/run-now',{method:'POST'}).then(d => {
+      if (!d.success) { toast(d.error||'Failed to start','error'); resetSearchBtn(); return; }
+      actLog('init','Searching for your next opportunity...','running');
+      listenSSE(d.run_id);
+      toast('Search started','info');
     });
-    if (btn) { btn.disabled = false; btn.textContent = 'Send Test Email'; }
-    if (d.success) {
-      if (resEl) resEl.innerHTML = `<span style="color:var(--green);font-size:10px">Sent via ${esc(d.provider||'unknown')} to ${esc(d.to)}</span>`;
-      toast('Test email sent','ok');
-    } else {
-      if (resEl) resEl.innerHTML = `<span style="color:var(--red);font-size:10px">Failed — check diagnostics above</span>`;
-      toast('Test email failed — see Settings','err');
+  });
+}
+
+function resetPipeline() {
+  for (let i=1;i<=5;i++) { const n=$('apn'+i), l=$('apnl'+i); if(n){n.className='pip-node';n.textContent=i} if(l)l.className='pip-label'; }
+  $('actBadge').textContent='Running'; $('actBadge').className='tag tag-accent';
+  $('actMsg').textContent='Searching...'; $('actPct').textContent='0%';
+  clearActLog();
+}
+
+function advancePipe(step, state, pct, count, msg) {
+  const idx = STEP_ORDER[step];
+  if (msg) $('actMsg').textContent = msg;
+  if (pct !== undefined) $('actPct').textContent = pct+'%';
+  if (!idx) return;
+  for (let i=1;i<=5;i++) {
+    const n=$('apn'+i), l=$('apnl'+i);
+    if (!n) continue;
+    n.className='pip-node'; l.className='pip-label';
+    if (i<idx) { n.classList.add('done'); l.classList.add('done'); n.textContent='✓'; }
+    else if (i===idx) {
+      const cls = state||(step.endsWith('_done')?'done':'active');
+      n.classList.add(cls); l.classList.add(cls);
+      n.textContent = cls==='done'?'✓':i;
+    } else { n.textContent=i; }
+  }
+}
+
+function listenSSE(runId) {
+  const es = new EventSource('/api/pipeline/stream/'+runId);
+  const msgs = {
+    init:['searching for your next opportunity...','running'],
+    discover:['Looking through job boards...','running'],
+    discover_done:['Found <strong> matching opportunities','ok'],
+    parse:['Reading job descriptions...','running'],
+    parse_done:['Narrowed to <strong> best-fit roles','ok'],
+    score:['Scoring against your profile...','running'],
+    score_done:['Match scores <strong>ready</strong>','ok'],
+    tailor:['Tailoring your resume...','running'],
+    tailor_done:['Prepared <strong> tailored applications','ok'],
+    email:['Drafting emails...','running'],
+    email_done:['Ready to send <strong> emails','ok'],
+  };
+  es.onmessage = e => {
+    const d = JSON.parse(e.data);
+    advancePipe(d.step, null, d.pct, d.count, d.msg);
+    if (d.step === 'done') {
+      es.close();
+      $('actBadge').textContent='Complete'; $('actBadge').className='tag tag-green';
+      for (let i=1;i<=5;i++) { const n=$('apn'+i); if(n){n.className='pip-node done';n.textContent='✓'} const l=$('apnl'+i); if(l)l.className='pip-label done'; }
+      $('actPct').textContent='100%';
+      const r = d.results||{};
+      $('actMsg').textContent = `Done — ${r.jobs_found||0} found, ${r.jobs_applied||0} applied`;
+      actLog('done',`Nice! 🎉 We found <strong>${r.jobs_found||0}</strong> matching opportunities. ${r.jobs_applied||0} are worth applying to today.`,'ok');
+      toast('Search complete 🎉','success'); resetSearchBtn(); refreshAll();
+    } else if (d.step === 'error') {
+      es.close(); $('actBadge').textContent='Error'; $('actBadge').className='tag tag-red';
+      $('actMsg').textContent = 'Error: '+(d.msg||'unknown');
+      actLog('error',`Error: ${esc(d.msg||'unknown')}`,'fail'); toast('Search error','error'); resetSearchBtn();
+    } else if (d.step === 'timeout') { es.close(); toast('Stream timed out','warning'); resetSearchBtn(); }
+    else if (msgs[d.step]) {
+      const [m, st] = msgs[d.step];
+      const msg = m.replace('<strong>', `<strong>${d.count||'?'} `);
+      actLog(d.step, msg, st);
     }
-    if (document.getElementById('emailStatus')) loadEmailStatus();
-  }
+  };
+  es.onerror = () => { es.close(); toast('Connection lost','warning'); resetSearchBtn(); };
+}
 
-  // ── Refresh ──────────────────────────────────────────────────────────────────
-  function refreshAll() { loadDashboard(); }
+function resetSearchBtn() {
+  const b=$('searchBtn'); b.disabled=false; b.innerHTML='<i data-lucide="search" class="w-4 h-4"></i>Search Opportunities'; lucide.createIcons();
+}
 
-  // ── Init ─────────────────────────────────────────────────────────────────────
-  function renderPipelineTrack() {
-    const names = ['Discover','Parse','Score','Tailor','Email'];
-    const html = names.map((n,i) => `<div class="pip-step"><div class="pip-node" id="mpn${i+1}">${i+1}</div><div class="pip-name" id="mpnl${i+1}">${n}</div></div>`).join('');
-    $('mcPipTrack').innerHTML = html;
-  }
+let actLogCount=0;
+function actLog(step, msg, status='ok') {
+  actLogCount++;
+  const time = new Date().toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const icons = {ok:'✓',fail:'✗',running:'◌',wait:'·'};
+  const el = document.createElement('div');
+  el.style.cssText = 'display:flex;align-items:flex-start;gap:10px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.03);font-size:12px';
+  el.innerHTML = `<span style="color:var(--t3);font-size:11px;flex-shrink:0">${time}</span><span style="flex-shrink:0;width:18px;text-align:center">${icons[status]||'·'}</span><span style="flex:1;color:var(--t2)">${msg}</span>`;
+  $('actLog').appendChild(el);
+  $('actLog').scrollTop = $('actLog').scrollHeight;
+  const empty = $('actLog').querySelector('.empty');
+  if (empty) empty.remove();
+}
+function clearActLog() {
+  $('actLog').innerHTML = '<div class="empty py-6"><i data-lucide="activity" class="w-6 h-6"></i><p>No activity yet</p></div>'; actLogCount=0; lucide.createIcons();
+}
 
-  async function init() {
-    const st=await api('/api/status');
-    if(st.status==='online'){$('sDot').className='sidebar-dot';$('sText').textContent='Online';}
-    else{$('sDot').className='sidebar-dot offline';$('sText').textContent='Offline';}
-    renderPipelineTrack();
-    handleRoute();
-    lucide.createIcons();
+function refreshAll() {
+  const hash = window.location.hash.slice(1) || 'home';
+  loadPage(hash);
+  loadHome();
+  loadNavCount();
+}
+async function loadNavCount() {
+  const an = await api('/api/analytics');
+  $('navAppCount').textContent = an.success ? (an.analytics.applications_drafted||0) : 0;
+}
+
+// ── Applications (Kanban) ──────────────────────────────────
+async function loadAppsPage() {
+  const d = await api('/api/jobs');
+  if (!d.success || !d.jobs?.length) {
+    $('kanbanBoard').innerHTML = '<div class="empty" style="flex:1"><i data-lucide="columns-3" class="w-8 h-8"></i><p>No applications yet</p></div>';
+    lucide.createIcons(); return;
   }
-  document.addEventListener('DOMContentLoaded', init);
+  const cols = {
+    saved: { label:'Saved', icon:'bookmark', jobs:[] },
+    drafted: { label:'Drafted', icon:'file-text', jobs:[] },
+    applied: { label:'Applied', icon:'send', jobs:[] },
+    interview: { label:'Interview', icon:'calendar', jobs:[] },
+    offer: { label:'Offer', icon:'award', jobs:[] },
+    closed: { label:'Closed', icon:'x-circle', jobs:[] },
+  };
+  d.jobs.forEach(j => {
+    const s = (j.status||'found').toLowerCase();
+    if (s==='sent'||s==='applied') cols.applied.jobs.push(j);
+    else if (s==='draft'||s==='ready') cols.drafted.jobs.push(j);
+    else if (s==='rejected'||s==='failed') cols.closed.jobs.push(j);
+    else if (s==='interview') cols.interview.jobs.push(j);
+    else if (s==='offer') cols.offer.jobs.push(j);
+    else cols.saved.jobs.push(j);
+  });
+  $('kanbanBoard').innerHTML = Object.entries(cols).map(([k, col]) => `
+    <div class="kanban-col">
+      <div class="kanban-hdr"><i data-lucide="${col.icon}" class="w-4 h-4" style="opacity:.5"></i><span class="kanban-hdr-text">${col.label}</span><span class="kanban-count">${col.jobs.length}</span></div>
+      <div class="kanban-body">
+        ${col.jobs.length===0 ? '<div style="flex:1;display:flex;align-items:center;justify-content:center;padding:24px;font-size:12px;color:var(--t3)">Empty</div>' :
+          col.jobs.map(j => `<div class="kanban-card" onclick="openJobDrawer(${j.id||0})">
+            <div class="co">${esc(sanitizeCo(j.company))}</div>
+            <div class="role">${esc(j.title||j.role||'Role')}</div>
+            ${j.fit_score != null ? `<div class="match-bar"><div class="match-fill" style="width:${j.fit_score}%"></div></div>` : ''}
+            <div style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11px;color:var(--t3)">
+              <span>${esc(j.location||'—')}</span>
+              ${j.hr_email ? '<span style="color:var(--green);font-size:10px">● Contact</span>' : ''}
+            </div>
+          </div>`).join('')
+        }
+      </div>
+    </div>
+  `).join('');
+  lucide.createIcons();
+}
+
+// ── Network ─────────────────────────────────────────────────
+async function loadNetwork() {
+  const d = await api('/api/recruiters');
+  if (!d.success || !d.recruiters?.length) {
+    $('networkBody').innerHTML = '<div class="empty"><i data-lucide="users" class="w-8 h-8"></i><p>No contacts yet</p><p class="text-[11px]">Recruiters will appear here when discovered during searches</p></div>';
+    lucide.createIcons(); return;
+  }
+  $('networkBody').innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px">
+    ${d.recruiters.map(r => `<div class="card card-sm" style="cursor:default">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:36px;height:36px;border-radius:8px;background:var(--accent-bg);display:grid;place-items:center;font-size:14px;font-weight:700;color:var(--accent-sub)">${(r.name||'?')[0]}</div>
+        <div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--t1)">${esc(r.name||'Unknown')}</div><div style="font-size:11px;color:var(--t3)">${esc(r.role||r.title||'')}</div></div>
+        <span class="tag ${(r.confidence||0)>=70?'tag-green':(r.confidence||0)>=40?'tag-amber':'tag-gray'}">${r.confidence||0}%</span>
+      </div>
+      <div style="margin-top:8px;font-size:11px;color:var(--t3)">${r.email ? `<span>✉ ${esc(r.email)}</span>` : ''} ${r.company ? `<span>· ${esc(sanitizeCo(r.company))}</span>` : ''}</div>
+    </div>`).join('')}
+  </div>`;
+  lucide.createIcons();
+}
+
+// ── Resume ──────────────────────────────────────────────────
+async function loadResume() {
+  const rs = await api('/api/resume-status');
+  const [skills, roles, exp, edu] = await Promise.all([
+    api('/api/resume/skills'), api('/api/resume/roles'),
+    api('/api/resume/experience'), api('/api/resume/education')
+  ]);
+  $('resumeGrid').innerHTML = `
+    <div class="card card-md">
+      <div class="text-[11px] font-semibold text-[var(--t3)] uppercase tracking-[.4px] mb-3">Status</div>
+      <div style="display:flex;align-items:center;gap:8px">${rs.uploaded ? '<span class="tag tag-green">✓ Uploaded</span>' : '<span class="tag tag-red">Not uploaded</span>'} ${rs.parsed ? '<span class="tag tag-green">Parsed</span>' : ''}</div>
+      ${rs.parsed ? `<div style="margin-top:8px;font-size:12px;color:var(--t2)">
+        <div>Name: <strong style="color:var(--t1)">${esc(rs.parsed?.name||'—')}</strong></div>
+        <div>Email: <span style="color:var(--t1)">${esc(rs.parsed?.email||'—')}</span></div>
+        <div>Confidence: ${scoreTag(rs.parsed?.confidence)}</div>
+      </div>` : ''}
+    </div>
+    <div class="card card-md">
+      <div class="text-[11px] font-semibold text-[var(--t3)] uppercase tracking-[.4px] mb-3">Skills (${(skills.success?skills.skills||[]:[]).length})</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px">${(skills.success?skills.skills||[]:[]).slice(0,30).map(s => `<span class="tag tag-accent">${esc(s)}</span>`).join('')||'<span class="text-[12px] text-[var(--t3)]">No skills extracted</span>'}</div>
+    </div>
+    <div class="card card-md">
+      <div class="text-[11px] font-semibold text-[var(--t3)] uppercase tracking-[.4px] mb-3">Target Roles</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px">${(roles.success?roles.roles||[]:[]).slice(0,8).map(r => `<span class="tag tag-blue">${esc(typeof r==='string'?r:r.role||'')}</span>`).join('')||'<span class="text-[12px] text-[var(--t3)]">Upload and parse your resume</span>'}</div>
+    </div>
+    <div class="card card-md">
+      <div class="text-[11px] font-semibold text-[var(--t3)] uppercase tracking-[.4px] mb-3">Experience</div>
+      <div style="font-size:12px;color:var(--t2)">${(exp.success?exp.experience||[]:[]).length > 0 ? (exp.experience||[]).slice(0,4).map(e => `<div style="margin-bottom:6px"><strong style="color:var(--t1)">${esc(e.title||'')}</strong> ${e.company ? `at ${esc(e.company)}` : ''}${e.dates ? ` · ${esc(e.dates)}` : ''}</div>`).join('') : '<span>No experience entries</span>'}</div>
+    </div>
+  `;
+  lucide.createIcons();
+}
+function triggerResumeUpload() { $('resumeFileIn').click(); }
+function uploadResume(file) {
+  if (!file) return;
+  const fd = new FormData(); fd.append('resume', file);
+  toast('Uploading resume...','info');
+  fetch('/api/upload-resume', {method:'POST', body:fd})
+    .then(r => r.json()).then(d => {
+      if (d.success) { toast('Resume uploaded ✓','success'); loadResume(); }
+      else toast(d.error||'Upload failed','error');
+    }).catch(e => toast('Upload error','error'));
+}
+
+// ── Inbox ──────────────────────────────────────────────────
+async function loadInbox() {
+  const es = await api('/api/email/status');
+  const gs = es.gmail||{};
+  $('inboxProvider').textContent = es.provider||'Not configured';
+  $('inboxAccount').textContent = es.from_email||gs.account||'—';
+  $('inboxStatus').innerHTML = gs.status ? `<span class="tag ${gs.status==='connected'?'tag-green':'tag-amber'}">${gs.status==='connected'?'Connected':gs.status==='not_authenticated'?'Auth needed':'—'}</span>` : '<span class="tag tag-gray">Not configured</span>';
+  const d = await api('/api/jobs');
+  if (d.success && d.jobs?.length) {
+    const emails = d.jobs.filter(j => j.email_body);
+    $('inboxBody').innerHTML = emails.length ? emails.map(j => `<tr><td class="py-2 text-[12px] text-[var(--t2)]">${esc(j.company||'—')}</td><td class="py-2 text-[12px] text-[var(--t2)]">${esc((j.email_subject||'').slice(0,50))}</td><td class="py-2">${statusTag(j.status)}</td></tr>`).join('') : '<tr><td colspan="3"><div class="empty py-4"><p>No email drafts</p></div></td></tr>';
+  }
+  lucide.createIcons();
+}
+
+// ── Insights ────────────────────────────────────────────────
+async function loadInsights() {
+  const an = await api('/api/analytics');
+  if (an.success) {
+    $('insApps').textContent = an.analytics.applications_submitted||0;
+    $('insResponses').textContent = 0;
+    $('insInterviews').textContent = 0;
+    $('insOffers').textContent = 0;
+  }
+  const d = await api('/api/jobs');
+  if (d.success && d.jobs?.length) {
+    const sources = {};
+    d.jobs.forEach(j => { const s = j.source||'unknown'; sources[s] = (sources[s]||0)+1; });
+    const total = Object.values(sources).reduce((a,b)=>a+b,0)||1;
+    $('insSources').innerHTML = Object.entries(sources).map(([k,v]) => {
+      const pct = Math.round(v/total*100);
+      return `<div style="display:flex;align-items:center;gap:12px;margin-bottom:6px"><span style="font-size:12px;color:var(--t2);width:100px">${esc(k)}</span><div style="flex:1;height:6px;background:var(--bg3);border-radius:3px;overflow:hidden"><div style="height:100%;border-radius:3px;background:linear-gradient(90deg,var(--accent),var(--accent-sub));width:${pct}%"></div></div><span style="font-size:11px;color:var(--t3);width:40px;text-align:right">${v}</span></div>`;
+    }).join('');
+  }
+}
+
+// ── Settings ────────────────────────────────────────────────
+async function loadSettings() {
+  const [cfg, st] = await Promise.all([api('/api/config'), api('/api/status')]);
+  $('settingsConfig').innerHTML = cfg ? `<div style="font-size:12px;color:var(--t2)">${Object.entries({dry_run:cfg.dry_run,auto_apply:cfg.auto_apply,min_fit_score:cfg.min_fit_score,max_per_run:cfg.max_emails_per_run||cfg.max_per_run}).map(([k,v]) => `<div style="display:flex;justify-content:space-between;padding:4px 0"><span style="color:var(--t3)">${k.replace(/_/g,' ')}</span><span style="color:var(--t1);font-weight:500">${v}</span></div>`).join('')}</div>` : '';
+  const env = st.env_keys||{};
+  $('settingsKeys').innerHTML = `<div style="font-size:12px">${Object.entries(env).map(([k,v]) => `<div style="display:flex;justify-content:space-between;padding:4px 0"><span style="color:var(--t3);font-family:monospace;font-size:11px">${esc(k)}</span><span class="tag ${v?'tag-green':'tag-red'}">${v?'Set':'Missing'}</span></div>`).join('')}</div>`;
+
+  const es = await api('/api/email/status');
+  const gs = es.gmail||{};
+  const ok = es.configured;
+  $('settingsEmail').innerHTML = `
+    <div style="font-size:12px;color:var(--t2)">
+      <div style="display:flex;justify-content:space-between;padding:4px 0"><span style="color:var(--t3)">Provider</span><span style="color:var(--t1)">${es.provider||'None'}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0"><span style="color:var(--t3)">Account</span><span style="color:var(--t1)">${gs.account||es.from_email||'—'}</span></div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0"><span style="color:var(--t3)">Status</span>${gs.status ? `<span class="tag ${gs.status==='connected'?'tag-green':gs.status==='not_authenticated'?'tag-amber':'tag-red'}">${gs.status}</span>` : '<span class="tag tag-gray">Not configured</span>'}</div>
+    </div>
+    <div style="margin-top:10px">${!gs.configured ? `<button class="btn btn-primary btn-sm" onclick="connectGmail()"><i data-lucide="mail" class="w-4 h-4"></i>Connect Gmail</button>` : `<button class="btn btn-secondary btn-sm" onclick="disconnectGmail()"><i data-lucide="log-out" class="w-4 h-4"></i>Disconnect</button>`}</div>
+    ${!ok ? `<div style="margin-top:8px;padding:8px;border-radius:6px;background:var(--amber-bg);font-size:11px;color:var(--amber)"><i data-lucide="alert-triangle" class="w-3.5 h-3.5 inline"></i> Email not configured. Applications will be saved as drafts.</div>` : ''}
+  `;
+  lucide.createIcons();
+}
+
+async function connectGmail() {
+  toast('Starting Gmail OAuth...','info');
+  const d = await api('/api/gmail/auth-url');
+  if (!d.success || !d.auth_url) { toast(d.error||'Failed','error'); return; }
+  window.open(d.auth_url,'gmail-oauth','width=600,height=700');
+  let attempts = 0;
+  const iv = setInterval(async() => {
+    const s = await api('/api/gmail/status');
+    if (s.success && s.status === 'connected') { clearInterval(iv); toast('Gmail connected ✓','success'); loadSettings(); }
+    if (++attempts > 30) { clearInterval(iv); toast('Connection timed out','warning'); }
+  }, 2000);
+}
+async function disconnectGmail() {
+  if (!confirm('Disconnect Gmail?')) return;
+  const d = await api('/api/gmail/disconnect', {method:'POST'});
+  if (d.success) { toast('Gmail disconnected','info'); loadSettings(); }
+  else toast(d.error||'Failed','error');
+}
+async function loadEmailStatus() {
+  const d = await api('/api/email-status');
+  const ok = d.can_send;
+  $('emailStatus').innerHTML = `<div style="font-size:12px;color:var(--t2)">
+    <div style="display:flex;justify-content:space-between;padding:4px 0"><span>Active Provider</span><span style="color:var(--t1);font-weight:500">${d.active_provider||'None'}</span></div>
+    <div style="display:flex;justify-content:space-between;padding:4px 0"><span>Status</span><span class="tag ${ok?'tag-green':'tag-red'}">${ok?'Operational':'Not ready'}</span></div>
+    <div style="display:flex;justify-content:space-between;padding:4px 0"><span>Resend</span><span class="tag ${d.resend?.configured?'tag-green':'tag-gray'}">${d.resend?.configured?'Configured':'Not set'}</span></div>
+    <div style="display:flex;justify-content:space-between;padding:4px 0"><span>Gmail Credentials</span><span class="tag ${d.gmail?.credentials?'tag-green':'tag-red'}">${d.gmail?.credentials?'Found':'Missing'}</span></div>
+    <div style="display:flex;justify-content:space-between;padding:4px 0"><span>Gmail Token</span><span class="tag ${d.gmail?.token?'tag-green':'tag-red'}">${d.gmail?.token?'Valid':'Missing'}</span></div>
+  </div>`;
+}
+async function sendTestEmail() {
+  const btn = $('testEmailBtn'); const to = $('testEmailTo')?.value?.trim() || undefined;
+  const resEl = $('testEmailResult');
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
+  resEl.innerHTML = '<span style="color:var(--t3)">Sending...</span>';
+  const d = await api('/api/email-test', {method:'POST', body:JSON.stringify({to}), headers:{'Content-Type':'application/json'}});
+  resEl.innerHTML = d.success ? `<span style="color:var(--green)">✓ Test email sent to ${esc(d.to||'you')}</span>` : `<span style="color:var(--red)">✗ ${esc(d.error||'Failed')}</span>`;
+  if (btn) { btn.disabled = false; btn.textContent = 'Send Test'; }
+}
+
+// ── Job Drawer ──────────────────────────────────────────────
+async function openJobDrawer(jobId) {
+  $('drawerOverlay').classList.add('open'); $('drawer').classList.add('open');
+  $('drawerTitle').textContent = 'Loading...';
+  $('drawerBody').innerHTML = '<div class="empty"><p>Loading...</p></div>';
+  const [d, md] = await Promise.all([api(`/api/jobs/${jobId}`), api(`/api/jobs/${jobId}/match`)]);
+  if (!d.success || !d.job) { $('drawerBody').innerHTML = '<div class="empty"><p>Job not found</p></div>'; return; }
+  const j = d.job;
+  $('drawerTitle').textContent = `${j.title||'Role'} at ${sanitizeCo(j.company)}`;
+  const m = md.match||{};
+  const fs = m.final_score !== undefined ? m.final_score : j.fit_score;
+  const rc = m.recommendation || (fs >= 70 ? 'Apply' : fs >= 50 ? 'Consider' : 'Skip');
+  const matchedSkills = (m.matched_skills||[]);
+  const missingSkills = (m.missing_skills||[]);
+  const components = [m.skill_match, m.experience_match, m.role_match, m.location_match, m.seniority_match].filter(Boolean);
+
+  $('drawerBody').innerHTML = `
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+      <div class="opp-score ${fs>=70?'high':fs>=50?'medium':'low'}" style="width:56px;height:56px;font-size:20px">${fs||'?'}</div>
+      <div><div style="font-size:14px;font-weight:600">${esc(j.title||'Role')}</div><div style="font-size:13px;color:var(--accent-sub)">${esc(sanitizeCo(j.company))}</div></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      <span class="tag tag-blue">${esc(j.location||'Remote')}</span>
+      <span class="tag tag-gray">${esc(j.source||'web')}</span>
+      <span class="tag ${rc==='Apply'?'tag-green':rc==='Consider'?'tag-amber':'tag-red'}">${rc}</span>
+      ${statusTag(j.status)}
+    </div>
+    ${components.length ? `<div style="margin-bottom:16px"><div style="font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Match Breakdown</div>
+      ${components.map(c => {
+        const s = Math.round(c.score||0);
+        return `<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px"><span style="color:var(--t1)">${c.label||'Component'}</span><span class="tag ${s>=70?'tag-green':s>=50?'tag-amber':'tag-red'}">${s}</span></div><div class="match-bar"><div class="match-fill" style="width:${s}%"></div></div></div>`;
+      }).join('')}</div>` : ''}
+    ${matchedSkills.length ? `<div style="margin-bottom:12px"><div style="font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">✓ Matching Skills</div><div style="display:flex;flex-wrap:wrap;gap:3px">${matchedSkills.map(s => `<span class="tag tag-green">${esc(s)}</span>`).join('')}</div></div>` : ''}
+    ${missingSkills.length ? `<div style="margin-bottom:12px"><div style="font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">✗ Missing Skills</div><div style="display:flex;flex-wrap:wrap;gap:3px">${missingSkills.map(s => `<span class="tag tag-red">${esc(s)}</span>`).join('')}</div></div>` : ''}
+    ${j.email_body ? `<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--bdr)"><div style="font-size:11px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px">Drafted Email</div><div style="font-size:12px;color:var(--t2);background:var(--bg3);padding:10px;border-radius:6px">${esc(j.email_body.slice(0,500))}</div></div>` : ''}
+  `;
+  lucide.createIcons();
+}
+
+function closeDrawer() {
+  $('drawerOverlay').classList.remove('open'); $('drawer').classList.remove('open');
+}
+
+// ── Init ─────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  if (!window.location.hash) window.location.hash = 'home';
+  handleRoute();
+});
 </script>
 </body>
 </html>

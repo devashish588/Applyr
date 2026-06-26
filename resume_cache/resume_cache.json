@@ -7,50 +7,54 @@
   "github": null,
   "portfolio": "",
   "skills": [
-    "Mac",
-    "Machine Learning",
-    "R",
     "Python",
-    "Scikit-learn",
-    "Pandas",
-    "NumPy",
+    "Java",
+    "JavaScript",
+    "R",
+    "SQL",
+    "C++",
+    "Bash",
+    "React",
+    "Vite",
+    "Node.js",
+    "FastAPI",
+    "Flask",
+    "Django",
+    "Go",
+    "Express",
     "REST",
+    "REST API",
+    "PostgreSQL",
+    "MySQL",
+    "MongoDB",
     "LLM",
     "LangChain",
     "HuggingFace",
-    "Transformers",
-    "Pinecone",
-    "Lua",
-    "Apache",
-    "Spark",
-    "Hadoop",
-    "Power BI",
-    "Tableau",
-    "Excel",
-    "PostgreSQL",
-    "SQL",
-    "MySQL",
-    "MongoDB",
-    "Go",
-    "FastAPI",
-    "Flask",
-    "REST API",
+    "Pandas",
+    "NumPy",
+    "Scikit-learn",
+    "DevOps",
     "Git",
-    "GitHub",
-    "Linux",
+    "Docker",
     "Jupyter"
   ],
   "skills_categorized": {
     "languages": [
-      "R",
       "Python",
-      "Lua",
+      "Java",
+      "JavaScript",
+      "R",
       "SQL",
+      "Bash",
       "Go"
     ],
     "frameworks": [
+      "React",
+      "Node.js",
       "FastAPI",
-      "Flask"
+      "Flask",
+      "Django",
+      "Express"
     ],
     "databases": [
       "PostgreSQL",
@@ -58,206 +62,128 @@
       "MongoDB"
     ],
     "ml_ai": [
-      "Machine Learning",
-      "Scikit-learn",
       "LLM",
       "LangChain",
       "HuggingFace",
-      "Transformers"
+      "Scikit-learn"
     ],
     "cloud": [
-      "GitHub"
+      "Docker"
     ],
     "tools": [
       "REST",
-      "Spark",
-      "Hadoop",
-      "Power BI",
-      "Tableau",
-      "Excel",
       "REST API",
-      "Git",
-      "Linux"
+      "Git"
     ]
   },
   "projects": [
     {
-      "name": "Consumer Segmentation & Quantitative Analytics Dashboard | Django \u00b7 Scikit-Learn \u00b7 RFM \u00b7 K-Means \u00b7 Python2024",
-      "description": "\u2013 Engineered a quantitative segmentation engine automating RFM analysis and K-Means clustering across 500K+ transactions, uncovering $8.9M in revenue opportunities \u2014 directly analogous to market analysis and quant research workflows. \u2013 Built churn prediction pipeline identifying 1,300+ at-risk users",
-      "tech_stack": [
-        "Django",
-        "Go",
-        "Python",
-        "R",
-        "Scikit-learn"
-      ],
+      "name": "Taskerzz",
+      "description": "Built a full-stack role-based collaboration platform with Admin/Tasker separation, JWT auth, and CRUD APIs for project/task management, deadline tracking, and overdue monitoring.",
       "technologies": [
-        "Django",
-        "Go",
-        "Python",
-        "R",
-        "Scikit-learn"
-      ],
-      "github": "",
-      "deployment": ""
+        "React",
+        "Vite",
+        "Tailwind CSS",
+        "Node.js",
+        "Express.js",
+        "PostgreSQL",
+        "Prisma",
+        "JWT"
+      ]
     },
     {
-      "name": "Energy Consumption Forecasting | Python \u00b7 LSTM \u00b7 Time-Series \u00b7 Power BI",
-      "description": "2024 \u2013 Forecasted industrial energy usage using LSTM time-series models, achieving MAPE of 8.5% \u2014 demonstrating hands-on experience with time-series forecasting directly relevant to financial data modeling. \u2013 Built interactive Power BI dashboards for scenario analysis and peak load simulation, enabl",
-      "tech_stack": [
-        "Power BI",
-        "Python",
-        "R"
-      ],
-      "technologies": [
-        "Power BI",
-        "Python",
-        "R"
-      ],
-      "github": "",
-      "deployment": ""
-    },
-    {
-      "name": "Predictive Maintenance using Sensor Data | Python \u00b7 Scikit-Learn \u00b7 Random Forest \u00b7 Pandas",
-      "description": "2024 \u2013 Processed NASA Turbofan engine dataset to predict machine failure cycles; engineered features and trained Random Forest achieving 87% accuracy. \u2013 Designed dashboards to visualize machine health metrics \u2014 demonstrating end-to-end ML pipeline development and model evaluation capabilities.",
-      "tech_stack": [
-        "Lua",
-        "Mac",
-        "Pandas",
-        "Python",
-        "R",
-        "REST",
-        "Scikit-learn"
-      ],
-      "technologies": [
-        "Lua",
-        "Mac",
-        "Pandas",
-        "Python",
-        "R",
-        "REST",
-        "Scikit-learn"
-      ],
-      "github": "",
-      "deployment": ""
-    },
-    {
-      "name": "RAG Document Search Pipeline | FastAPI \u00b7 LangChain \u00b7 HuggingFace \u00b7 ChromaDB \u00b7 Streamlit",
-      "description": "2024 \u2013 Built a modular AI pipeline processing 50+ documents/min with <200ms latency using RAG architecture \u2014 demonstrating ability to build and optimize production-grade ML systems at scale. \u2013 Integrated HuggingFace Transformers and ChromaDB for embedding generation and retrieval; applied prompt eng",
-      "tech_stack": [
-        "FastAPI",
-        "HuggingFace",
-        "LangChain",
-        "Lua",
-        "R",
-        "Transformers"
-      ],
+      "name": "RAG Document Search Engine",
+      "description": "Engineered a modular RAG pipeline with async ingestion, ChromaDB vector storage, HuggingFace Transformers for semantic retrieval, and Pydantic validation \u2014 achieving 50+ docs/min throughput with <200ms retrieval latency.",
       "technologies": [
         "FastAPI",
-        "HuggingFace",
         "LangChain",
-        "Lua",
-        "R",
-        "Transformers"
-      ],
-      "github": "",
-      "deployment": ""
+        "HuggingFace",
+        "ChromaDB",
+        "Streamlit"
+      ]
+    },
+    {
+      "name": "Applyr \u2014 AI Job Application Agent",
+      "description": "Built a 5-agent autonomous LangGraph pipeline (Groq/Llama-4) for end-to-end job automation \u2014 web search via Tavily, 6-level resume parsing, JD fit scoring, cover letter generation, and cold email drafting with a hard confidence gate (<70% blocked).",
+      "technologies": [
+        "LangGraph",
+        "Groq",
+        "Llama-4",
+        "Flask",
+        "PostgreSQL"
+      ]
     }
   ],
   "experience": [
     {
-      "company": "",
-      "role": "",
-      "title": "systems. Strong analytical thinking, attention to detail, and a passion for applying ML to quantitative research and",
-      "start_date": "",
-      "end_date": null,
-      "description": "algorithmic decision-making. Immediate joiner \u2014 open to relocating to Jodhpur (Onsite). LLM Post-Training Intern Jul",
-      "technologies_used": [
-        "Go",
-        "LLM",
-        "R"
-      ]
+      "company": "Ethara AI",
+      "title": "LLM Post-Training Intern",
+      "start_date": "Mar 2026",
+      "end_date": "May 2026",
+      "description": "Contributed to RLHF and SFT workflows at Ethara AI, evaluating 100+ prompts daily and surfacing recurring failure modes in instruction-following, hallucination, and constraint adherence \u2014 directly informing dataset curation priorities.",
+      "technologies_used": []
     },
     {
-      "company": "",
-      "role": "",
-      "title": "2026",
-      "start_date": "",
-      "end_date": null,
-      "description": "Ethara AI (Remote) \u2013 Executed RLHF and Supervised Fine-Tuning (SFT) workflows to improve LLM response quality, alignment, and conversational consistency \u2014 building strong quantitative evaluation and analytical research skills. \u2013 Conducted systematic AI data annotation and model output evaluation against quality benchmarks, applying statistical thinking and pattern recognition in production pipelines. \u2013 Performed prompt engineering and optimization to enhance model reasoning across diverse task t",
-      "technologies_used": [
-        "LLM",
-        "Lua",
-        "R"
-      ]
+      "company": "Bluestock Fintech",
+      "title": "Full Stack Developer Intern",
+      "start_date": "Jan 2026",
+      "end_date": "Mar 2026",
+      "description": "Built and shipped Taskerzz end-to-end: JWT authentication, RBAC for Admin/Tasker role separation, task assignment, deadline tracking, and overdue monitoring dashboard \u2014 live at taskerzzz-production.up.railway.app.",
+      "technologies_used": []
     },
     {
-      "company": "",
-      "role": "",
-      "title": "2026",
-      "start_date": "",
-      "end_date": null,
-      "description": "Bluestock Fintech (Remote) \u2013 Shipped production-ready React components for Logic Looper (logic-looper-nine.vercel.app), translating user engagement data into interactive visual systems \u2014 gaining exposure to fintech data workflows. \u2013 Architected real-time data synchronization between IndexedDB and PostgreSQL for persistent user progress tracking, demonstrating strong backend data management and structured data thinking. \u2013 Implemented a GitHub-style activity heatmap and achievement system to drive",
-      "technologies_used": [
-        "Git",
-        "GitHub",
-        "PostgreSQL",
-        "R",
-        "React",
-        "SQL"
-      ]
+      "company": "Elevate Labs",
+      "title": "Data Analyst Intern",
+      "start_date": "Jun 2025",
+      "end_date": "Jul 2025",
+      "description": "Processed large datasets using Python (Pandas, NumPy) to extract actionable business insights; built Power BI dashboards for stakeholder KPI tracking \u2014 awarded Best Performer for the cohort.",
+      "technologies_used": []
     }
   ],
   "education": [
     {
       "institution": "Madhav Institute of Technology and Science, Gwalior",
-      "degree": "2022 \u2013 2026",
-      "field": "B.Tech in Internet of Things \u2014 CGPA: 7.5",
-      "cgpa": "7.5",
-      "start_year": "20",
-      "end_year": "20"
+      "degree": "B.Tech",
+      "field": "Internet of Things",
+      "start_year": "2022",
+      "end_year": "2026"
     }
   ],
   "certifications": [
-    "Power BI Virtual Internship \u2014 PwC Forage",
-    "Jul 2024",
-    "Introduction to SQL \u2014 Simplilearn",
-    "Mar 2025",
-    "R Programming \u2014 Simplilearn",
-    "Jan 2025",
-    "Python Basics \u2014 Infosys Springboard",
-    "Mar 2023"
+    "Oracle Agentic AI Foundations Associate",
+    "AWS Cloud Practitioner Essentials",
+    "GitHub Foundations Certification"
   ],
   "target_roles": [
-    "data analyst",
     "backend engineer",
     "full stack engineer",
-    "data scientist",
-    "data engineer"
+    "software engineer",
+    "frontend engineer",
+    "data scientist"
   ],
   "scored_roles": [
     {
-      "role": "data analyst",
-      "score": 100
-    },
-    {
       "role": "backend engineer",
-      "score": 72.9
+      "score": 98.6
     },
     {
       "role": "full stack engineer",
-      "score": 61.7
+      "score": 90.0
+    },
+    {
+      "role": "software engineer",
+      "score": 72.9
+    },
+    {
+      "role": "frontend engineer",
+      "score": 53.3
     },
     {
       "role": "data scientist",
-      "score": 61.5
-    },
-    {
-      "role": "data engineer",
-      "score": 60.0
+      "score": 44.6
     }
   ],
-  "quality_score": 92.0,
+  "quality_score": 87.0,
   "quality_breakdown": {
     "name": 10,
     "email": 10,
@@ -266,41 +192,39 @@
     "skills": 20,
     "experience": 20,
     "education": 10,
-    "projects": 12,
-    "certifications": 5
+    "projects": 9,
+    "certifications": 3
   },
   "confidence": 100.0,
-  "parsed_at": "2026-06-21T16:54:22.180836",
-  "source_path": "D:\\Ai course\\Projects\\Applyr\\resume\\master_resume.pdf",
-  "total_pages": 2,
+  "parsed_at": "2026-06-26T19:16:55.726703",
+  "source_path": "resume\\master_resume.pdf",
+  "total_pages": 1,
   "sections_detected": [
     "preamble",
     "summary",
     "experience",
-    "skills",
-    "languages",
     "projects",
+    "skills",
     "education",
-    "leadership",
     "certifications"
   ],
   "sections_missing": [],
   "extraction_stats": {
     "engine_used": null,
-    "chars_extracted": 6946,
-    "pages": 2,
+    "chars_extracted": 3458,
+    "pages": 1,
     "confidence": 100
   },
   "parse_log": [
-    "Starting parse: D:/Ai course/Projects/Applyr/resume/master_resume.pdf",
-    "File size: 124721 bytes",
-    "PDF extraction: PyMuPDF succeeded (6947 chars)",
-    "Level 1: Extracted 6946 chars, 2 page(s)",
-    "Level 2: Detected sections: ['preamble', 'summary', 'experience', 'skills', 'languages', 'projects', 'education', 'leadership', 'certifications']",
-    "Level 3: Extracted name=Devashish Bose, skills=32, experience=3",
-    "Confidence breakdown: 100 -> 100% (skills=32, exp=3, edu=1, proj=4)",
+    "Starting parse: ./resume/master_resume.pdf",
+    "File size: 110985 bytes",
+    "PDF extraction: PyMuPDF succeeded (3459 chars)",
+    "Level 1: Extracted 3458 chars, 1 page(s)",
+    "Level 2: Detected sections: ['preamble', 'summary', 'experience', 'projects', 'skills', 'education', 'certifications']",
+    "Level 3: Extracted name=Devashish Bose, skills=30, experience=3",
+    "Confidence breakdown: 100 -> 100% (skills=30, exp=3, edu=1, proj=3)",
     "Level 4: Confidence=100%",
-    "Level 5: Roles=['data analyst', 'backend engineer', 'full stack engineer', 'data scientist', 'data engineer']",
-    "Parse complete in 1.0s -- confidence 100%"
+    "Level 5: Roles=['backend engineer', 'full stack engineer', 'software engineer', 'frontend engineer', 'data scientist']",
+    "Parse complete in 2.9s -- confidence 100%"
   ]
 }

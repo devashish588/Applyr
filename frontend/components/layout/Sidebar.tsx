@@ -4,101 +4,150 @@ import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import {
-  LayoutDashboard,
-  Rocket,
-  Briefcase,
-  Mail,
-  History,
-  Settings,
-  User,
-  Users,
-  Zap,
-  Building2,
+  LayoutDashboard, Rocket, Briefcase, Mail, History, Settings,
+  User, Users, Building2, BarChart3, FileText, Zap, Search,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 
-const NAV_ITEMS = [
-  { href: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { href: '/pipeline', icon: Rocket, label: 'Pipeline' },
-  { href: '/jobs', icon: Briefcase, label: 'Jobs' },
-  { href: '/startups', icon: Building2, label: 'Startups' },
-  { href: '/emails', icon: Mail, label: 'Drafts' },
-  { href: '/recruiters', icon: Users, label: 'Recruiters' },
-  { href: '/history', icon: History, label: 'History' },
-  { href: '/profile', icon: User, label: 'Profile' },
-  { href: '/settings', icon: Settings, label: 'Settings' },
+const NAV_SECTIONS = [
+  {
+    title: 'Workspace',
+    items: [
+      { href: '/', icon: LayoutDashboard, label: 'Dashboard' },
+      { href: '/jobs', icon: Briefcase, label: 'Jobs' },
+      { href: '/tracker', icon: FileText, label: 'Applications' },
+      { href: '/recruiters', icon: Users, label: 'Recruiters' },
+      { href: '/startups', icon: Building2, label: 'Companies' },
+    ],
+  },
+  {
+    title: 'Operations',
+    items: [
+      { href: '/pipeline', icon: Rocket, label: 'Mission Control' },
+      { href: '/emails', icon: Mail, label: 'Email' },
+      { href: '/analytics', icon: BarChart3, label: 'Analytics' },
+      { href: '/history', icon: History, label: 'History' },
+    ],
+  },
+  {
+    title: 'Account',
+    items: [
+      { href: '/profile', icon: User, label: 'Profile' },
+      { href: '/settings', icon: Settings, label: 'Settings' },
+    ],
+  },
 ];
 
-export default function Sidebar() {
+interface SidebarProps {
+  onOpenCommandPalette?: () => void;
+}
+
+export default function Sidebar({ onOpenCommandPalette }: SidebarProps) {
   const pathname = usePathname();
 
   return (
-    <aside className="w-[220px] h-screen flex-shrink-0 flex flex-col border-r"
-           style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
+    <aside
+      className="flex flex-col shrink-0 h-screen"
+      style={{
+        width: 'var(--sidebar-width)',
+        background: 'var(--bg-raised)',
+        borderRight: '1px solid var(--border)',
+      }}
+    >
       {/* Logo */}
-      <div className="px-5 py-5 pb-6">
-        <Link href="/" className="flex items-center gap-2 no-underline">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center"
-               style={{ background: 'var(--accent-muted)' }}>
-            <Zap size={16} style={{ color: 'var(--accent)' }} />
+      <div className="px-4 pt-4 pb-2">
+        <Link href="/" className="flex items-center gap-2">
+          <div
+            className="w-6 h-6 rounded flex items-center justify-center"
+            style={{ background: 'var(--primary)', }}
+          >
+            <Zap size={12} color="#fff" />
           </div>
-          <span className="text-lg font-bold tracking-tight" style={{ color: 'var(--text)' }}>
-            App<span style={{ color: 'var(--accent)' }}>lyr</span>
+          <span className="text-sm font-bold tracking-tight" style={{ color: 'var(--text)' }}>
+            Applyr
           </span>
         </Link>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 px-3 space-y-0.5">
-        {NAV_ITEMS.map((item) => {
-          const isActive = item.href === '/'
-            ? pathname === '/'
-            : pathname.startsWith(item.href);
+      {/* Quick Search */}
+      <div className="px-3 py-2">
+        <button
+          onClick={onOpenCommandPalette}
+          className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs transition-colors"
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text-muted)' }}
+        >
+          <Search size={12} />
+          <span className="flex-1 text-left">Search</span>
+          <kbd className="text-[10px] font-mono px-1 rounded" style={{ background: 'var(--surface-2)', color: 'var(--text-faint)' }}>⌘K</kbd>
+        </button>
+      </div>
 
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                'flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium no-underline transition-all duration-150 relative',
-              )}
-              style={{
-                color: isActive ? 'var(--text)' : 'var(--text-muted)',
-                background: isActive ? 'var(--accent-muted)' : 'transparent',
-              }}
-              onMouseEnter={(e) => {
-                if (!isActive) {
-                  e.currentTarget.style.color = 'var(--text-secondary)';
-                  e.currentTarget.style.background = 'rgba(255,255,255,0.03)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!isActive) {
-                  e.currentTarget.style.color = 'var(--text-muted)';
-                  e.currentTarget.style.background = 'transparent';
-                }
-              }}
+      {/* Navigation */}
+      <nav className="flex-1 overflow-y-auto px-2 pt-1 space-y-4 no-scrollbar">
+        {NAV_SECTIONS.map((section) => (
+          <div key={section.title}>
+            <div className="text-[10px] font-semibold uppercase tracking-widest px-2.5 mb-1"
+              style={{ color: 'var(--text-faint)' }}
             >
-              {isActive && (
-                <motion.div
-                  layoutId="sidebar-indicator"
-                  className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-4 rounded-r-full"
-                  style={{ background: 'var(--accent)' }}
-                  transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-                />
-              )}
-              <item.icon size={16} />
-              <span>{item.label}</span>
-            </Link>
-          );
-        })}
+              {section.title}
+            </div>
+            <div className="space-y-px">
+              {section.items.map((item) => {
+                const isActive =
+                  item.href === '/'
+                    ? pathname === '/'
+                    : pathname.startsWith(item.href);
+
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className="group flex items-center gap-2 px-2.5 py-[6px] rounded-md text-[13px] relative transition-colors"
+                    style={{
+                      color: isActive ? 'var(--text)' : 'var(--text-muted)',
+                      background: isActive ? 'var(--surface)' : 'transparent',
+                      fontWeight: isActive ? 500 : 400,
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isActive) {
+                        e.currentTarget.style.color = 'var(--text-secondary)';
+                        e.currentTarget.style.background = 'var(--surface-hover)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isActive) {
+                        e.currentTarget.style.color = 'var(--text-muted)';
+                        e.currentTarget.style.background = 'transparent';
+                      }
+                    }}
+                  >
+                    {isActive && (
+                      <motion.div
+                        layoutId="sidebar-indicator"
+                        className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-3.5 rounded-r-full"
+                        style={{ background: 'var(--primary)' }}
+                        transition={{ type: 'spring', stiffness: 350, damping: 30 }}
+                      />
+                    )}
+                    <item.icon size={14} />
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
 
       {/* Footer */}
-      <div className="px-5 py-4 border-t" style={{ borderColor: 'var(--border)' }}>
+      <div className="px-4 py-3" style={{ borderTop: '1px solid var(--border)' }}>
         <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full animate-pulse-dot" style={{ background: 'var(--green)' }} />
-          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>Agent online</span>
+          <span
+            className="w-1.5 h-1.5 rounded-full animate-pulse-dot"
+            style={{ background: 'var(--green)' }}
+          />
+          <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
+            Agent online
+          </span>
         </div>
       </div>
     </aside>

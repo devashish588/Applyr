@@ -7,6 +7,8 @@ Call get_db() anywhere to get a singleton instance.
 import json
 import logging
 import os
+import sqlite3
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -18,17 +20,138 @@ load_dotenv()
 
 logger  = logging.getLogger(__name__)
 DATABASE_URL = os.getenv("DATABASE_URL", "")
+CACHE_DB = os.getenv("CACHE_DB_PATH", str(Path(__file__).parent.parent / "cache.db"))
 
 
 class DBClient:
     _connection_pool = None
+    _cache = {}
+    _cache_ttl = 30  # seconds
 
     def __init__(self, database_url: str = DATABASE_URL):
         self.database_url = database_url
         if not database_url:
             raise ValueError("DATABASE_URL environment variable is required for PostgreSQL")
+        self._init_disk_cache()
         self._init_pool()
         self._init_schema()
+        self._warmup()
+
+    # ── Local SQLite disk cache ────────────────────────────────────────────
+
+    def _init_disk_cache(self):
+        """Create the local SQLite cache database."""
+        self._disk_db_path = CACHE_DB
+        try:
+            conn = sqlite3.connect(self._disk_db_path)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS cache (
+                    key TEXT PRIMARY KEY,
+                    value TEXT,
+                    expires_at REAL
+                )
+            """)
+            conn.commit()
+            conn.close()
+            logger.info("[db] Local disk cache ready at %s", self._disk_db_path)
+        except Exception as e:
+            logger.warning("[db] Failed to init disk cache (non-fatal): %s", e)
+            self._disk_db_path = None
+
+    def _disk_get(self, key: str, ttl: int = 60):
+        """Read from local SQLite cache if within TTL."""
+        if not self._disk_db_path:
+            return None
+        try:
+            conn = sqlite3.connect(self._disk_db_path)
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT value FROM cache WHERE key = ? AND expires_at > ?",
+                (key, time.time())
+            ).fetchone()
+            conn.close()
+            if row:
+                return json.loads(row["value"])
+        except Exception as e:
+            logger.debug("[db] Disk cache read failed: %s", e)
+        return None
+
+    def _disk_set(self, key: str, value, ttl: int = 60):
+        """Write to local SQLite cache."""
+        if not self._disk_db_path:
+            return
+        try:
+            conn = sqlite3.connect(self._disk_db_path)
+            conn.execute(
+                "INSERT OR REPLACE INTO cache (key, value, expires_at) VALUES (?, ?, ?)",
+                (key, json.dumps(value), time.time() + ttl)
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.debug("[db] Disk cache write failed: %s", e)
+
+    def _disk_invalidate(self, key: str = None):
+        """Invalidate a cache key, or all if key is None."""
+        if not self._disk_db_path:
+            return
+        try:
+            conn = sqlite3.connect(self._disk_db_path)
+            if key:
+                conn.execute("DELETE FROM cache WHERE key = ?", (key,))
+            else:
+                conn.execute("DELETE FROM cache")
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.debug("[db] Disk cache invalidate failed: %s", e)
+
+    def _warmup(self):
+        """Ping the database — also starts a background keepalive thread."""
+        try:
+            conn = self._conn()
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+            conn.commit()
+            self._put_conn(conn)
+            logger.info("[db] Connection pool warmed up")
+        except Exception as e:
+            logger.warning("[db] Warmup ping failed (non-fatal): %s", e)
+        self._start_keepalive()
+
+    def _start_keepalive(self):
+        """Ping Neon every 120s to prevent serverless idle timeout."""
+        import threading
+        def _ping():
+            while True:
+                time.sleep(120)
+                try:
+                    conn = self._conn()
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT 1")
+                    conn.commit()
+                    self._put_conn(conn)
+                except Exception:
+                    pass
+        t = threading.Thread(target=_ping, daemon=True)
+        t.start()
+        logger.debug("[db] Keepalive thread started (120s interval)")
+
+    def _cache_get(self, key: str):
+        """Return cached value if within TTL, else None."""
+        entry = self._cache.get(key)
+        if entry and (datetime.now() - entry["ts"]).seconds < self._cache_ttl:
+            return entry["value"]
+        return None
+
+    def _cache_set(self, key: str, value):
+        self._cache[key] = {"value": value, "ts": datetime.now()}
+
+    def _cache_clear(self, key: str = None):
+        if key:
+            self._cache.pop(key, None)
+        else:
+            self._cache.clear()
 
     def _init_pool(self):
         if DBClient._connection_pool is None:
@@ -53,6 +176,13 @@ class DBClient:
         conn = self._conn()
         try:
             with conn.cursor() as cur:
+                # Check if tables exist first — saves 7 round-trips on warm starts
+                cur.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'jobs')")
+                if cur.fetchone()[0]:
+                    logger.debug("[db] Tables already exist, skipping schema init")
+                    conn.commit()
+                    return
+
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS jobs (
                         id                   SERIAL PRIMARY KEY,
@@ -331,6 +461,7 @@ class DBClient:
     # ── Jobs ──────────────────────────────────────────────────────────────────
     def insert_job(self, job: dict, app_result: dict = None,
                    email: dict = None, status: str = "found"):
+        self._disk_invalidate("all_jobs")
         now  = datetime.now().isoformat()
         conn = self._conn()
         try:
@@ -407,16 +538,23 @@ class DBClient:
         finally:
             self._put_conn(conn)
 
-    def get_all_jobs(self, limit: int = 100) -> list[dict]:
-        conn = self._conn()
+    def get_all_jobs(self, limit: int = 100, conn=None) -> list[dict]:
+        cached = self._disk_get("all_jobs", ttl=300) if limit <= 100 else None
+        if cached is not None:
+            return cached[:limit] if limit < len(cached) else cached
+        conn, close = self._resolve_conn(conn)
         try:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 cur.execute(
                     "SELECT * FROM jobs ORDER BY scraped_at DESC LIMIT %s", (limit,)
                 )
-                return [dict(r) for r in cur.fetchall()]
+                rows = [dict(r) for r in cur.fetchall()]
+                if limit <= 100:
+                    self._disk_set("all_jobs", rows, ttl=300)
+                return rows
         finally:
-            self._put_conn(conn)
+            if close:
+                self._put_conn(conn)
 
     def get_unsent_emails(self) -> list[dict]:
         conn = self._conn()
@@ -484,19 +622,27 @@ class DBClient:
         finally:
             self._put_conn(conn)
 
-    def get_recent_run_logs(self, limit: int = 20) -> list[dict]:
-        conn = self._conn()
+    def get_recent_run_logs(self, limit: int = 20, conn=None) -> list[dict]:
+        cached = self._disk_get("recent_run_logs", ttl=300) if limit <= 50 else None
+        if cached is not None:
+            return cached[:limit]
+        conn, close = self._resolve_conn(conn)
         try:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 cur.execute(
                     "SELECT * FROM run_log ORDER BY started_at DESC LIMIT %s", (limit,)
                 )
-                return [dict(r) for r in cur.fetchall()]
+                rows = [dict(r) for r in cur.fetchall()]
+                if limit <= 50:
+                    self._disk_set("recent_run_logs", rows, ttl=300)
+                return rows
         finally:
-            self._put_conn(conn)
+            if close:
+                self._put_conn(conn)
 
     # ── Job details ───────────────────────────────────────────────────────────
     def update_job_match(self, job_id: int, match_details_json: str, fit_score: int = None):
+        self._disk_invalidate("all_jobs")
         conn = self._conn()
         try:
             with conn.cursor() as cur:
@@ -529,6 +675,8 @@ class DBClient:
 
     # ── Resume data ──────────────────────────────────────────────────────────
     def save_resume_data(self, data: dict):
+        self._cache_clear("resume_data")
+        self._disk_invalidate("resume_data")
         conn = self._conn()
         try:
             with conn.cursor() as cur:
@@ -560,8 +708,21 @@ class DBClient:
         finally:
             self._put_conn(conn)
 
-    def get_resume_data(self) -> dict | None:
-        conn = self._conn()
+    def _resolve_conn(self, conn=None):
+        """Return (connection, should_close). If conn is provided, don't close it."""
+        if conn is not None:
+            return conn, False
+        return self._conn(), True
+
+    def get_resume_data(self, conn=None) -> dict | None:
+        cached = self._cache_get("resume_data")
+        if cached is not None:
+            return cached
+        d = self._disk_get("resume_data", ttl=300)
+        if d is not None:
+            self._cache_set("resume_data", d)
+            return d
+        conn, close = self._resolve_conn(conn)
         try:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 cur.execute(
@@ -577,9 +738,12 @@ class DBClient:
                             d[key] = json.loads(d[key])
                         except (json.JSONDecodeError, TypeError):
                             pass
+                self._cache_set("resume_data", d)
+                self._disk_set("resume_data", d, ttl=300)
                 return d
         finally:
-            self._put_conn(conn)
+            if close:
+                self._put_conn(conn)
 
     # ── Pipeline events ──────────────────────────────────────────────────────
     def save_pipeline_event(self, run_id: str, event: dict):
@@ -622,6 +786,8 @@ class DBClient:
 
     # ── Recruiters ───────────────────────────────────────────────────────────
     def save_recruiter(self, data: dict):
+        self._disk_invalidate("all_recruiters")
+        self._disk_invalidate("company_contacts")
         conn = self._conn()
         try:
             with conn.cursor() as cur:
@@ -650,20 +816,28 @@ class DBClient:
         finally:
             self._put_conn(conn)
 
-    def get_all_recruiters(self, limit: int = 50) -> list[dict]:
-        conn = self._conn()
+    def get_all_recruiters(self, limit: int = 50, conn=None) -> list[dict]:
+        cached = self._disk_get("all_recruiters", ttl=300) if limit <= 100 else None
+        if cached is not None:
+            return cached[:limit]
+        conn, close = self._resolve_conn(conn)
         try:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 cur.execute(
                     "SELECT * FROM recruiters ORDER BY coalesce(confidence, 0) DESC, discovered_at DESC LIMIT %s",
                     (limit,)
                 )
-                return [dict(r) for r in cur.fetchall()]
+                rows = [dict(r) for r in cur.fetchall()]
+                if limit <= 100:
+                    self._disk_set("all_recruiters", rows, ttl=300)
+                return rows
         finally:
-            self._put_conn(conn)
+            if close:
+                self._put_conn(conn)
 
     # ── Startups ────────────────────────────────────────────────────────────
     def save_startup_company(self, company: dict):
+        self._disk_invalidate("startup_companies")
         conn = self._conn()
         try:
             with conn.cursor() as cur:
@@ -707,8 +881,11 @@ class DBClient:
         finally:
             self._put_conn(conn)
 
-    def get_startup_companies(self, limit: int = 20) -> list[dict]:
-        conn = self._conn()
+    def get_startup_companies(self, limit: int = 20, conn=None) -> list[dict]:
+        cached = self._disk_get("startup_companies", ttl=300) if limit <= 200 else None
+        if cached is not None:
+            return cached[:limit]
+        conn, close = self._resolve_conn(conn)
         try:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 cur.execute(
@@ -723,12 +900,17 @@ class DBClient:
                                 row[key] = json.loads(row[key])
                             except (json.JSONDecodeError, TypeError):
                                 pass
+                if limit <= 200:
+                    self._disk_set("startup_companies", rows, ttl=300)
                 return rows
         finally:
-            self._put_conn(conn)
+            if close:
+                self._put_conn(conn)
 
     # ── Contacts ───────────────────────────────────────────────────────────
     def save_company_contact(self, contact: dict):
+        self._disk_invalidate("all_recruiters")
+        self._disk_invalidate("company_contacts")
         conn = self._conn()
         try:
             with conn.cursor() as cur:
@@ -760,8 +942,12 @@ class DBClient:
         finally:
             self._put_conn(conn)
 
-    def get_company_contacts(self, company: str | None = None, limit: int = 50) -> list[dict]:
-        conn = self._conn()
+    def get_company_contacts(self, company: str | None = None, limit: int = 50, conn=None) -> list[dict]:
+        if company is None:
+            cached = self._disk_get("company_contacts", ttl=300) if limit <= 100 else None
+            if cached is not None:
+                return cached[:limit]
+        conn, close = self._resolve_conn(conn)
         try:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 if company:
@@ -774,12 +960,17 @@ class DBClient:
                         "SELECT * FROM recruiters ORDER BY coalesce(confidence, 0) DESC, discovered_at DESC LIMIT %s",
                         (limit,),
                     )
-                return [dict(r) for r in cur.fetchall()]
+                rows = [dict(r) for r in cur.fetchall()]
+                if company is None and limit <= 100:
+                    self._disk_set("company_contacts", rows, ttl=300)
+                return rows
         finally:
-            self._put_conn(conn)
+            if close:
+                self._put_conn(conn)
 
     # ── Application tracker ─────────────────────────────────────────────────
     def upsert_application_tracker(self, application: dict):
+        self._disk_invalidate("application_tracker")
         conn = self._conn()
         now = datetime.now().isoformat()
         try:
@@ -863,17 +1054,24 @@ class DBClient:
         finally:
             self._put_conn(conn)
 
-    def get_application_tracker(self, limit: int = 100) -> list[dict]:
-        conn = self._conn()
+    def get_application_tracker(self, limit: int = 100, conn=None) -> list[dict]:
+        cached = self._disk_get("application_tracker", ttl=300) if limit <= 200 else None
+        if cached is not None:
+            return cached[:limit]
+        conn, close = self._resolve_conn(conn)
         try:
             with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
                 cur.execute(
                     "SELECT * FROM application_tracker ORDER BY coalesce(date_applied, created_at) DESC LIMIT %s",
                     (limit,)
                 )
-                return [dict(r) for r in cur.fetchall()]
+                rows = [dict(r) for r in cur.fetchall()]
+                if limit <= 200:
+                    self._disk_set("application_tracker", rows, ttl=300)
+                return rows
         finally:
-            self._put_conn(conn)
+            if close:
+                self._put_conn(conn)
 
     def get_followups_due(self) -> list[dict]:
         conn = self._conn()

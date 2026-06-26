@@ -426,7 +426,13 @@ class ResumeParserService:
                     sections[current_section] = []
             elif SECTION_HEADERS_BROAD.match(stripped):
                 m = SECTION_HEADERS_BROAD.match(stripped)
-                header = m.group(0).rstrip(".:").strip().lower().replace(" ", "_")
+                header_raw = m.group(0).rstrip(".:").strip()
+                # Skip if the matched keyword is less than 60% of the line —
+                # likely a content line containing a keyword (e.g. "Languages: Python, JS...")
+                if len(header_raw) / max(len(stripped), 1) < 0.6:
+                    sections.setdefault(current_section, []).append(stripped)
+                    continue
+                header = header_raw.lower().replace(" ", "_")
                 current_section = header
                 if current_section not in sections:
                     sections[current_section] = []

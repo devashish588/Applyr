@@ -15,12 +15,10 @@ export default function ProfileGenerationCard({ roles }: Props) {
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.2 }}
-      className="rounded-xl p-5 card-hover"
-      style={{ background: 'var(--surface)' }}
+      className="card p-5"
     >
-      <div className="text-xs font-semibold uppercase tracking-wider mb-4 flex items-center gap-2"
-           style={{ color: 'var(--text-muted)' }}>
-        <Sparkles size={12} style={{ color: 'var(--purple)' }} />
+      <div className="text-label mb-4 flex items-center gap-2">
+        <Sparkles size={11} style={{ color: 'var(--primary)' }} />
         Detected Roles
       </div>
 
@@ -32,13 +30,15 @@ export default function ProfileGenerationCard({ roles }: Props) {
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.3 + i * 0.08 }}
             className="flex items-center gap-3 py-2 px-3 rounded-lg"
-            style={{ background: 'var(--surface-2)', border: '1px solid var(--border)' }}
+            style={{ background: 'var(--surface-2)', border: '1px solid var(--border-subtle)' }}
           >
-            <div className="w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-bold"
-                 style={{
-                   background: i === 0 ? 'var(--accent-muted)' : 'var(--purple-muted)',
-                   color: i === 0 ? 'var(--accent)' : 'var(--purple)',
-                 }}>
+            <div
+              className="w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-bold"
+              style={{
+                background: i === 0 ? 'var(--primary-muted)' : 'var(--accent-muted)',
+                color: i === 0 ? 'var(--primary)' : 'var(--accent)',
+              }}
+            >
               {i + 1}
             </div>
             <div className="flex items-center gap-2">

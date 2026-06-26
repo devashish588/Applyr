@@ -31,23 +31,18 @@ export default function ResumeHealthCard({ health }: Props) {
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.3 }}
-      className="rounded-xl p-5 card-hover"
-      style={{ background: 'var(--surface)' }}
+      className="card p-5"
     >
       <div className="flex items-center justify-between mb-4">
-        <div className="text-xs font-semibold uppercase tracking-wider"
-             style={{ color: 'var(--text-muted)' }}>
-          Resume Health
-        </div>
+        <div className="text-label">Resume Health</div>
         {allGood && (
           <motion.span
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             transition={{ type: 'spring', stiffness: 400, delay: 0.6 }}
-            className="text-[10px] font-bold px-2 py-0.5 rounded-full"
-            style={{ background: 'var(--green-muted)', color: 'var(--green)' }}
+            className="badge badge-green"
           >
-            ALL SYSTEMS GO
+            All systems go
           </motion.span>
         )}
       </div>
@@ -69,12 +64,12 @@ export default function ResumeHealthCard({ health }: Props) {
                   animate={{ scale: 1 }}
                   transition={{ type: 'spring', stiffness: 500, delay: 0.4 + i * 0.1 }}
                 >
-                  <CheckCircle2 size={18} style={{ color: 'var(--green)' }} />
+                  <CheckCircle2 size={16} style={{ color: 'var(--green)' }} />
                 </motion.div>
               ) : (
-                <Circle size={18} style={{ color: 'var(--text-muted)' }} />
+                <Circle size={16} style={{ color: 'var(--text-faint)' }} />
               )}
-              <step.icon size={14} style={{ color: done ? 'var(--text-secondary)' : 'var(--text-muted)' }} />
+              <step.icon size={13} style={{ color: done ? 'var(--text-secondary)' : 'var(--text-faint)' }} />
               <span className="text-sm" style={{ color: done ? 'var(--text)' : 'var(--text-muted)' }}>
                 {step.label}
               </span>

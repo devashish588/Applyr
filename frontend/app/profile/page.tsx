@@ -1,10 +1,24 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { User, Briefcase, MapPin, Code2, CheckSquare, Square, Save, Loader2 } from 'lucide-react';
 import Shell from '@/components/layout/Shell';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { getProfile, updateProfile, getResumeParsed } from '@/lib/api';
+
+const DEFAULT_ROLES = [
+  'Machine Learning Engineer', 'Data Scientist', 'AI Engineer',
+  'Data Analyst', 'ML Intern', 'Full Stack Developer',
+  'Backend Engineer', 'Software Engineer', 'DevOps Engineer',
+  'Frontend Developer',
+];
+
+function extractRoleString(item: any): string {
+  if (typeof item === 'string') return item;
+  if (item && typeof item === 'object' && item.role) return String(item.role);
+  return String(item);
+}
 
 export default function ProfilePage() {
   const [profile, setProfile] = useState<any>(null);
@@ -17,135 +31,101 @@ export default function ProfilePage() {
       setProfile(r.profile);
       setSelectedRoles(r.profile?.job_preferences?.target_roles || []);
     }).catch(() => {});
-    getResumeParsed().then(r => {
-      if (r.success) setResumeData(r);
-    }).catch(() => {});
+    getResumeParsed().then(r => { if (r.success) setResumeData(r); }).catch(() => {});
   }, []);
 
-  const allRoles = [
-    ...new Set([
-      ...(resumeData?.roles_json || []),
-      ...(profile?.job_preferences?.target_roles || []),
-      'Machine Learning Engineer', 'Data Scientist', 'AI Engineer',
-      'Data Analyst', 'ML Intern', 'Full Stack Developer',
-      'Backend Engineer', 'Software Engineer', 'DevOps Engineer',
-      'Frontend Developer',
-    ])
-  ];
+  const inferredRoles = useMemo(() => (resumeData?.roles_json || []).map(extractRoleString), [resumeData]);
 
-  const toggleRole = (role: string) => {
-    setSelectedRoles(prev =>
-      prev.includes(role) ? prev.filter(r => r !== role) : [...prev, role]
-    );
-  };
+  const allRoles = useMemo(() => {
+    const set = new Set<string>([
+      ...inferredRoles,
+      ...(profile?.job_preferences?.target_roles || []).map(extractRoleString),
+      ...DEFAULT_ROLES,
+    ]);
+    return Array.from(set);
+  }, [inferredRoles, profile]);
+
+  const toggleRole = (role: string) => setSelectedRoles(prev => prev.includes(role) ? prev.filter(r => r !== role) : [...prev, role]);
 
   const handleSave = async () => {
     setSaving(true);
-    try {
-      await updateProfile({ target_roles: selectedRoles });
-    } catch {}
+    try { await updateProfile({ target_roles: selectedRoles }); } catch {}
     setSaving(false);
   };
 
   const personal = profile?.personal || {};
   const skills = profile?.skills || {};
-  const allSkills = [
-    ...(skills.languages || []),
-    ...(skills.frameworks || []),
-    ...(skills.tools || []),
-  ];
 
   return (
     <Shell>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
+      <div className="space-y-10">
+        {/* Header */}
+        <div className="flex items-end justify-between">
           <div>
-            <h1 className="text-xl font-bold" style={{ color: 'var(--text)' }}>Profile</h1>
-            <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-              Your career profile — controls search direction
-            </p>
+            <h1 className="text-page-title">Profile</h1>
+            <p className="text-body mt-0.5">Your career profile drives search direction and job matching.</p>
           </div>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-            style={{ background: 'var(--accent)', color: '#fff' }}
-          >
-            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-            Save Changes
+          <button onClick={handleSave} disabled={saving} className="btn btn-primary btn-sm">
+            {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+            Save
           </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-5">
-          {/* Personal Info */}
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="rounded-xl p-5 card-hover"
-            style={{ background: 'var(--surface)' }}
-          >
-            <div className="flex items-center gap-2 mb-4">
-              <User size={12} style={{ color: 'var(--accent)' }} />
-              <span className="text-xs font-semibold uppercase tracking-wider"
-                    style={{ color: 'var(--text-muted)' }}>
-                Personal Info
-              </span>
+        {/* Identity — flat, no card */}
+        {personal.name && (
+          <div className="flex items-center gap-3">
+            <div
+              className="w-10 h-10 rounded-lg flex items-center justify-center text-sm font-bold"
+              style={{ background: 'var(--surface-2)', color: 'var(--text-secondary)' }}
+            >
+              {personal.name[0]?.toUpperCase()}
             </div>
-
-            <div className="space-y-3">
-              {[
-                { label: 'Name', value: personal.name },
-                { label: 'Email', value: personal.email },
-                { label: 'Phone', value: personal.phone },
-                { label: 'LinkedIn', value: personal.linkedin },
-                { label: 'City', value: personal.city },
-              ].filter(f => f.value).map((field, i) => (
-                <div key={i} className="flex justify-between py-1.5 border-b"
-                     style={{ borderColor: 'var(--border)' }}>
-                  <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{field.label}</span>
-                  <span className="text-xs font-medium" style={{ color: 'var(--text)' }}>{field.value}</span>
-                </div>
-              ))}
-              {profile?.experience_summary && (
-                <div className="pt-2">
-                  <span className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
-                    Experience Level
-                  </span>
-                  <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-                    {profile.experience_summary}
-                  </p>
-                </div>
-              )}
+            <div>
+              <div className="text-base font-semibold" style={{ color: 'var(--text)' }}>{personal.name}</div>
+              <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                {personal.email || ''}{personal.city ? ` · ${personal.city}` : ''}
+              </div>
             </div>
-          </motion.div>
+          </div>
+        )}
 
-          {/* Top Skills */}
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.05 }}
-            className="rounded-xl p-5 card-hover"
-            style={{ background: 'var(--surface)' }}
-          >
-            <div className="flex items-center gap-2 mb-4">
-              <Code2 size={12} style={{ color: 'var(--green)' }} />
-              <span className="text-xs font-semibold uppercase tracking-wider"
-                    style={{ color: 'var(--text-muted)' }}>
-                Skills
-              </span>
-            </div>
+        <div style={{ borderTop: '1px solid var(--border)' }} />
 
-            {['languages', 'frameworks', 'tools'].map((category) => (
-              skills[category] && skills[category].length > 0 && (
+        {/* Personal + Skills side by side — flat */}
+        <div className="grid grid-cols-2 gap-12">
+          <div>
+            <div className="text-label mb-3">Personal</div>
+            {!profile ? (
+              <div className="space-y-2">{[1,2,3,4].map(i => <Skeleton key={i} height={14} />)}</div>
+            ) : (
+              <div className="space-y-0">
+                {[
+                  { label: 'Name', value: personal.name },
+                  { label: 'Email', value: personal.email },
+                  { label: 'Phone', value: personal.phone },
+                  { label: 'LinkedIn', value: personal.linkedin },
+                  { label: 'City', value: personal.city },
+                ].filter(f => f.value).map(field => (
+                  <div key={field.label} className="flex justify-between py-2" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{field.label}</span>
+                    <span className="text-xs font-medium text-right max-w-[60%] truncate" style={{ color: 'var(--text)' }}>{field.value}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <div className="text-label mb-3">Skills</div>
+            {['languages', 'frameworks', 'tools'].map(category => (
+              skills[category]?.length > 0 && (
                 <div key={category} className="mb-3">
-                  <div className="text-[10px] uppercase tracking-wider font-semibold mb-1.5"
-                       style={{ color: 'var(--text-muted)' }}>
+                  <div className="text-[10px] uppercase tracking-wider font-medium mb-1.5" style={{ color: 'var(--text-faint)' }}>
                     {category}
                   </div>
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="flex flex-wrap gap-1">
                     {skills[category].map((skill: string, i: number) => (
-                      <span key={i} className="text-[11px] px-2 py-0.5 rounded-md"
-                            style={{ background: 'var(--surface-2)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}>
+                      <span key={`${category}-${skill}-${i}`} className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--surface-2)', color: 'var(--text-secondary)' }}>
                         {skill}
                       </span>
                     ))}
@@ -153,87 +133,60 @@ export default function ProfilePage() {
                 </div>
               )
             ))}
-          </motion.div>
+          </div>
         </div>
 
-        {/* Role Selector */}
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="rounded-xl p-5 card-hover"
-          style={{ background: 'var(--surface)' }}
-        >
-          <div className="flex items-center gap-2 mb-4">
-            <Briefcase size={12} style={{ color: 'var(--purple)' }} />
-            <span className="text-xs font-semibold uppercase tracking-wider"
-                  style={{ color: 'var(--text-muted)' }}>
-              Preferred Roles
-            </span>
-            <span className="ml-auto text-[10px] px-2 py-0.5 rounded"
-                  style={{ background: 'var(--surface-2)', color: 'var(--text-muted)' }}>
-              {selectedRoles.length} selected
-            </span>
-          </div>
+        <div style={{ borderTop: '1px solid var(--border)' }} />
 
-          <div className="grid grid-cols-2 gap-2">
-            {allRoles.map((role) => {
+        {/* Target Roles — grid of toggles, no card wrapper */}
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <div className="text-label">Target Roles</div>
+            <span className="text-xs tabular-nums" style={{ color: 'var(--text-faint)' }}>{selectedRoles.length} selected</span>
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            {allRoles.map((role, i) => {
               const checked = selectedRoles.includes(role);
-              const inferred = resumeData?.roles_json?.includes(role);
+              const inferred = inferredRoles.includes(role);
               return (
                 <button
-                  key={role}
+                  key={`role-${i}-${role}`}
                   onClick={() => toggleRole(role)}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all"
+                  className="flex items-center gap-2 px-2.5 py-2 rounded-md text-left transition-all"
                   style={{
-                    background: checked ? 'var(--accent-muted)' : 'var(--surface-2)',
-                    border: `1px solid ${checked ? 'var(--accent)' : 'var(--border)'}`,
+                    background: checked ? 'var(--primary-muted)' : 'transparent',
                   }}
+                  onMouseEnter={e => { if (!checked) e.currentTarget.style.background = 'var(--surface-hover)'; }}
+                  onMouseLeave={e => { if (!checked) e.currentTarget.style.background = 'transparent'; }}
                 >
-                  {checked ? (
-                    <CheckSquare size={14} style={{ color: 'var(--accent)' }} />
-                  ) : (
-                    <Square size={14} style={{ color: 'var(--text-muted)' }} />
-                  )}
-                  <span className="text-sm" style={{ color: checked ? 'var(--text)' : 'var(--text-secondary)' }}>
+                  {checked
+                    ? <CheckSquare size={13} style={{ color: 'var(--primary)' }} />
+                    : <Square size={13} style={{ color: 'var(--text-faint)' }} />
+                  }
+                  <span className="text-xs flex-1" style={{ color: checked ? 'var(--text)' : 'var(--text-secondary)' }}>
                     {role}
                   </span>
-                  {inferred && (
-                    <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded"
-                          style={{ background: 'var(--purple-muted)', color: 'var(--purple)' }}>
-                      AI
-                    </span>
-                  )}
+                  {inferred && <span className="text-[9px]" style={{ color: 'var(--text-faint)' }}>AI</span>}
                 </button>
               );
             })}
           </div>
-        </motion.div>
+        </div>
 
-        {/* Target Locations */}
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.15 }}
-          className="rounded-xl p-5 card-hover"
-          style={{ background: 'var(--surface)' }}
-        >
-          <div className="flex items-center gap-2 mb-4">
-            <MapPin size={12} style={{ color: 'var(--green)' }} />
-            <span className="text-xs font-semibold uppercase tracking-wider"
-                  style={{ color: 'var(--text-muted)' }}>
-              Target Locations
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-2">
+        <div style={{ borderTop: '1px solid var(--border)' }} />
+
+        {/* Locations — flat */}
+        <div>
+          <div className="text-label mb-3">Locations</div>
+          <div className="flex flex-wrap gap-1.5">
             {(profile?.job_preferences?.target_locations || []).map((loc: string, i: number) => (
-              <span key={i} className="text-sm px-3 py-1.5 rounded-lg"
-                    style={{ background: 'var(--green-muted)', color: 'var(--green)', border: '1px solid rgba(34,197,94,0.2)' }}>
-                {loc}
-              </span>
+              <span key={`loc-${i}`} className="text-xs px-2 py-1 rounded" style={{ background: 'var(--surface-2)', color: 'var(--text-secondary)' }}>{loc}</span>
             ))}
+            {(profile?.job_preferences?.target_locations || []).length === 0 && (
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>No target locations configured</p>
+            )}
           </div>
-        </motion.div>
+        </div>
       </div>
     </Shell>
   );

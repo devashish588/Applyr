@@ -330,60 +330,66 @@ def api_status():
     scrapingbee_key = os.getenv("SCRAPINGBEE_API_KEY", "")
     gemini_key     = os.getenv("GEMINI_API_KEY", "")
 
-    resume_data = None
+    db = get_db()
+    conn = None
     try:
-        resume_data = get_db().get_resume_data()
-    except Exception:
-        pass
+        resume_data = db.get_resume_data()
+        conn = db._conn()
 
-    # Email status via EmailSender (checks both Resend and Gmail)
-    try:
-        from email_module.sender import EmailSender
-        sender = EmailSender()
-        ps = sender.provider_status()
-        email_configured = ps.get("can_send", False)
-        email_provider = ps.get("active_provider")
-        email_account = ps.get("gmail", {}).get("account") or os.getenv("FROM_EMAIL")
-        gmail_status = ps.get("gmail", {}).get("authenticated", False)
-    except Exception:
-        email_configured = False
-        email_provider = None
-        email_account = None
-        gmail_status = False
+        # Email status via EmailSender (checks both Resend and Gmail)
+        try:
+            from email_module.sender import EmailSender
+            sender = EmailSender()
+            ps = sender.provider_status()
+            email_configured = ps.get("can_send", False)
+            email_provider = ps.get("active_provider")
+            email_account = ps.get("gmail", {}).get("account") or os.getenv("FROM_EMAIL")
+            gmail_status = ps.get("gmail", {}).get("authenticated", False)
+        except Exception:
+            email_configured = False
+            email_provider = None
+            email_account = None
+            gmail_status = False
 
-    return jsonify({
-        "status":           "online",
-        "timestamp":        datetime.now().isoformat(),
-        "resume_uploaded":  os.path.exists(resume_path),
-        "resume_parsed":    bool(resume_data and resume_data.get("parse_status") == "success"),
-        "resume_path":      resume_path if os.path.exists(resume_path) else None,
-        "recruiters_count": len(get_db().get_all_recruiters()),
-        "env_keys": {
-            "GROQ_API_KEY":        bool(groq_key   and groq_key   != "gsk_xxxxxxxxxxxxx"),
-            "TAVILY_API_KEY":      bool(tavily_key and tavily_key != "tvly_xxxxxxxxxxxxx"),
-            "GEMINI_API_KEY":      bool(gemini_key),
-            "SCRAPINGBEE_API_KEY": bool(scrapingbee_key),
-            "APOLLO_API_KEY":      bool(apollo_key),
-            "CLEARBIT_API_KEY":    bool(clearbit_key),
-            "HUNTER_API_KEY":      bool(hunter_key),
-        },
-        "email": {
-            "configured": email_configured,
-            "from_email": email_account,
-            "provider": email_provider,
-            "gmail_status": "connected" if gmail_status else "not_authenticated",
-            "health": (
-                "healthy" if email_configured else
-                "missing_configuration"
-            ),
-        },
-        "recruiter_discovery": {
-            "apollo": bool(apollo_key),
-            "hunter": bool(hunter_key),
-            "clearbit": bool(clearbit_key),
-            "active": bool(apollo_key or hunter_key or clearbit_key),
-        },
-    })
+        return jsonify({
+            "status":           "online",
+            "timestamp":        datetime.now().isoformat(),
+            "resume_uploaded":  os.path.exists(resume_path),
+            "resume_parsed":    bool(resume_data and resume_data.get("parse_status") == "success"),
+            "resume_path":      resume_path if os.path.exists(resume_path) else None,
+            "recruiters_count": len(db.get_all_recruiters(conn=conn)),
+            "env_keys": {
+                "GROQ_API_KEY":        bool(groq_key   and groq_key   != "gsk_xxxxxxxxxxxxx"),
+                "TAVILY_API_KEY":      bool(tavily_key and tavily_key != "tvly_xxxxxxxxxxxxx"),
+                "GEMINI_API_KEY":      bool(gemini_key),
+                "SCRAPINGBEE_API_KEY": bool(scrapingbee_key),
+                "APOLLO_API_KEY":      bool(apollo_key),
+                "CLEARBIT_API_KEY":    bool(clearbit_key),
+                "HUNTER_API_KEY":      bool(hunter_key),
+            },
+            "email": {
+                "configured": email_configured,
+                "from_email": email_account,
+                "provider": email_provider,
+                "gmail_status": "connected" if gmail_status else "not_authenticated",
+                "health": (
+                    "healthy" if email_configured else
+                    "missing_configuration"
+                ),
+            },
+            "recruiter_discovery": {
+                "apollo": bool(apollo_key),
+                "hunter": bool(hunter_key),
+                "clearbit": bool(clearbit_key),
+                "active": bool(apollo_key or hunter_key or clearbit_key),
+            },
+        })
+    finally:
+        if conn is not None:
+            try:
+                db._put_conn(conn)
+            except Exception:
+                pass
 
 
 @app.route("/api/config")
@@ -490,15 +496,28 @@ def _build_search_query(roles: list[str], skills: list[str]) -> str:
 @app.route("/api/resume-status")
 def api_resume_status():
     resume_dir = ROOT / "resume"
+    # Check if resume is parsed in DB
+    data = get_db().get_resume_data()
+    parsed = data and data.get("parse_status") == "success"
+    parsed_info = None
+    if parsed:
+        pj = data.get("parsed_json") or {}
+        parsed_info = {
+            "name": pj.get("name", pj.get("full_name", "")),
+            "email": pj.get("email", ""),
+            "confidence": data.get("confidence", data.get("parse_confidence", 0)),
+            "quality_score": data.get("quality_score", 0),
+        }
     for name in ["master_resume.pdf", "master_resume.docx", "master_resume.txt"]:
         path = resume_dir / name
         if path.exists():
             return jsonify({
-                "uploaded": True, "path": str(path), "filename": name,
+                "uploaded": True, "parsed": parsed_info if parsed else False,
+                "path": str(path), "filename": name,
                 "size": path.stat().st_size,
                 "modified": datetime.fromtimestamp(path.stat().st_mtime).isoformat(),
             })
-    return jsonify({"uploaded": False})
+    return jsonify({"uploaded": False, "parsed": False})
 
 
 @app.route("/api/resume/parsed")
@@ -560,6 +579,69 @@ def api_resume_parsed():
                 return jsonify({"success": False, "error": str(e)}), 500
 
     return jsonify({"success": False, "error": "No resume uploaded"}), 404
+
+
+def _get_parsed_resume():
+    """Helper: return (parsed_dict, skills_list, roles_list) or (None, [], [])."""
+    data = get_db().get_resume_data()
+    if data and data.get("parse_status") == "success":
+        parsed_json = data.get("parsed_json") or {}
+        skills = data.get("skills_json") or parsed_json.get("skills", [])
+        roles = data.get("roles_json") or parsed_json.get("roles", [])
+        return parsed_json, skills, roles
+    return None, [], []
+
+
+@app.route("/api/resume/skills")
+def api_resume_skills():
+    parsed, skills, _ = _get_parsed_resume()
+    if parsed is None:
+        return jsonify({"success": False, "skills": []})
+    # Support both list and categorized dict
+    if isinstance(skills, list):
+        return jsonify({"success": True, "skills": skills})
+    if isinstance(skills, dict):
+        all_skills = []
+        for cat_skills in skills.values():
+            all_skills.extend(cat_skills if isinstance(cat_skills, list) else [])
+        return jsonify({"success": True, "skills": all_skills})
+    return jsonify({"success": True, "skills": []})
+
+
+@app.route("/api/resume/roles")
+def api_resume_roles():
+    parsed, _, roles = _get_parsed_resume()
+    if parsed is None:
+        return jsonify({"success": False, "roles": []})
+    # Support scored_roles [{role, score}] or plain list
+    scored = parsed.get("scored_roles") or roles
+    if isinstance(scored, list) and len(scored) > 0 and isinstance(scored[0], dict) and "role" in scored[0]:
+        return jsonify({"success": True, "roles": scored})
+    if isinstance(roles, list):
+        return jsonify({"success": True, "roles": roles})
+    return jsonify({"success": True, "roles": []})
+
+
+@app.route("/api/resume/experience")
+def api_resume_experience():
+    parsed, _, _ = _get_parsed_resume()
+    if parsed is None:
+        return jsonify({"success": False, "experience": []})
+    exp = parsed.get("experience") or parsed.get("work_experience") or []
+    if isinstance(exp, list):
+        return jsonify({"success": True, "experience": exp})
+    return jsonify({"success": True, "experience": []})
+
+
+@app.route("/api/resume/education")
+def api_resume_education():
+    parsed, _, _ = _get_parsed_resume()
+    if parsed is None:
+        return jsonify({"success": False, "education": []})
+    edu = parsed.get("education") or []
+    if isinstance(edu, list):
+        return jsonify({"success": True, "education": edu})
+    return jsonify({"success": True, "education": []})
 
 
 @app.route("/api/resume/health")
@@ -893,12 +975,14 @@ def api_recruiters():
 
 @app.route("/api/analytics")
 def api_analytics():
+    conn = None
     try:
         db       = get_db()
-        all_jobs = db.get_all_jobs(limit=1000)
-        runs     = db.get_recent_run_logs(limit=50)
-        startups = db.get_startup_companies(limit=1000)
-        tracker  = db.get_application_tracker(limit=1000)
+        conn     = db._conn()
+        all_jobs = db.get_all_jobs(limit=100, conn=conn)
+        runs     = db.get_recent_run_logs(limit=50, conn=conn)
+        startups = db.get_startup_companies(limit=100, conn=conn)
+        tracker  = db.get_application_tracker(limit=100, conn=conn)
         total    = len(all_jobs)
 
         # Distinguish drafted vs submitted
@@ -934,7 +1018,7 @@ def api_analytics():
                 response_count += 1
 
         dry_run = os.getenv("DRY_RUN", "true").lower() == "true"
-        referral_contacts = len(db.get_company_contacts(limit=1000))
+        referral_contacts = len(db.get_company_contacts(limit=100, conn=conn))
 
         return jsonify({"success": True, "analytics": {
             "total_jobs": total,
@@ -961,6 +1045,12 @@ def api_analytics():
         }})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    finally:
+        if conn is not None:
+            try:
+                db._put_conn(conn)
+            except Exception:
+                pass
 
 
 # ── Startup Discovery ────────────────────────────────────────────────────────
@@ -1257,14 +1347,14 @@ def api_setup_status():
     gemini_key = os.getenv("GEMINI_API_KEY", "")
     gemini_ok = bool(gemini_key)
 
-    resend_key = os.getenv("RESEND_API_KEY", "")
-    from_email = os.getenv("FROM_EMAIL", "")
-    resend_ok = bool(resend_key and from_email)
     try:
-        gmail_ok = get_gmail_service().is_ready()
+        from email_module.sender import EmailSender
+        sender = EmailSender()
+        ps = sender.provider_status()
+        email_ok = ps.get("can_send", False)
+        from_email = ps.get("gmail", {}).get("account") or os.getenv("FROM_EMAIL", "")
     except Exception:
-        gmail_ok = False
-    email_ok = resend_ok or gmail_ok
+        email_ok = False
 
     hunter_key = os.getenv("HUNTER_API_KEY", "")
     clearbit_key = os.getenv("CLEARBIT_API_KEY", "")
