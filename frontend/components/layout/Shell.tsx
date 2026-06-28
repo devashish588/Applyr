@@ -31,7 +31,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         <TopBar onOpenCommandPalette={openCommandPalette} />
         <main
           className="flex-1 overflow-y-auto"
-          style={{ padding: 'var(--space-6) var(--space-7)' }}
+          style={{ padding: 'var(--space-8) var(--space-10)' }}
         >
           <div style={{ maxWidth: 'var(--content-max)', margin: '0 auto' }}>
             {children}

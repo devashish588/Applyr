@@ -12,6 +12,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import sys
 from typing import Annotated, TypedDict
 
@@ -49,6 +50,64 @@ class ResearchState(TypedDict):
     report:         str          # human-readable summary
 
 
+# ── Company-name fallback helpers (Bug 2) ────────────────────────────────────
+_BAD_COMPANY = {"", "none", "null", "n/a", "na", "unknown", "unknown company",
+                "company not found", "company not extracted", "not extracted"}
+# Major aggregators where the domain is NEVER the employer → fall back to the
+# job title instead. Smaller niche boards (arc.dev, wellfound, builtin…) are left
+# off so their domain label is used as a reasonable name (per the arc.dev → "Arc"
+# spec) rather than being flagged for review.
+_JOB_BOARDS = {"linkedin", "indeed", "glassdoor", "ziprecruiter", "dice", "monster",
+               "simplyhired", "naukri", "jora", "talent", "google", "bing"}
+_ATS_HOSTS = {"greenhouse", "lever", "workable", "ashbyhq", "myworkdayjobs",
+              "bamboohr", "jobvite", "smartrecruiters", "breezy", "recruitee"}
+_ROLE_WORDS = re.compile(
+    r"(?i)\b(engineer|developer|manager|designer|analyst|intern|lead|architect|"
+    r"scientist|consultant|specialist|administrator|director|officer)\b")
+
+
+def _company_from_title(title: str):
+    """Pull a company name out of a job title like 'Role at Company' or 'Company - Role'."""
+    if not title:
+        return None
+    m = re.search(r"\bat\s+([A-Z][\w&.\-'’ ]{1,40}?)\s*$", title.strip())
+    if m:
+        return m.group(1).strip(" -–—")
+    for sep in (" - ", " – ", " — ", " | ", " @ "):
+        if sep in title:
+            chunks = [c.strip() for c in title.split(sep) if c.strip()]
+            # Title may be "Company - Role" or "Role - Company"; pick the side
+            # that doesn't read like a role.
+            for chunk in (chunks[0], chunks[-1]):
+                if chunk and len(chunk) <= 40 and not _ROLE_WORDS.search(chunk):
+                    return chunk
+    return None
+
+
+def _company_from_url(url: str, title: str = ""):
+    """Derive a company name from the job URL's domain, falling back to the title."""
+    try:
+        from urllib.parse import urlparse
+        host = (urlparse(url).netloc or "").lower().split(":")[0]
+        if host.startswith("www."):
+            host = host[4:]
+        parts = [p for p in host.split(".") if p]
+        if not parts:
+            return _company_from_title(title)
+        # ATS sub-domains: company.greenhouse.io, company.lever.co, company.workable.com
+        if len(parts) >= 3 and parts[-2] in _ATS_HOSTS:
+            sub = parts[0]
+            if sub not in ("jobs", "boards", "apply", "careers", "www", "app"):
+                return sub.replace("-", " ").title()
+        label = parts[-2] if len(parts) >= 2 else parts[0]
+        if label in _JOB_BOARDS or label in _ATS_HOSTS:
+            return _company_from_title(title)
+        # Direct company domain, e.g. stripe.com/jobs → Stripe
+        return label.replace("-", " ").title()
+    except Exception:
+        return _company_from_title(title)
+
+
 # ── Node 1: build a smart query from profile + resume ────────────────────────
 def build_query(state: ResearchState) -> ResearchState:
     """
@@ -83,7 +142,12 @@ def build_query(state: ResearchState) -> ResearchState:
 
     locs = prefs.get("target_locations", ["Remote"])
 
-    role_str = " OR ".join(f'"{r}"' for r in roles[:4])
+    # Resume-extracted roles arrive as dicts like {"role": "backend engineer", "score": 98.6};
+    # profile/target_roles arrive as plain strings. Normalize to the role name either way.
+    def _role_name(r):
+        return r.get("role", "") if isinstance(r, dict) else r
+
+    role_str = " OR ".join(f'"{_role_name(r)}"' for r in roles[:4] if _role_name(r))
     skill_str = " ".join(skills[:8])
     loc_str = locs[0] if locs else "Remote"
 
@@ -190,7 +254,7 @@ Return ONLY the JSON array, no other text."""
         job["company"] = company
 
     print(f"[web_research] Extracted {len(job_listings)} structured job listings")
-    return {"job_listings": job_listings, "messages": [response]}
+    return {"job_listings": job_listings, "messages": [AIMessage(content=response.content)]}
 
 
 # ── Node 4: generate human-readable report ────────────────────────────────────
@@ -227,7 +291,7 @@ def generate_report(state: ResearchState) -> ResearchState:
     ]
 
     response = llm.invoke(messages)
-    return {"report": response.content, "messages": [response]}
+    return {"report": response.content, "messages": [AIMessage(content=response.content)]}
 
 
 # ── Graph ─────────────────────────────────────────────────────────────────────

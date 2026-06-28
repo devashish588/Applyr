@@ -29,8 +29,29 @@ except ImportError:
 
 
 def get_llm(temperature: float = 0, model: Optional[str] = None) -> Any:
-    """Get the best available LLM (OpenRouter > Groq)."""
-    # Primary: OpenRouter via REST
+    """Get the best available LLM (Groq > OpenRouter).
+
+    Groq (llama-4-scout) is preferred because it produces reliable structured
+    JSON; the free OpenRouter models tend to return truncated/empty JSON for
+    extraction tasks. This also matches core.services.llm_service's ordering.
+    """
+    # Primary: Groq via LangChain (reliable structured output)
+    if GROQ_API_KEY and GROQ_API_KEY != "gsk_xxxxxxxxxxxxx":
+        if ChatGroq is None:
+            raise ImportError("langchain-groq is not installed. Install it with: pip install langchain-groq")
+        base_url = GROQ_BASE_URL.rstrip("/")
+        if base_url.endswith("/openai/v1"):
+            base_url = base_url[: -len("/openai/v1")]
+        return ChatGroq(
+            model=model or GROQ_MODEL,
+            api_key=GROQ_API_KEY,
+            base_url=base_url,
+            temperature=temperature,
+            max_retries=3,
+            timeout=60,
+        )
+
+    # Fallback: OpenRouter via REST
     or_key = os.getenv("OPENROUTER_API_KEY", "")
     if or_key:
         from core.services.llm_service import OpenRouterClient
@@ -38,22 +59,7 @@ def get_llm(temperature: float = 0, model: Optional[str] = None) -> Any:
             model=model or os.getenv("OPENROUTER_MODEL", "openai/gpt-4o"),
         )
 
-    # Fallback: Groq via LangChain
-    if not GROQ_API_KEY or GROQ_API_KEY == "gsk_xxxxxxxxxxxxx":
-        raise EnvironmentError("No LLM provider configured. Set OPENROUTER_API_KEY or GROQ_API_KEY in .env")
-    if ChatGroq is None:
-        raise ImportError("langchain-groq is not installed. Install it with: pip install langchain-groq")
-    base_url = GROQ_BASE_URL.rstrip("/")
-    if base_url.endswith("/openai/v1"):
-        base_url = base_url[: -len("/openai/v1")]
-    return ChatGroq(
-        model=model or GROQ_MODEL,
-        api_key=GROQ_API_KEY,
-        base_url=base_url,
-        temperature=temperature,
-        max_retries=3,
-        timeout=60,
-    )
+    raise EnvironmentError("No LLM provider configured. Set GROQ_API_KEY or OPENROUTER_API_KEY in .env")
 
 
 def get_fast_llm(temperature: float = 0) -> Any:

@@ -24,6 +24,9 @@ class _LLMResponse:
 class OpenRouterClient:
     """Lightweight REST client for OpenRouter API (OpenAI-compatible)."""
 
+    # LangChain message types -> OpenAI/OpenRouter roles
+    _ROLE_MAP = {"human": "user", "ai": "assistant", "system": "system", "tool": "tool"}
+
     def __init__(
         self,
         api_key: Optional[str] = None,
@@ -68,10 +71,13 @@ class OpenRouterClient:
             result = []
             for m in prompt:
                 if isinstance(m, dict):
-                    result.append(m)
+                    # Normalize LangChain-style roles in raw dicts too
+                    role = OpenRouterClient._ROLE_MAP.get(m.get("role"), m.get("role"))
+                    result.append({**m, "role": role} if role else m)
                 elif hasattr(m, "type") and hasattr(m, "content"):
                     # LangChain BaseMessage objects (SystemMessage, HumanMessage, etc.)
-                    role = "assistant" if m.type == "ai" else m.type
+                    # m.type is "human"/"ai"/"system"/"tool" — map to OpenAI roles.
+                    role = OpenRouterClient._ROLE_MAP.get(m.type, m.type)
                     result.append({"role": role, "content": m.content})
                 else:
                     result.append({"role": "user", "content": str(m)})

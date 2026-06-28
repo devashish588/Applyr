@@ -1,10 +1,13 @@
 Hi {{company_hiring_manager}},
 
-Following up on my application for the {{role}} position at {{company}}. I'm very interested in this opportunity and would appreciate any feedback on my candidacy.
+I applied for the {{role}} position at {{company}} recently and 
+wanted to follow up to see if there are any updates on the hiring 
+timeline.
 
-I'm confident my experience with {{main_skills}} would be valuable to your team.
+I remain genuinely interested in the role — particularly 
+{{company_reason}} — and happy to share anything additional that 
+would be helpful.
 
-Thank you for your consideration.
-
-Best regards,
+Best,
 {{name}}
+{{phone}}

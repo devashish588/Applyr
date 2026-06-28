@@ -116,6 +116,12 @@ export default function ResumeUploadCard({ onUploadComplete }: Props) {
               </span>
             </div>
 
+            {!result.success && result.parse_error && (
+              <p className="text-xs px-1" style={{ color: 'var(--text-secondary)' }}>
+                {result.parse_error}
+              </p>
+            )}
+
             {result.success && (
               <div className="space-y-1.5 text-sm">
                 {[

@@ -356,6 +356,7 @@ class DBClient:
                 "ats_after": "INTEGER DEFAULT 0",
                 "linkedin_message": "TEXT",
                 "careers_page_url": "TEXT",
+                "needs_review": "INTEGER DEFAULT 0",
             })
             self._ensure_columns(conn, "emails", {
                 "job_id": "INTEGER",
@@ -471,8 +472,8 @@ class DBClient:
                     (title, company, url, source, location, type, hr_email,
                      fit_score, status, scraped_at, applied_at,
                      jd_text, cover_letter_path, tailored_resume_path,
-                     email_subject, email_body)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                     email_subject, email_body, needs_review)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (url) DO NOTHING
                 """, (
                     job.get("title"),
@@ -491,11 +492,55 @@ class DBClient:
                     (app_result or {}).get("tailored_resume_path"),
                     (email or {}).get("subject"),
                     (email or {}).get("body"),
+                    1 if job.get("needs_review") else 0,
                 ))
             conn.commit()
         except Exception as e:
             conn.rollback()
             logger.error(f"[db] insert_job failed: {e}")
+        finally:
+            self._put_conn(conn)
+
+    def update_job_company(self, job_id: int, company: str) -> bool:
+        """Set a corrected company name and clear the needs_review flag (Bug 2)."""
+        self._disk_invalidate("all_jobs")
+        conn = self._conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE jobs SET company = %s, needs_review = 0 WHERE id = %s",
+                    (company, job_id),
+                )
+            conn.commit()
+            return True
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"[db] update_job_company failed: {e}")
+            return False
+        finally:
+            self._put_conn(conn)
+
+    def mark_job_applied(self, job_id: int, subject: str = None, body: str = None) -> bool:
+        """Mark a job as sent/applied (Bug 3), persisting any edited email content."""
+        self._disk_invalidate("all_jobs")
+        now = datetime.now().isoformat()
+        conn = self._conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE jobs
+                    SET status = 'sent',
+                        applied_at = %s,
+                        email_subject = COALESCE(%s, email_subject),
+                        email_body = COALESCE(%s, email_body)
+                    WHERE id = %s
+                """, (now, subject, body, job_id))
+            conn.commit()
+            return True
+        except Exception as e:
+            conn.rollback()
+            logger.error(f"[db] mark_job_applied failed: {e}")
+            return False
         finally:
             self._put_conn(conn)
 
@@ -564,6 +609,7 @@ class DBClient:
                     SELECT * FROM jobs
                     WHERE status IN ('draft','ready')
                     AND email_body IS NOT NULL
+                    AND COALESCE(needs_review, 0) = 0
                     ORDER BY scraped_at DESC
                 """)
                 return [dict(r) for r in cur.fetchall()]

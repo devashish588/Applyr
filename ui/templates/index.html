@@ -278,8 +278,14 @@
           <div class="card card-sm"><div class="kpi-label">Status</div><div class="text-[13px] text-[var(--t1)] font-medium" id="inboxStatus">—</div></div>
         </div>
         <div class="card card-sm">
-          <div class="flex items-center justify-between mb-3"><span class="text-[11px] font-semibold text-[var(--t3)] uppercase tracking-[.4px]">Email Drafts</span></div>
-          <table class="w-full" style="border-collapse:collapse"><thead><tr class="text-[11px] text-[var(--t3)] uppercase tracking-[.4px]"><th class="text-left pb-2 font-medium">To</th><th class="text-left pb-2 font-medium">Subject</th><th class="text-left pb-2 font-medium">Status</th></tr></thead><tbody id="inboxBody"><tr><td colspan="3"><div class="empty py-4"><p>No emails yet</p></div></td></tr></tbody></table>
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-[11px] font-semibold text-[var(--t3)] uppercase tracking-[.4px]">Review &amp; Send Drafts</span>
+            <div class="flex items-center gap-3">
+              <span id="approvedCount" class="text-[11px] text-[var(--t3)]"></span>
+              <button class="btn btn-primary btn-sm" onclick="sendApproved()"><i data-lucide="send" class="w-4 h-4"></i>Send Approved</button>
+            </div>
+          </div>
+          <div id="reviewList"><div class="empty py-4"><p>No email drafts yet</p></div></div>
         </div>
       </div>
 
@@ -367,7 +373,7 @@ function sanitizeCo(co) {
 
 function scoreTag(s) {
   if (s == null) return '<span class="tag tag-gray">—</span>';
-  return `<span class="tag ${s>=70?'tag-green':s>=50?'tag-amber':'tag-red'}">${s}</span>`;
+  return `<span class="tag ${s>=70?'tag-green':s>=50?'tag-amber':'tag-red'}">${s}%</span>`;
 }
 
 function statusTag(st) {
@@ -568,14 +574,24 @@ function renderDiscover(filter) {
     const cls = s >= 70 ? 'high' : s >= 50 ? 'medium' : 'low';
     const isBest = s >= 70;
     const skills = j.match_details ? (JSON.parse(j.match_details_json||'{}').matched_skills||[]) : [];
+    const nr = j.needs_review == 1 || j.needs_review === true;
+    const coVal = (j.company && String(j.company).toLowerCase() !== 'company not found') ? j.company : '';
+    const companyBlock = nr
+      ? `<div onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:6px;margin-bottom:3px">
+          <input id="coin-${j.id}" value="${esc(coVal)}" placeholder="Enter company name…"
+            style="flex:1;min-width:0;background:var(--bg3);border:1px solid var(--amber);color:var(--t1);font-size:12px;padding:3px 7px;border-radius:5px;outline:none"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();saveCompany(${j.id})}">
+          <button onclick="event.stopPropagation();saveCompany(${j.id})" class="tag tag-amber" style="cursor:pointer;border:none;white-space:nowrap">Save</button>
+        </div>`
+      : `<div class="opp-company">${esc(sanitizeCo(j.company))}</div>`;
     return `<div class="opp-card ${isBest?'best':''}" onclick="openJobDrawer(${j.id||0})">
       <div class="opp-score ${cls}">${s}</div>
       <div class="opp-body">
-        <div class="opp-company">${esc(sanitizeCo(j.company))}</div>
+        ${companyBlock}
         <div class="opp-title">${esc(j.title||'Role')}</div>
         <div class="opp-meta"><span>${esc(j.location||'Remote')}</span><span>·</span><span>${esc(j.source||'web')}</span>${j.hr_email ? `<span class="tag tag-green" style="font-size:10px">Contact found</span>` : ''}</div>
         ${s >= 70 ? `<div class="opp-why">${skills.slice(0,4).map(s => `<span class="tag tag-accent" style="font-size:10px">✓ ${esc(s)}</span>`).join('')}</div>` : ''}
-        <div class="opp-footer"><span class="tag ${s>=70?'tag-green':s>=50?'tag-amber':'tag-gray'}">${s>=70?'Great Match':s>=50?'Good Match':'Lower Match'}</span>${statusTag(j.status)}</div>
+        <div class="opp-footer">${nr ? '<span class="tag tag-amber">⚠ Needs review</span>' : `<span class="tag ${s>=70?'tag-green':s>=50?'tag-amber':'tag-gray'}">${s>=70?'Great Match':s>=50?'Good Match':'Lower Match'}</span>`}${statusTag(j.status)}</div>
       </div>
     </div>`;
   }).join('');
@@ -677,6 +693,20 @@ function listenSSE(runId) {
 
 function resetSearchBtn() {
   const b=$('searchBtn'); b.disabled=false; b.innerHTML='<i data-lucide="search" class="w-4 h-4"></i>Search Opportunities'; lucide.createIcons();
+}
+
+// Bug 2: save a corrected company name for a flagged job, clearing needs_review.
+function saveCompany(id) {
+  const inp = $('coin-'+id);
+  const name = (inp?.value || '').trim();
+  if (!name) { toast('Enter a company name','error'); inp?.focus(); return; }
+  fetch('/api/jobs/'+id+'/company', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({company:name})
+  }).then(r=>r.json()).then(d=>{
+    if (d.success) { toast('Company updated ✓','success'); loadDiscover(); }
+    else toast(d.error||'Update failed','error');
+  }).catch(()=>toast('Update failed','error'));
 }
 
 let actLogCount=0;
@@ -787,6 +817,7 @@ async function loadResume() {
         <div>Name: <strong style="color:var(--t1)">${esc(rs.parsed?.name||'—')}</strong></div>
         <div>Email: <span style="color:var(--t1)">${esc(rs.parsed?.email||'—')}</span></div>
         <div>Confidence: ${scoreTag(rs.parsed?.confidence)}</div>
+        <div style="margin-top:6px;font-size:11px;color:var(--t3)">${rs.parsed?.skills_count||0} skills · ${rs.parsed?.experience_count||0} experience ${(rs.parsed?.experience_count||0)===1?'entry':'entries'} · ${rs.parsed?.education_count||0} education</div>
       </div>` : ''}
     </div>
     <div class="card card-md">
@@ -823,12 +854,72 @@ async function loadInbox() {
   $('inboxProvider').textContent = es.provider||'Not configured';
   $('inboxAccount').textContent = es.from_email||gs.account||'—';
   $('inboxStatus').innerHTML = gs.status ? `<span class="tag ${gs.status==='connected'?'tag-green':'tag-amber'}">${gs.status==='connected'?'Connected':gs.status==='not_authenticated'?'Auth needed':'—'}</span>` : '<span class="tag tag-gray">Not configured</span>';
-  const d = await api('/api/jobs');
-  if (d.success && d.jobs?.length) {
-    const emails = d.jobs.filter(j => j.email_body);
-    $('inboxBody').innerHTML = emails.length ? emails.map(j => `<tr><td class="py-2 text-[12px] text-[var(--t2)]">${esc(j.company||'—')}</td><td class="py-2 text-[12px] text-[var(--t2)]">${esc((j.email_subject||'').slice(0,50))}</td><td class="py-2">${statusTag(j.status)}</td></tr>`).join('') : '<tr><td colspan="3"><div class="empty py-4"><p>No email drafts</p></div></td></tr>';
-  }
+  const d = await api('/api/emails');   // unsent drafts only (excludes needs_review)
+  renderReviewList((d.success && d.emails) ? d.emails : []);
   lucide.createIcons();
+}
+
+// Bug 3 — Review & Send: render each draft as an editable, approvable card.
+function renderReviewList(drafts) {
+  const el = $('reviewList');
+  if (!drafts.length) { el.innerHTML = '<div class="empty py-4"><p>No email drafts to review</p></div>'; updateApprovedCount(); return; }
+  el.innerHTML = drafts.map(j => {
+    const s = j.fit_score || 0;
+    const hasRec = !!(j.hr_email);
+    const recLine = hasRec
+      ? `To: ${esc(j.hr_email)}`
+      : '⚠ No recruiter email — find a contact first';
+    return `<div class="review-card" data-jobid="${j.id}" style="border:1px solid var(--bdr);border-radius:10px;padding:14px;margin-bottom:12px;background:var(--bg2)">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px">
+        <div style="min-width:0">
+          <div style="font-size:13px;font-weight:600;color:var(--t1)">${esc(j.title||'Role')}</div>
+          <div style="font-size:12px;color:var(--t3);margin-top:2px">${esc(sanitizeCo(j.company))} · <span class="tag ${s>=70?'tag-green':s>=50?'tag-amber':'tag-gray'}">${s}% match</span></div>
+          <div style="font-size:11px;margin-top:5px;color:${hasRec?'var(--t2)':'var(--amber)'}">${recLine}</div>
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;white-space:nowrap;color:var(--t2);cursor:${hasRec?'pointer':'not-allowed'}">
+          <input type="checkbox" class="rev-approve" ${hasRec?'':'disabled'} onchange="updateApprovedCount()"> Approve
+        </label>
+      </div>
+      <input class="rev-subject" value="${esc(j.email_subject||'')}" placeholder="Subject"
+        style="width:100%;background:var(--bg3);border:1px solid var(--bdr);color:var(--t1);font-size:12px;padding:6px 9px;border-radius:6px;margin-bottom:8px;outline:none">
+      <textarea class="rev-body" rows="6" placeholder="Email body"
+        style="width:100%;background:var(--bg3);border:1px solid var(--bdr);color:var(--t2);font-size:12px;padding:8px 9px;border-radius:6px;line-height:1.5;resize:vertical;outline:none">${esc(j.email_body||'')}</textarea>
+    </div>`;
+  }).join('');
+  updateApprovedCount();
+}
+
+function updateApprovedCount() {
+  const n = document.querySelectorAll('.rev-approve:checked').length;
+  const el = $('approvedCount'); if (el) el.textContent = n ? `${n} approved` : '';
+}
+
+function sendApproved() {
+  const items = [];
+  document.querySelectorAll('.review-card').forEach(c => {
+    const cb = c.querySelector('.rev-approve');
+    if (cb && cb.checked) {
+      items.push({
+        id: parseInt(c.dataset.jobid),
+        subject: c.querySelector('.rev-subject').value,
+        body: c.querySelector('.rev-body').value,
+      });
+    }
+  });
+  if (!items.length) { toast('Approve at least one draft to send','error'); return; }
+  if (!confirm(`Send ${items.length} application email${items.length>1?'s':''}?`)) return;
+  toast('Sending...','info');
+  fetch('/api/emails/send', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({items})})
+    .then(r=>r.json()).then(d=>{
+      if (!d.success) { toast(d.error||'Send failed','error'); return; }
+      if (d.sent>0) toast(`Sent ${d.sent} email${d.sent>1?'s':''} 🎉`,'success');
+      if (d.failed && d.failed.length) {
+        toast(`${d.failed.length} could not be sent — see details`,'warning');
+        console.warn('Send failures:\n' + d.failed.map(f=>`• ${f.company||f.id}: ${f.reason}`).join('\n'));
+      }
+      if (!d.sent && (!d.failed || !d.failed.length)) toast('Nothing sent','warning');
+      loadInbox();
+    }).catch(()=>toast('Send failed','error'));
 }
 
 // ── Insights ────────────────────────────────────────────────

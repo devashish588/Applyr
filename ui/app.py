@@ -410,11 +410,25 @@ def api_config():
 
 @app.route("/api/upload-resume", methods=["POST"])
 def api_upload_resume():
-    if "file" not in request.files:
+    # Accept either field name: the Flask UI posts "resume", the Next.js client
+    # posts "file". Support both so uploads don't silently 400.
+    file = request.files.get("file") or request.files.get("resume")
+    if file is None:
+        logger.warning(
+            f"[app] upload-resume 400: no file field. "
+            f"files={list(request.files.keys())} form={list(request.form.keys())} "
+            f"content_type={request.content_type!r}"
+        )
         return jsonify({"error": "No file provided"}), 400
-    file = request.files["file"]
-    if not file.filename or not _allowed(file.filename, ALLOWED_RESUME):
-        return jsonify({"error": "Allowed: PDF, DOCX, TXT"}), 400
+    if not file.filename:
+        logger.warning("[app] upload-resume 400: empty filename")
+        return jsonify({"error": "No filename — please select a file"}), 400
+    if not _allowed(file.filename, ALLOWED_RESUME):
+        rejected_ext = _ext(file.filename) or "(none)"
+        logger.warning(f"[app] upload-resume 400: disallowed type '{file.filename}' ext={rejected_ext}")
+        return jsonify({
+            "error": f"Unsupported file type '.{rejected_ext}'. Please upload a PDF, DOCX, or TXT."
+        }), 400
 
     ext        = _ext(file.filename)
     resume_dir = ROOT / "resume"
@@ -502,11 +516,18 @@ def api_resume_status():
     parsed_info = None
     if parsed:
         pj = data.get("parsed_json") or {}
+        # Confidence lives inside parsed_json (the parser writes it there); the
+        # top-level DB record has no "confidence" key, which is why this used to
+        # read 0. Prefer the nested value, fall back to any top-level value.
+        raw_conf = pj.get("confidence", data.get("confidence", data.get("parse_confidence", 0))) or 0
         parsed_info = {
             "name": pj.get("name", pj.get("full_name", "")),
             "email": pj.get("email", ""),
-            "confidence": data.get("confidence", data.get("parse_confidence", 0)),
-            "quality_score": data.get("quality_score", 0),
+            "confidence": int(round(float(raw_conf))),
+            "quality_score": pj.get("quality_score", data.get("quality_score", 0)),
+            "skills_count": len(pj.get("skills", []) or []),
+            "experience_count": len(pj.get("experience", []) or []),
+            "education_count": len(pj.get("education", []) or []),
         }
     for name in ["master_resume.pdf", "master_resume.docx", "master_resume.txt"]:
         path = resume_dir / name
@@ -804,6 +825,19 @@ def api_jobs():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/jobs/<int:job_id>/company", methods=["POST"])
+def api_update_job_company(job_id):
+    """Set a corrected company name on a flagged job and clear needs_review (Bug 2)."""
+    data = request.get_json(silent=True) or {}
+    company = (data.get("company") or "").strip()
+    if not company or company.lower() in ("company not found", "unknown", "unknown company"):
+        return jsonify({"success": False, "error": "Please enter a valid company name"}), 400
+    ok = get_db().update_job_company(job_id, company)
+    if not ok:
+        return jsonify({"success": False, "error": "Update failed"}), 500
+    return jsonify({"success": True, "company": company})
+
+
 @app.route("/api/jobs/<int:job_id>")
 def api_job_detail(job_id):
     """Return full job details — triggers match analysis if not cached."""
@@ -928,6 +962,66 @@ def api_emails():
         return jsonify({"success": True, "emails": emails, "total": len(emails)})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/emails/send", methods=["POST"])
+def api_emails_send():
+    """Bug 3 — manually send approved draft emails via EmailSender.
+
+    Works regardless of DRY_RUN (DRY_RUN only governs auto-send at the end of a
+    pipeline run, not explicit user sends from the review page). Each approved
+    item may carry an edited subject/body; on success the job is marked 'sent'.
+    """
+    data = request.get_json(silent=True) or {}
+    items = data.get("items") or []
+    if not items:
+        return jsonify({"success": False, "error": "No emails approved to send"}), 400
+
+    try:
+        from email_module.sender import EmailSender
+        sender = EmailSender()
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Email sender unavailable: {e}"}), 500
+
+    if not sender.configured:
+        return jsonify({"success": False,
+                        "error": "Email not configured — connect Gmail in Settings first."}), 400
+
+    db = get_db()
+    sent = 0
+    failed = []
+    for it in items:
+        jid = it.get("id")
+        job = db.get_job_by_id(jid) if jid is not None else None
+        if not job:
+            failed.append({"id": jid, "reason": "Job not found"})
+            continue
+        recipient = (job.get("hr_email") or "").strip()
+        if not recipient:
+            failed.append({"id": jid, "company": _sanitize_company(job.get("company")),
+                           "reason": "No recruiter email — find a contact first"})
+            continue
+        subject = (it.get("subject") or job.get("email_subject") or "").strip()
+        body = (it.get("body") or job.get("email_body") or "").strip()
+        if not body:
+            failed.append({"id": jid, "company": _sanitize_company(job.get("company")),
+                           "reason": "Empty email body"})
+            continue
+        attachments = [p for p in (job.get("tailored_resume_path"), job.get("cover_letter_path"))
+                       if p and os.path.exists(p)]
+        try:
+            ok = sender.send(to=recipient, subject=subject, body=body, attachments=attachments)
+        except Exception as e:
+            ok = False
+            logger.error(f"[app] send failed for job {jid}: {e}")
+        if ok:
+            db.mark_job_applied(jid, subject=subject, body=body)
+            sent += 1
+        else:
+            failed.append({"id": jid, "company": _sanitize_company(job.get("company")),
+                           "reason": "Send failed (check provider/logs)"})
+
+    return jsonify({"success": True, "sent": sent, "failed": failed, "total": len(items)})
 
 
 # ── History ───────────────────────────────────────────────────────────────────
@@ -1429,4 +1523,5 @@ if __name__ == "__main__":
         use_reloader=False,
         host="0.0.0.0",
         port=int(os.getenv("FLASK_PORT", 5000)),
+        threaded=True,  # serve the SSE stream + UI polls + background run concurrently
     )
