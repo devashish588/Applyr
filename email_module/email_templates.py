@@ -63,16 +63,25 @@ def build_cold_email(job_data: dict, profile: dict, materials: dict) -> dict:
         materials.get("skills_to_highlight") or all_skills[:5]
     )
 
-    years_experience = profile.get("personal", {}).get("years_experience")
-    if not years_experience and exp:
-        years_experience = len(exp)
-
+    # Bug 4: achievement placeholders must NEVER resolve to an empty string —
+    # an empty value produced blank sentences like "I've . Most recently, .".
+    # 3-level fallback: tailored bullet -> raw profile experience bullet ->
+    # generic, non-empty sentence.
     bullets = materials.get("tailored_bullets") or []
-    key_achievement_1 = bullets[0] if len(bullets) > 0 else (
-        exp[0]["bullets"][0] if exp and exp[0].get("bullets") else ""
+    exp_bullets = (exp[0].get("bullets") if exp and isinstance(exp[0], dict) else None) or []
+
+    def _achievement(idx: int, generic: str) -> str:
+        for source in (bullets, exp_bullets):
+            if idx < len(source) and str(source[idx]).strip():
+                # strip a trailing period so the template's own ". " doesn't double up
+                return str(source[idx]).strip().rstrip(".").strip()
+        return generic
+
+    key_achievement_1 = _achievement(
+        0, "built and shipped software projects that strengthened my engineering skills"
     )
-    key_achievement_2 = bullets[1] if len(bullets) > 1 else (
-        exp[0]["bullets"][1] if exp and exp[0].get("bullets", []) and len(exp[0]["bullets"]) > 1 else ""
+    key_achievement_2 = _achievement(
+        1, "I've focused on writing clean, reliable, well-tested code"
     )
 
     values = {
@@ -80,7 +89,6 @@ def build_cold_email(job_data: dict, profile: dict, materials: dict) -> dict:
         "role":           job_data.get("title", ""),
         "company":        job_data.get("company", ""),
         "main_skills":    main_skills,
-        "years_experience": years_experience or "several",
         "key_achievement_1": key_achievement_1,
         "key_achievement_2": key_achievement_2,
         "name":     personal.get("name", ""),

@@ -35,6 +35,7 @@ class DBClient:
         self._init_disk_cache()
         self._init_pool()
         self._init_schema()
+        self._ensure_recruiter_email_unique()
         self._warmup()
 
     # ── Local SQLite disk cache ────────────────────────────────────────────
@@ -459,6 +460,48 @@ class DBClient:
                     except Exception as e:
                         logger.warning(f"[db] Could not add column {name} to {table}: {e}")
 
+    def _ensure_recruiter_email_unique(self):
+        """Bug 3: enforce one row per recruiter email so re-runs can't insert dups.
+
+        Runs on EVERY startup — NOT gated by the warm-start early-return in
+        _init_schema() — so it applies to already-created tables. It normalizes
+        existing emails (lowercase/trim; blank -> NULL), de-duplicates rows
+        (keeping the lowest id per email), then creates the UNIQUE index that
+        backs the ON CONFLICT (email) DO NOTHING in save_recruiter /
+        save_company_contact. Retries because Neon can reset a cold connection
+        mid-DDL. Never raises — recruiter discovery must not be blocked by it.
+        """
+        import time
+        for attempt in range(3):
+            conn = self._conn()
+            try:
+                with conn.cursor() as cur:
+                    # Normalize: lowercase/trim; blank string -> NULL (NULLs never collide).
+                    cur.execute("UPDATE recruiters SET email = NULLIF(lower(trim(email)), '')")
+                    # Drop duplicate emails, keeping the lowest id per email.
+                    cur.execute("""
+                        DELETE FROM recruiters a
+                        USING recruiters b
+                        WHERE a.email IS NOT NULL
+                          AND a.email = b.email
+                          AND a.id > b.id
+                    """)
+                    cur.execute(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_recruiters_email "
+                        "ON recruiters (email)"
+                    )
+                conn.commit()
+                self._put_conn(conn)
+                return
+            except Exception as e:
+                try:
+                    conn.rollback()
+                    self._put_conn(conn)
+                except Exception:
+                    pass
+                logger.warning(f"[db] ensure recruiters.email unique (attempt {attempt+1}/3): {e}")
+                time.sleep(1.0)
+
     # ── Jobs ──────────────────────────────────────────────────────────────────
     def insert_job(self, job: dict, app_result: dict = None,
                    email: dict = None, status: str = "found"):
@@ -834,6 +877,8 @@ class DBClient:
     def save_recruiter(self, data: dict):
         self._disk_invalidate("all_recruiters")
         self._disk_invalidate("company_contacts")
+        # Bug 3: normalize email + INSERT OR IGNORE (skip if it already exists).
+        email = (data.get("email") or "").strip().lower() or None
         conn = self._conn()
         try:
             with conn.cursor() as cur:
@@ -841,13 +886,14 @@ class DBClient:
                     INSERT INTO recruiters
                     (company, job_id, name, role, department, email, confidence, source, linkedin, contact_type, rank_score, discovered_at)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (email) DO NOTHING
                 """, (
                     data.get("company"),
                     data.get("job_id"),
                     data.get("name"),
                     data.get("role"),
                     data.get("department"),
-                    data.get("email"),
+                    email,
                     data.get("confidence", 0),
                     data.get("source"),
                     data.get("linkedin"),
@@ -957,6 +1003,8 @@ class DBClient:
     def save_company_contact(self, contact: dict):
         self._disk_invalidate("all_recruiters")
         self._disk_invalidate("company_contacts")
+        # Bug 3: normalize email; the unique index now backs this insert too.
+        email = (contact.get("email") or "").strip().lower() or None
         conn = self._conn()
         try:
             with conn.cursor() as cur:
@@ -968,12 +1016,13 @@ class DBClient:
                     INSERT INTO recruiters
                     (company, name, role, department, email, confidence, source, linkedin, contact_type, rank_score, discovered_at)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (email) DO NOTHING
                 """, (
                     contact.get("company"),
                     contact.get("name"),
                     contact.get("role"),
                     contact.get("department"),
-                    contact.get("email"),
+                    email,
                     contact.get("confidence", 0),
                     contact.get("source"),
                     contact.get("linkedin"),

@@ -71,6 +71,9 @@ class RecruiterDiscoveryAgent:
         if not domain or self._is_job_board(domain):
             domain = self._guess_domain(company)
 
+        # Bug 1: never surface the candidate's own address(es) as a recruiter.
+        self_emails = self._self_emails()
+
         # 1. Apollo.io (best, but people search needs a paid plan)
         # 2. Hunter.io (domain email search — works on free tier)
         # 3. Clearbit (enrichment)
@@ -83,6 +86,13 @@ class RecruiterDiscoveryAgent:
         ):
             result = fn()
             if result and result.get("email"):
+                # Bug 1: skip the candidate's own email — it's not a recruiter.
+                if result["email"].strip().lower() in self_emails:
+                    logger.info(
+                        f"[recruiter] Skipping candidate's own email "
+                        f"({result['email']}) from {provider} for {company}"
+                    )
+                    continue
                 result["company"] = company
                 result["discovered_at"] = datetime.now().isoformat()
                 self._log_recruiter(result)
@@ -253,15 +263,89 @@ class RecruiterDiscoveryAgent:
         cleaned = re.sub(r"[^a-z0-9]", "", cleaned)
         return f"{cleaned}.com"
 
+    # Aggregators / ATS where the domain is never the hiring company.
+    _JOB_BOARDS = {"linkedin", "indeed", "glassdoor", "ziprecruiter", "dice", "monster",
+                   "simplyhired", "naukri", "google", "bing", "weworkremotely", "wellfound",
+                   "builtin", "dynamitejobs", "arc", "remoteok", "remotive", "jobspresso",
+                   "lever", "greenhouse", "workable", "ashbyhq", "jobvite", "smartrecruiters"}
+
+    def _is_job_board(self, domain: str) -> bool:
+        """True if the domain's main label is a known job board / ATS, not an employer."""
+        if not domain:
+            return False
+        label = domain.lower().split(".")[0]
+        return label in self._JOB_BOARDS
+
+    def _self_emails(self) -> set[str]:
+        """Bug 1: the candidate's own email address(es), which must never be saved
+        as a recruiter contact.
+
+        Sources (all optional, best-effort — never raises):
+          - FROM_EMAIL / CANDIDATE_EMAIL / RESEND_FROM_EMAIL env vars
+          - the parsed résumé email stored in the DB (profile.personal.email)
+        """
+        emails: set[str] = set()
+        for env_key in ("FROM_EMAIL", "CANDIDATE_EMAIL", "RESEND_FROM_EMAIL"):
+            val = (os.getenv(env_key) or "").strip().lower()
+            if val:
+                emails.add(val)
+        try:
+            from db.db_client import get_db
+            rd = get_db().get_resume_data() or {}
+            parsed = rd.get("parsed_json") or rd.get("parsed") or {}
+            candidate = (parsed.get("email") or rd.get("email") or "").strip().lower()
+            if candidate:
+                emails.add(candidate)
+        except Exception as e:
+            logger.debug(f"[recruiter] Could not load candidate email for self-filter: {e}")
+        return emails
+
+    def _recruiter_email_exists(self, email: str) -> bool:
+        """Bug 1: pre-check so the same recruiter email can't be inserted twice.
+
+        Returns False on any error so a transient DB issue never blocks discovery.
+        """
+        if not email:
+            return False
+        try:
+            from db.db_client import get_db
+            db = get_db()
+            conn = db._conn()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT 1 FROM recruiters WHERE lower(email) = lower(%s) LIMIT 1",
+                        (email,),
+                    )
+                    return cur.fetchone() is not None
+            finally:
+                db._put_conn(conn)
+        except Exception as e:
+            logger.debug(f"[recruiter] email-exists check failed for {email}: {e}")
+            return False
+
     def _log_recruiter(self, result: dict):
-        """Persist recruiter record to DB."""
+        """Persist recruiter record to DB.
+
+        Bug 1 guards: skip the candidate's own address, and skip emails that
+        already exist in the recruiters table (no duplicate inserts).
+        """
+        email = (result.get("email") or "").strip()
+        if not email:
+            return
+        if email.lower() in self._self_emails():
+            logger.info(f"[recruiter] Not saving candidate's own email as a recruiter: {email}")
+            return
+        if self._recruiter_email_exists(email):
+            logger.debug(f"[recruiter] {email} already in recruiters — skipping duplicate insert")
+            return
         try:
             from db.db_client import get_db
             get_db().save_recruiter({
                 "company": result.get("company", ""),
                 "name": result.get("name", ""),
                 "role": result.get("title", ""),
-                "email": result.get("email", ""),
+                "email": email,
                 "confidence": result.get("confidence", 0),
                 "source": result.get("source", ""),
                 "discovered_at": result.get("discovered_at", datetime.now().isoformat()),

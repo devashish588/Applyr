@@ -11,9 +11,12 @@ Usage:
 
 import argparse
 import json
+import logging
 import os
+import random
 import re
 import sys
+from datetime import datetime
 from typing import Annotated, TypedDict
 
 from dotenv import load_dotenv
@@ -29,6 +32,8 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # ── Groq client (loaded once) ─────────────────────────────────────────────────
 # Ensure the project root is on the import path so that ``utils`` can be imported
@@ -64,6 +69,15 @@ _ATS_HOSTS = {"greenhouse", "lever", "workable", "ashbyhq", "myworkdayjobs",
 _ROLE_WORDS = re.compile(
     r"(?i)\b(engineer|developer|manager|designer|analyst|intern|lead|architect|"
     r"scientist|consultant|specialist|administrator|director|officer)\b")
+
+# Rotating pool of job sources. build_query() samples 3 each run so the Tavily
+# query — and therefore the results — vary between runs (fixes the "same top-10
+# every run" problem). 10+ entries as specified.
+_JOB_SITE_POOL = [
+    "linkedin.com/jobs", "wellfound.com", "indeed.com", "ycombinator.com",
+    "weworkremotely.com", "remoteok.com", "builtin.com", "dice.com",
+    "glassdoor.com", "naukri.com", "remotive.com", "arc.dev",
+]
 
 
 def _company_from_title(title: str):
@@ -151,15 +165,38 @@ def build_query(state: ResearchState) -> ResearchState:
     skill_str = " ".join(skills[:8])
     loc_str = locs[0] if locs else "Remote"
 
-    query = f"({role_str}) {skill_str} {loc_str} jobs 2025"
+    # Bug 2 (+ hardening): vary the query each run so Tavily doesn't return an
+    # identical top-10.
+    #   (a) sample 3 source sites from a rotating pool,
+    #   (b) append a rotating time phrase (current month-year or "hiring now"),
+    #   (c) drop the stale hardcoded year.
+    # If this site-filtered query extracts 0 jobs, parse_jobs retries once
+    # without the site: filter (see parse_jobs).
+    sites = random.sample(_JOB_SITE_POOL, 3)
+    site_filter = " OR ".join(f"site:{s}" for s in sites)
+
+    now = datetime.now()
+    time_phrases = [
+        "hiring now",
+        now.strftime("%B %Y"),     # e.g. "June 2026"
+        f"jobs {now.year}",
+        "actively hiring",
+        "new openings",
+        "urgent hiring",
+    ]
+    time_phrase = random.choice(time_phrases)
+
+    query = f"({role_str}) {skill_str} {loc_str} jobs {time_phrase} ({site_filter})"
 
     print(f"[web_research] Resume-driven query: {query}")
-    print(f"[web_research] Roles: {roles[:4]} | Skills: {skills[:8]} | Locations: {locs[:2]}")
+    print(f"[web_research] Roles: {roles[:4]} | Skills: {skills[:8]} | "
+          f"Sites: {sites} | Phrase: {time_phrase!r}")
     return {"query": query}
 
 
-# ── Node 2: search the web ────────────────────────────────────────────────────
-def search_web(state: ResearchState) -> ResearchState:
+# ── Tavily search (shared helper) ─────────────────────────────────────────────
+def _run_tavily(query: str) -> list[dict]:
+    """Run a single Tavily search and normalize the result shape to a list."""
     tavily_key = os.getenv("TAVILY_API_KEY")
     if not tavily_key:
         raise EnvironmentError(
@@ -167,34 +204,36 @@ def search_web(state: ResearchState) -> ResearchState:
             "get yours free at https://app.tavily.com"
         )
 
-    tool        = TavilySearch(max_results=10)
-    raw_results = tool.invoke(state["query"])
+    # "advanced" depth returns a richer, less repetitive result set than "basic".
+    tool        = TavilySearch(max_results=10, search_depth="advanced")
+    raw_results = tool.invoke(query)
 
     # Tavily can return dict or list depending on version
     if isinstance(raw_results, dict):
-        results = raw_results.get("results", [])
-    elif isinstance(raw_results, list):
-        results = raw_results
-    else:
-        results = []
+        return raw_results.get("results", [])
+    if isinstance(raw_results, list):
+        return raw_results
+    return []
 
+
+# ── Node 2: search the web ────────────────────────────────────────────────────
+def search_web(state: ResearchState) -> ResearchState:
+    results = _run_tavily(state["query"])
     print(f"[web_research] Found {len(results)} raw results")
     return {"search_results": results}
 
 
-# ── Node 3: parse results into job objects ────────────────────────────────────
-def parse_jobs(state: ResearchState) -> ResearchState:
-    """
-    Use LLM to extract structured job listings from raw search snippets.
-    Returns a list of dicts ready to insert into applications.db.
-    """
-    llm = get_llm()
+# ── LLM extraction (shared helper) ────────────────────────────────────────────
+def _extract_job_listings(results: list[dict], llm) -> list[dict]:
+    """LLM-extract structured job listings from raw Tavily results."""
+    if not results:
+        return []
 
     results_text = "\n\n".join(
         f"[{i+1}] URL: {r.get('url', 'N/A')}\n"
         f"Title: {r.get('title', 'N/A')}\n"
         f"Snippet: {r.get('content', r.get('snippet', ''))[:600]}"
-        for i, r in enumerate(state["search_results"])
+        for i, r in enumerate(results)
     )
 
     system_prompt = """You are a job listing extractor.
@@ -243,18 +282,59 @@ Return ONLY the JSON array, no other text."""
         print(f"[web_research] JSON parse error: {e}")
         job_listings = []
 
-    # Post-process: ensure company names are never None/empty
-    for job in job_listings:
-        company = (
-            job.get("company")
-            or job.get("organization")
-            or job.get("employer")
-            or "Unknown Company"
+    return job_listings
+
+
+# ── Node 3: parse results into job objects ────────────────────────────────────
+def parse_jobs(state: ResearchState) -> ResearchState:
+    """
+    Use LLM to extract structured job listings from raw search snippets.
+    Returns a list of dicts ready to insert into applications.db.
+    """
+    llm = get_llm()
+    query = state.get("query", "")
+    job_listings = _extract_job_listings(state.get("search_results", []), llm)
+
+    # Bug 2 hardening: if a site-filtered query produced nothing extractable
+    # (e.g. the sampled sites only returned category/search pages), retry ONCE
+    # with the site: filter stripped — a broader query that reliably yields
+    # postings. Prevents 0-job runs.
+    if not job_listings and "site:" in query:
+        broad_query = re.sub(r"\s*\(site:[^)]*\)", "", query).strip()
+        logger.warning(
+            "[web_research] 0 jobs extracted from site-filtered query — "
+            "retrying once without the site: filter"
         )
+        print(f"[web_research] Retry (broadened) query: {broad_query}")
+        broad_results = _run_tavily(broad_query)
+        print(f"[web_research] Found {len(broad_results)} raw results (retry)")
+        job_listings = _extract_job_listings(broad_results, llm)
+
+    # Post-process (Bug 5): never insert a literal "Unknown Company".
+    # 3-step fallback when the LLM didn't return a usable company name:
+    #   (a) domain from the job URL, minus known job-board domains,
+    #   (b) "at <Company>" / "<Company> - Role" parsed from the title,
+    #   (c) else "Company not found" + needs_review=True for human follow-up.
+    # Steps (a) and (b) are both handled inside _company_from_url(url, title).
+    for job in job_listings:
+        company = str(
+            job.get("company") or job.get("organization") or job.get("employer") or ""
+        ).strip()
+
+        if not company or company.lower() in _BAD_COMPANY:
+            company = str(_company_from_url(job.get("url", ""), job.get("title", "")) or "").strip()
+
+        if not company or company.lower() in _BAD_COMPANY:
+            company = "Company not found"
+            job["needs_review"] = True
+
         job["company"] = company
 
     print(f"[web_research] Extracted {len(job_listings)} structured job listings")
-    return {"job_listings": job_listings, "messages": [AIMessage(content=response.content)]}
+    return {
+        "job_listings": job_listings,
+        "messages": [AIMessage(content=f"Extracted {len(job_listings)} job listings")],
+    }
 
 
 # ── Node 4: generate human-readable report ────────────────────────────────────
