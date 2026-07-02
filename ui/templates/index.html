@@ -432,7 +432,8 @@ async function loadHome() {
   const totalJobs = an.success ? (an.analytics.total_jobs||0) : 0;
   const drafted = an.success ? (an.analytics.applications_drafted||0) : 0;
   const emailed = an.success ? (an.analytics.emails_sent||0) : 0;
-  const recruiters = st.recruiters_count||0;
+  const strongMatches = an.success ? (an.analytics.strong_matches||0) : 0;
+  const recruiters = (an.success ? (an.analytics.recruiters_found||0) : 0) || st.recruiters_count || 0;
   const h = new Date().getHours();
   const greet = h < 12 ? 'Good Morning' : h < 17 ? 'Good Afternoon' : 'Good Evening';
   const name = rs.uploaded ? (rs.parsed?.name || rs.filename?.replace(/\.[^.]+$/,'') || 'there') : 'there';
@@ -485,7 +486,7 @@ async function loadHome() {
     { label:'Resume Uploaded', ok: rs.uploaded },
     { label:'Resume Parsed', ok: rs.parsed },
     { label:'Jobs Discovered', ok: totalJobs > 0, val: totalJobs },
-    { label:'Strong Matches', ok: totalJobs > 5, val: Math.round(totalJobs*0.3) },
+    { label:'Strong Matches', ok: strongMatches > 0, val: strongMatches },
     { label:'Recruiters Found', ok: recruiters > 0, val: recruiters },
     { label:'Applications Ready', ok: drafted > 0, val: drafted },
   ];

@@ -1077,18 +1077,33 @@ def api_analytics():
         runs     = db.get_recent_run_logs(limit=50, conn=conn)
         startups = db.get_startup_companies(limit=100, conn=conn)
         tracker  = db.get_application_tracker(limit=100, conn=conn)
-        total    = len(all_jobs)
 
-        # Distinguish drafted vs submitted
-        drafted  = sum(1 for j in all_jobs if j.get("status") in ("sent", "draft", "ready"))
-        submitted = sum(1 for j in all_jobs if j.get("status") == "sent")
+        # FIX 1: headline stats come from LIVE COUNT queries against the tables
+        # (not the 100-row cached slice, not a run-scoped value) so the Home
+        # dashboard always reflects what's actually in the DB. Every value is a
+        # plain int (never None) — see FIX 2.
+        with conn.cursor() as cur:
+            cur.execute("SELECT count(*) FROM jobs")
+            total = cur.fetchone()[0] or 0
+            cur.execute("SELECT count(*) FROM jobs WHERE COALESCE(fit_score, 0) >= 70")
+            strong_matches = cur.fetchone()[0] or 0
+            cur.execute("SELECT count(*) FROM jobs WHERE status IN ('sent','draft','ready')")
+            drafted = cur.fetchone()[0] or 0
+            cur.execute("SELECT count(*) FROM jobs WHERE status = 'sent'")
+            submitted = cur.fetchone()[0] or 0
+            cur.execute("SELECT count(*) FROM recruiters")
+            recruiters_found = cur.fetchone()[0] or 0
+            cur.execute("SELECT COALESCE(AVG(COALESCE(fit_score, 0)), 0) FROM jobs")
+            avg = float(cur.fetchone()[0] or 0)
+
         emails_drafted = drafted
         emails_sent = submitted
 
-        avg = sum(j.get("fit_score") or 0 for j in all_jobs) / max(total, 1)
         sources = {}
         for j in all_jobs:
-            src = j.get("source", "unknown")
+            # FIX 1: never a None key — a None source made jsonify(sort_keys) raise
+            # "'<' not supported between NoneType and str" and 500'd the whole endpoint.
+            src = j.get("source") or "unknown"
             sources[src] = sources.get(src, 0) + 1
 
         tracker_sources = {}
@@ -1098,7 +1113,7 @@ def api_analytics():
         offer_count = 0
         response_count = 0
         for item in tracker:
-            source = item.get("source", "unknown")
+            source = item.get("source") or "unknown"   # FIX 1: never a None key
             tracker_sources[source] = tracker_sources.get(source, 0) + 1
             status = (item.get("application_status") or "saved").lower()
             status_counts[status] = status_counts.get(status, 0) + 1
@@ -1116,6 +1131,8 @@ def api_analytics():
 
         return jsonify({"success": True, "analytics": {
             "total_jobs": total,
+            "strong_matches": strong_matches,
+            "recruiters_found": recruiters_found,
             "applications_drafted": drafted,
             "applications_submitted": submitted,
             "emails_drafted": emails_drafted,
