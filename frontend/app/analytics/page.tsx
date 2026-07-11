@@ -2,10 +2,48 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { BarChart3, TrendingUp } from 'lucide-react';
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, AreaChart, Area, CartesianGrid,
+} from 'recharts';
 import Shell from '@/components/layout/Shell';
-import ProgressBar from '@/components/ui/ProgressBar';
+import MetricCard from '@/components/ui/MetricCard';
 import { getAnalytics, getJobs, getApplications, getRecruiters } from '@/lib/api';
+import { Briefcase, Users, FileText, Mail, TrendingUp } from 'lucide-react';
+
+const CHART_COLORS = {
+  primary: '#7C5CFC',
+  accent:  '#5B8DEF',
+  green:   '#34D399',
+  amber:   '#FBBF24',
+  red:     '#F87171',
+};
+
+function CustomTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div
+      className="px-3 py-2 text-xs rounded-lg"
+      style={{
+        background: 'var(--surface-2)',
+        border: '1px solid var(--border)',
+        boxShadow: 'var(--shadow-lg)',
+        color: 'var(--text)',
+      }}
+    >
+      <div style={{ color: 'var(--text-muted)', marginBottom: 2 }}>{label}</div>
+      {payload.map((p: any, i: number) => (
+        <div key={i} style={{ color: p.color || 'var(--text)' }}>
+          {p.value}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return <div className="text-label mb-4">{children}</div>;
+}
 
 export default function AnalyticsPage() {
   const [analytics, setAnalytics] = useState<any>(null);
@@ -22,37 +60,59 @@ export default function AnalyticsPage() {
 
   const a = analytics || {};
 
-  const funnel = useMemo(() => {
-    const found = a.total_jobs || 0;
-    const drafted = a.applications_drafted || 0;
+  const funnelData = useMemo(() => {
+    const found     = a.total_jobs || 0;
+    const drafted   = a.applications_drafted || 0;
     const submitted = a.applications_submitted || 0;
-    const emails = a.emails_sent || 0;
+    const emails    = a.emails_sent || 0;
     return [
-      { label: 'Discovered', value: found, pct: 100 },
-      { label: 'Drafted', value: drafted, pct: found ? Math.round((drafted / found) * 100) : 0 },
-      { label: 'Submitted', value: submitted, pct: found ? Math.round((submitted / found) * 100) : 0 },
-      { label: 'Emails Sent', value: emails, pct: found ? Math.round((emails / found) * 100) : 0 },
+      { name: 'Discovered', value: found,     fill: CHART_COLORS.accent },
+      { name: 'Drafted',    value: drafted,   fill: CHART_COLORS.primary },
+      { name: 'Submitted',  value: submitted, fill: CHART_COLORS.green },
+      { name: 'Emailed',    value: emails,    fill: CHART_COLORS.amber },
     ];
   }, [a]);
 
-  const sourceBreakdown = useMemo(() => {
-    const counts: Record<string, number> = {};
-    jobs.forEach(j => { counts[j.source || 'unknown'] = (counts[j.source || 'unknown'] || 0) + 1; });
-    return Object.entries(counts).sort(([, a], [, b]) => b - a).slice(0, 6);
-  }, [jobs]);
-
-  const scoreDistribution = useMemo(() => {
-    const buckets = { '80+': 0, '60–79': 0, '40–59': 0, '<40': 0 };
+  const scoreData = useMemo(() => {
+    const buckets = [
+      { name: '80+',   value: 0, fill: CHART_COLORS.green },
+      { name: '60–79', value: 0, fill: CHART_COLORS.accent },
+      { name: '40–59', value: 0, fill: CHART_COLORS.amber },
+      { name: '<40',   value: 0, fill: CHART_COLORS.red },
+    ];
     jobs.forEach(j => {
       const s = j.fit_score;
       if (s == null) return;
-      if (s >= 80) buckets['80+']++;
-      else if (s >= 60) buckets['60–79']++;
-      else if (s >= 40) buckets['40–59']++;
-      else buckets['<40']++;
+      if (s >= 80)       buckets[0].value++;
+      else if (s >= 60)  buckets[1].value++;
+      else if (s >= 40)  buckets[2].value++;
+      else               buckets[3].value++;
     });
-    return Object.entries(buckets);
+    return buckets;
   }, [jobs]);
+
+  const sourceData = useMemo(() => {
+    const counts: Record<string, number> = {};
+    jobs.forEach(j => { counts[j.source || 'unknown'] = (counts[j.source || 'unknown'] || 0) + 1; });
+    return Object.entries(counts)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 6)
+      .map(([name, value]) => ({ name, value }));
+  }, [jobs]);
+
+  const appStatusData = useMemo(() => {
+    const counts: Record<string, number> = {};
+    applications.forEach(app => {
+      const key = (app.application_status || 'saved').toLowerCase();
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    const PIE_COLORS = [CHART_COLORS.primary, CHART_COLORS.accent, CHART_COLORS.green, CHART_COLORS.amber, CHART_COLORS.red];
+    return Object.entries(counts).map(([name, value], i) => ({
+      name: name.replace(/_/g, ' '),
+      value,
+      fill: PIE_COLORS[i % PIE_COLORS.length],
+    }));
+  }, [applications]);
 
   const avgScore = useMemo(() => {
     const scored = jobs.filter(j => j.fit_score != null);
@@ -60,11 +120,18 @@ export default function AnalyticsPage() {
     return Math.round(scored.reduce((sum, j) => sum + j.fit_score, 0) / scored.length);
   }, [jobs]);
 
-  const appStatusBreakdown = useMemo(() => {
-    const counts: Record<string, number> = {};
-    applications.forEach(app => { counts[(app.application_status || 'saved').toLowerCase()] = (counts[(app.application_status || 'saved').toLowerCase()] || 0) + 1; });
-    return Object.entries(counts).sort(([, a], [, b]) => b - a);
-  }, [applications]);
+  const metrics = [
+    { label: 'Jobs Found',   value: a.total_jobs ?? 0,              icon: <Briefcase size={14} style={{ color: 'var(--accent)' }} />,  color: 'var(--accent)',  delay: 0 },
+    { label: 'Drafted',      value: a.applications_drafted ?? 0,    icon: <FileText size={14} style={{ color: 'var(--primary)' }} />,  color: 'var(--primary)', delay: 0.05 },
+    { label: 'Submitted',    value: a.applications_submitted ?? 0,  icon: <TrendingUp size={14} style={{ color: 'var(--green)' }} />,  color: 'var(--green)',   delay: 0.1 },
+    { label: 'Emails Sent',  value: a.emails_sent ?? 0,             icon: <Mail size={14} style={{ color: 'var(--amber)' }} />,        color: 'var(--amber)',   delay: 0.15 },
+    { label: 'Recruiters',   value: recruiters.length,              icon: <Users size={14} style={{ color: 'var(--cyan)' }} />,        color: 'var(--cyan)',    delay: 0.2 },
+  ];
+
+  const chartStyle = {
+    fontSize: 11,
+    fontFamily: 'Inter, sans-serif',
+  };
 
   return (
     <Shell>
@@ -75,97 +142,132 @@ export default function AnalyticsPage() {
           <p className="text-body mt-0.5">Performance insights across your pipeline.</p>
         </div>
 
-        {/* Top stats — flat, no cards */}
-        <div className="grid grid-cols-5 gap-8">
-          {[
-            { label: 'Jobs Found', value: a.total_jobs ?? 0 },
-            { label: 'Drafted', value: a.applications_drafted ?? 0 },
-            { label: 'Submitted', value: a.applications_submitted ?? 0 },
-            { label: 'Emails Sent', value: a.emails_sent ?? 0 },
-            { label: 'Recruiters', value: recruiters.length },
-          ].map(m => (
-            <div key={m.label}>
-              <div className="text-2xl font-bold tabular-nums" style={{ color: 'var(--text)' }}>{m.value}</div>
-              <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{m.label}</div>
-            </div>
+        {/* Metric cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          {metrics.map(m => (
+            <MetricCard key={m.label} label={m.label} value={m.value} icon={m.icon} color={m.color} delay={m.delay} />
           ))}
         </div>
 
-        <div style={{ borderTop: '1px solid var(--border)' }} />
+        <div className="divider" />
 
-        {/* Funnel + Score side by side — no cards */}
+        {/* Charts row 1: Funnel + Score distribution */}
         <div className="grid grid-cols-2 gap-12">
+          {/* Funnel — horizontal bar chart */}
           <div>
-            <div className="text-label mb-4">Application Funnel</div>
-            <div className="space-y-3">
-              {funnel.map(stage => (
-                <div key={stage.label}>
-                  <div className="flex items-center justify-between text-xs mb-1">
-                    <span style={{ color: 'var(--text-secondary)' }}>{stage.label}</span>
-                    <span className="tabular-nums" style={{ color: 'var(--text-muted)' }}>{stage.value} ({stage.pct}%)</span>
-                  </div>
-                  <ProgressBar value={stage.pct} height={4} />
-                </div>
-              ))}
-            </div>
+            <SectionLabel>Application Funnel</SectionLabel>
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={funnelData} layout="vertical" margin={{ left: 0, right: 16, top: 0, bottom: 0 }}>
+                <XAxis type="number" hide />
+                <YAxis
+                  type="category"
+                  dataKey="name"
+                  width={70}
+                  tick={{ fill: 'var(--text-muted)', ...chartStyle }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.02)' }} />
+                <Bar dataKey="value" radius={[0, 4, 4, 0]} maxBarSize={18}>
+                  {funnelData.map((entry, i) => (
+                    <Cell key={i} fill={entry.fill} fillOpacity={0.85} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
           </div>
 
+          {/* Score distribution — vertical bar chart */}
           <div>
-            <div className="text-label mb-4">Score Distribution</div>
-            <div className="mb-4">
-              <span className="text-3xl font-bold tabular-nums" style={{ color: 'var(--text)' }}>{avgScore}</span>
-              <span className="text-xs ml-2" style={{ color: 'var(--text-muted)' }}>avg fit score</span>
-            </div>
-            <div className="space-y-3">
-              {scoreDistribution.map(([label, count]) => {
-                const total = jobs.filter(j => j.fit_score != null).length || 1;
-                const color = label === '80+' ? 'var(--green)' : label === '60–79' ? 'var(--accent)' : label === '40–59' ? 'var(--amber)' : 'var(--red)';
-                return (
-                  <div key={label}>
-                    <div className="flex items-center justify-between text-xs mb-1">
-                      <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
-                      <span className="font-medium tabular-nums" style={{ color }}>{count}</span>
-                    </div>
-                    <ProgressBar value={count} max={total} color={color} height={4} />
-                  </div>
-                );
-              })}
-            </div>
+            <SectionLabel>
+              Score Distribution
+              <span className="ml-2 text-2xl font-bold tabular-nums" style={{ color: 'var(--text)', textTransform: 'none', letterSpacing: 'normal' }}>
+                {avgScore}
+                <span className="text-xs font-normal ml-1" style={{ color: 'var(--text-muted)' }}>avg</span>
+              </span>
+            </SectionLabel>
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={scoreData} margin={{ left: 0, right: 0, top: 0, bottom: 0 }}>
+                <XAxis
+                  dataKey="name"
+                  tick={{ fill: 'var(--text-muted)', ...chartStyle }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis hide />
+                <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.02)' }} />
+                <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={40}>
+                  {scoreData.map((entry, i) => (
+                    <Cell key={i} fill={entry.fill} fillOpacity={0.85} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
           </div>
         </div>
 
-        <div style={{ borderTop: '1px solid var(--border)' }} />
+        <div className="divider" />
 
-        {/* Source + App Status — no cards */}
+        {/* Charts row 2: Source + Application status */}
         <div className="grid grid-cols-2 gap-12">
+          {/* Jobs by source — horizontal bar */}
           <div>
-            <div className="text-label mb-4">Jobs by Source</div>
-            {sourceBreakdown.length === 0 ? (
+            <SectionLabel>Jobs by Source</SectionLabel>
+            {sourceData.length === 0 ? (
               <p className="text-xs" style={{ color: 'var(--text-muted)' }}>No data yet</p>
             ) : (
-              <div className="space-y-2.5">
-                {sourceBreakdown.map(([source, count]) => (
-                  <div key={source} className="flex items-center justify-between">
-                    <span className="text-sm capitalize" style={{ color: 'var(--text-secondary)' }}>{source}</span>
-                    <span className="text-sm font-bold tabular-nums" style={{ color: 'var(--text)' }}>{count}</span>
-                  </div>
-                ))}
-              </div>
+              <ResponsiveContainer width="100%" height={Math.max(120, sourceData.length * 36)}>
+                <BarChart data={sourceData} layout="vertical" margin={{ left: 0, right: 16, top: 0, bottom: 0 }}>
+                  <XAxis type="number" hide />
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    width={80}
+                    tick={{ fill: 'var(--text-muted)', ...chartStyle }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.02)' }} />
+                  <Bar dataKey="value" fill={CHART_COLORS.accent} fillOpacity={0.8} radius={[0, 4, 4, 0]} maxBarSize={16} />
+                </BarChart>
+              </ResponsiveContainer>
             )}
           </div>
 
+          {/* Application status — donut chart */}
           <div>
-            <div className="text-label mb-4">Application Status</div>
-            {appStatusBreakdown.length === 0 ? (
+            <SectionLabel>Application Status</SectionLabel>
+            {appStatusData.length === 0 ? (
               <p className="text-xs" style={{ color: 'var(--text-muted)' }}>No applications tracked</p>
             ) : (
-              <div className="space-y-2.5">
-                {appStatusBreakdown.map(([status, count]) => (
-                  <div key={status} className="flex items-center justify-between">
-                    <span className="text-sm capitalize" style={{ color: 'var(--text-secondary)' }}>{status.replace(/_/g, ' ')}</span>
-                    <span className="text-sm font-bold tabular-nums" style={{ color: 'var(--text)' }}>{count}</span>
-                  </div>
-                ))}
+              <div className="flex items-center gap-6">
+                <ResponsiveContainer width={140} height={140}>
+                  <PieChart>
+                    <Pie
+                      data={appStatusData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={40}
+                      outerRadius={65}
+                      paddingAngle={3}
+                      dataKey="value"
+                    >
+                      {appStatusData.map((entry, i) => (
+                        <Cell key={i} fill={entry.fill} />
+                      ))}
+                    </Pie>
+                    <Tooltip content={<CustomTooltip />} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="space-y-1.5">
+                  {appStatusData.map((entry, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full shrink-0" style={{ background: entry.fill }} />
+                      <span className="text-xs capitalize" style={{ color: 'var(--text-secondary)' }}>{entry.name}</span>
+                      <span className="text-xs font-bold tabular-nums ml-auto" style={{ color: 'var(--text)' }}>{entry.value}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>

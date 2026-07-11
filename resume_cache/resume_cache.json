@@ -196,8 +196,8 @@
     "certifications": 3
   },
   "confidence": 100.0,
-  "parsed_at": "2026-07-01T07:01:12.809262",
-  "source_path": "resume\\master_resume.pdf",
+  "parsed_at": "2026-07-03T17:59:33.816509",
+  "source_path": "D:\\Ai course\\Projects\\Applyr\\resume\\master_resume.pdf",
   "total_pages": 1,
   "sections_detected": [
     "preamble",
@@ -216,7 +216,7 @@
     "confidence": 100
   },
   "parse_log": [
-    "Starting parse: ./resume/master_resume.pdf",
+    "Starting parse: D:\\Ai course\\Projects\\Applyr\\resume\\master_resume.pdf",
     "File size: 110985 bytes",
     "PDF extraction: PyMuPDF succeeded (3459 chars)",
     "Level 1: Extracted 3458 chars, 1 page(s)",
@@ -225,6 +225,6 @@
     "Confidence breakdown: 100 -> 100% (skills=30, exp=3, edu=1, proj=3)",
     "Level 4: Confidence=100%",
     "Level 5: Roles=['backend engineer', 'full stack engineer', 'software engineer', 'frontend engineer', 'data scientist']",
-    "Parse complete in 2.5s -- confidence 100%"
+    "Parse complete in 3.1s -- confidence 100%"
   ]
 }

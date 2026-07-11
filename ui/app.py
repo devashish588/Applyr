@@ -1135,6 +1135,10 @@ def api_analytics():
             "recruiters_found": recruiters_found,
             "applications_drafted": drafted,
             "applications_submitted": submitted,
+            # FIX 2: explicit integer stat-card counts (never null)
+            "responses": int(response_count or 0),
+            "interviews": int(interview_count or 0),
+            "offers": int(offer_count or 0),
             "emails_drafted": emails_drafted,
             "emails_sent": emails_sent,
             "avg_score": round(avg, 1),

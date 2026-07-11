@@ -336,6 +336,14 @@ class RecruiterDiscoveryAgent:
         if email.lower() in self._self_emails():
             logger.info(f"[recruiter] Not saving candidate's own email as a recruiter: {email}")
             return
+        # FIX 3: skip useless generic inboxes (Hiring Team <careers@/jobs@/...>).
+        name_l = (result.get("name") or "").strip().lower()
+        prefix = email.split("@", 1)[0].strip().lower()
+        _GENERIC_NAMES = {"hiring team", "hiring", "talent team", "talent", "recruiting team"}
+        _GENERIC_PREFIXES = {"careers", "jobs", "info", "hr", "talent", "recruiting", "apply"}
+        if name_l in _GENERIC_NAMES and prefix in _GENERIC_PREFIXES:
+            logger.info(f"[recruiter] Skipping generic contact: {result.get('name')} <{email}>")
+            return
         if self._recruiter_email_exists(email):
             logger.debug(f"[recruiter] {email} already in recruiters — skipping duplicate insert")
             return

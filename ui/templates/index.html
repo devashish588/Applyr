@@ -784,22 +784,40 @@ async function loadAppsPage() {
 }
 
 // ── Network ─────────────────────────────────────────────────
-async function loadNetwork() {
-  const d = await api('/api/recruiters');
-  if (!d.success || !d.recruiters?.length) {
-    $('networkBody').innerHTML = '<div class="empty"><i data-lucide="users" class="w-8 h-8"></i><p>No contacts yet</p><p class="text-[11px]">Recruiters will appear here when discovered during searches</p></div>';
-    lucide.createIcons(); return;
-  }
-  $('networkBody').innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px">
-    ${d.recruiters.map(r => `<div class="card card-sm" style="cursor:default">
+function recruiterCard(r) {
+  return `<div class="card card-sm" style="cursor:default">
       <div style="display:flex;align-items:center;gap:10px">
         <div style="width:36px;height:36px;border-radius:8px;background:var(--accent-bg);display:grid;place-items:center;font-size:14px;font-weight:700;color:var(--accent-sub)">${(r.name||'?')[0]}</div>
         <div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--t1)">${esc(r.name||'Unknown')}</div><div style="font-size:11px;color:var(--t3)">${esc(r.role||r.title||'')}</div></div>
         <span class="tag ${(r.confidence||0)>=70?'tag-green':(r.confidence||0)>=40?'tag-amber':'tag-gray'}">${r.confidence||0}%</span>
       </div>
       <div style="margin-top:8px;font-size:11px;color:var(--t3)">${r.email ? `<span>✉ ${esc(r.email)}</span>` : ''} ${r.company ? `<span>· ${esc(sanitizeCo(r.company))}</span>` : ''}</div>
-    </div>`).join('')}
-  </div>`;
+    </div>`;
+}
+
+async function loadNetwork() {
+  const d = await api('/api/recruiters');
+  if (!d.success || !d.recruiters?.length) {
+    $('networkBody').innerHTML = '<div class="empty"><i data-lucide="users" class="w-8 h-8"></i><p>No contacts yet</p><p class="text-[11px]">Recruiters will appear here when discovered during searches</p></div>';
+    lucide.createIcons(); return;
+  }
+  // FIX 3: real contacts up top; low-confidence generic inboxes collapsed below.
+  const real    = d.recruiters.filter(r => (r.confidence||0) >= 50);
+  const generic = d.recruiters.filter(r => (r.confidence||0) <  50);
+  const gridStyle = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px';
+
+  const realHtml = real.length
+    ? `<div style="${gridStyle}">${real.map(recruiterCard).join('')}</div>`
+    : `<div class="empty" style="padding:20px"><p>No verified recruiter contacts yet</p><p class="text-[11px]">Run a search to discover named recruiters</p></div>`;
+
+  const genericHtml = generic.length
+    ? `<details style="margin-top:16px">
+         <summary style="cursor:pointer;font-size:12px;color:var(--t3);user-select:none">Generic Contacts (${generic.length}) — company inboxes, unverified</summary>
+         <div style="${gridStyle};margin-top:10px">${generic.map(recruiterCard).join('')}</div>
+       </details>`
+    : '';
+
+  $('networkBody').innerHTML = realHtml + genericHtml;
   lucide.createIcons();
 }
 
@@ -926,12 +944,13 @@ function sendApproved() {
 // ── Insights ────────────────────────────────────────────────
 async function loadInsights() {
   const an = await api('/api/analytics');
-  if (an.success) {
-    $('insApps').textContent = an.analytics.applications_submitted||0;
-    $('insResponses').textContent = 0;
-    $('insInterviews').textContent = 0;
-    $('insOffers').textContent = 0;
-  }
+  // FIX 2: always render an integer (0), never leave the loading dash — even if
+  // the request fails or a count is null/undefined.
+  const a = (an && an.success && an.analytics) ? an.analytics : {};
+  $('insApps').textContent       = a.applications_submitted ?? 0;
+  $('insResponses').textContent  = a.responses ?? 0;
+  $('insInterviews').textContent = a.interviews ?? 0;
+  $('insOffers').textContent     = a.offers ?? 0;
   const d = await api('/api/jobs');
   if (d.success && d.jobs?.length) {
     const sources = {};

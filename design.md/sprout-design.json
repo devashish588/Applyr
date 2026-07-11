@@ -1,0 +1,259 @@
+{
+  "color": {
+    "Brand Deep Green": {
+      "$type": "color",
+      "$value": "#0f4c3d",
+      "$description": "Primary CTA button fill, logo background, key brand accent"
+    },
+    "Brand Mid Green": {
+      "$type": "color",
+      "$value": "#1f6a5b",
+      "$description": "Secondary links, icon accents, hover states on green elements"
+    },
+    "Surface White": {
+      "$type": "color",
+      "$value": "#ffffff",
+      "$description": "Primary page background, hero section, card surfaces"
+    },
+    "Surface Off-White": {
+      "$type": "color",
+      "$value": "#fafafa",
+      "$description": "Secondary surface, footer background, subtle section fills"
+    },
+    "Surface Near-White": {
+      "$type": "color",
+      "$value": "#fdfdfd",
+      "$description": "Card and panel backgrounds, inner surface fills"
+    },
+    "Teal Tint": {
+      "$type": "color",
+      "$value": "#eaf7f5",
+      "$description": "Soft teal gradient hero card background, highlight tints"
+    },
+    "Text Primary": {
+      "$type": "color",
+      "$value": "#000000",
+      "$description": "Primary headings, body text, icon fills"
+    },
+    "Text Secondary": {
+      "$type": "color",
+      "$value": "#535862",
+      "$description": "Body copy, nav labels, secondary descriptive text"
+    },
+    "Text Tertiary": {
+      "$type": "color",
+      "$value": "#717680",
+      "$description": "Muted labels, captions, placeholder text"
+    },
+    "Border Subtle": {
+      "$type": "color",
+      "$value": "#e9eaeb",
+      "$description": "Dividers, card outlines, input borders"
+    },
+    "Text Disabled": {
+      "$type": "color",
+      "$value": "#a4a7ae",
+      "$description": "Disabled states, placeholder text, muted metadata"
+    },
+    "Accent Blue": {
+      "$type": "color",
+      "$value": "#4db6ff",
+      "$description": "Highlight accents, AI feature callouts, link decorations"
+    }
+  },
+  "typography": {
+    "Hero Headline": {
+      "$type": "typography",
+      "$value": {
+        "fontFamily": "Nunito Sans",
+        "fontSize": "64px",
+        "fontWeight": 700,
+        "lineHeight": "68px",
+        "letterSpacing": "-1.5px"
+      },
+      "$description": "Primary hero heading — large weight-contrast display text"
+    },
+    "Display Heading": {
+      "$type": "typography",
+      "$value": {
+        "fontFamily": "Nunito Sans",
+        "fontSize": "44px",
+        "fontWeight": 600,
+        "lineHeight": "48px",
+        "letterSpacing": "-1.5px"
+      },
+      "$description": "Section display headings, major feature titles"
+    },
+    "Display Heading Light": {
+      "$type": "typography",
+      "$value": {
+        "fontFamily": "Nunito Sans",
+        "fontSize": "44px",
+        "fontWeight": 500,
+        "lineHeight": "48px",
+        "letterSpacing": "-1.32px"
+      },
+      "$description": "Paired with bold display heading for weight contrast effect"
+    },
+    "Section Heading": {
+      "$type": "typography",
+      "$value": {
+        "fontFamily": "Nunito Sans",
+        "fontSize": "24px",
+        "fontWeight": 600,
+        "lineHeight": "32px",
+        "letterSpacing": "-0.3px"
+      },
+      "$description": "Sub-section headings, card titles"
+    },
+    "Subheading": {
+      "$type": "typography",
+      "$value": {
+        "fontFamily": "Nunito Sans",
+        "fontSize": "18px",
+        "fontWeight": 400,
+        "lineHeight": "26px",
+        "letterSpacing": "-0.3px"
+      },
+      "$description": "Hero subtext, feature descriptions, lead body copy"
+    },
+    "Body Regular": {
+      "$type": "typography",
+      "$value": {
+        "fontFamily": "Nunito Sans",
+        "fontSize": "16px",
+        "fontWeight": 400,
+        "lineHeight": "24px",
+        "letterSpacing": "normal"
+      },
+      "$description": "Primary body text, nav items, general content"
+    },
+    "Body Bold": {
+      "$type": "typography",
+      "$value": {
+        "fontFamily": "Nunito Sans",
+        "fontSize": "16px",
+        "fontWeight": 700,
+        "lineHeight": "24px",
+        "letterSpacing": "normal"
+      },
+      "$description": "Emphasized body text, stat callouts, bold labels"
+    },
+    "Body Medium": {
+      "$type": "typography",
+      "$value": {
+        "fontFamily": "Nunito Sans",
+        "fontSize": "16px",
+        "fontWeight": 500,
+        "lineHeight": "24px",
+        "letterSpacing": "-0.2px"
+      },
+      "$description": "Medium-weight body, button labels, interactive text"
+    },
+    "Label Regular": {
+      "$type": "typography",
+      "$value": {
+        "fontFamily": "Nunito Sans",
+        "fontSize": "14px",
+        "fontWeight": 400,
+        "lineHeight": "20px",
+        "letterSpacing": "normal"
+      },
+      "$description": "Form labels, metadata, secondary UI labels"
+    },
+    "Caption": {
+      "$type": "typography",
+      "$value": {
+        "fontFamily": "Nunito Sans",
+        "fontSize": "12px",
+        "fontWeight": 400,
+        "lineHeight": "16px",
+        "letterSpacing": "-0.16px"
+      },
+      "$description": "Captions, footnotes, small metadata text"
+    },
+    "Micro Label": {
+      "$type": "typography",
+      "$value": {
+        "fontFamily": "Nunito Sans",
+        "fontSize": "10px",
+        "fontWeight": 400,
+        "lineHeight": "16px",
+        "letterSpacing": "-0.16px"
+      },
+      "$description": "Micro labels, badge text, tiny UI annotations"
+    }
+  },
+  "spacing": {
+    "spacing-1": {
+      "$type": "dimension",
+      "$value": "4px"
+    },
+    "spacing-2": {
+      "$type": "dimension",
+      "$value": "8px"
+    },
+    "spacing-3": {
+      "$type": "dimension",
+      "$value": "10px"
+    },
+    "spacing-4": {
+      "$type": "dimension",
+      "$value": "12px"
+    },
+    "spacing-5": {
+      "$type": "dimension",
+      "$value": "16px"
+    },
+    "spacing-6": {
+      "$type": "dimension",
+      "$value": "20px"
+    },
+    "spacing-7": {
+      "$type": "dimension",
+      "$value": "24px"
+    },
+    "spacing-8": {
+      "$type": "dimension",
+      "$value": "32px"
+    },
+    "spacing-9": {
+      "$type": "dimension",
+      "$value": "40px"
+    },
+    "spacing-10": {
+      "$type": "dimension",
+      "$value": "80px"
+    }
+  },
+  "borderRadius": {
+    "radius-sm": {
+      "$type": "dimension",
+      "$value": "5px"
+    },
+    "radius-md": {
+      "$type": "dimension",
+      "$value": "8px"
+    },
+    "radius-lg": {
+      "$type": "dimension",
+      "$value": "12px"
+    },
+    "radius-xl": {
+      "$type": "dimension",
+      "$value": "16px"
+    },
+    "radius-2xl": {
+      "$type": "dimension",
+      "$value": "20px"
+    },
+    "radius-pill": {
+      "$type": "dimension",
+      "$value": "100px"
+    },
+    "radius-full": {
+      "$type": "dimension",
+      "$value": "50px"
+    }
+  }
+}

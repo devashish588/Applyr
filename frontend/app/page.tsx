@@ -5,42 +5,60 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import Shell from '@/components/layout/Shell';
 import CommandCenter from '@/components/dashboard/CommandCenter';
-import AnimatedNumber from '@/components/ui/AnimatedNumber';
+import MetricCard from '@/components/ui/MetricCard';
 import {
   getAnalytics, getJobs, getStatus, getResumeParsed,
   getFollowupsDue, getStartups, getRecruiters,
 } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
+import {
+  Briefcase, Users, FileText, Mail,
+  CheckCircle2, AlertCircle, Building2, ArrowRight,
+} from 'lucide-react';
 
 const EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
 const fadeUp = (delay = 0) => ({
-  initial: { opacity: 0, y: 4 },
+  initial: { opacity: 0, y: 6 },
   animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.2, delay, ease: EASE },
+  transition: { duration: 0.25, delay, ease: EASE },
 });
 
 function SectionLabel({ children, href, action }: { children: React.ReactNode; href?: string; action?: string }) {
   return (
     <div className="flex items-center justify-between mb-4">
       <div className="text-label">{children}</div>
-      {href && <Link href={href} className="text-[11px]" style={{ color: 'var(--text-muted)' }}>{action || 'View all'} →</Link>}
-    </div>
-  );
-}
-
-// Dot-leader stat row: "Jobs Found ........ 124"
-function StatRow({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="flex items-baseline">
-      <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{label}</span>
-      <span className="leader" />
-      <AnimatedNumber value={value} className="text-sm font-semibold" style={{ color: 'var(--text)' }} />
+      {href && (
+        <Link
+          href={href}
+          className="text-[11px] flex items-center gap-1 transition-colors"
+          style={{ color: 'var(--text-faint)' }}
+          onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-secondary)'; }}
+          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-faint)'; }}
+        >
+          {action || 'View all'} <ArrowRight size={10} />
+        </Link>
+      )}
     </div>
   );
 }
 
 function Divider() {
-  return <div style={{ borderTop: '1px solid var(--border-subtle)' }} />;
+  return <div className="divider" />;
+}
+
+function ScoreDot({ score }: { score: number | null }) {
+  if (score == null) return null;
+  const color = score >= 75 ? 'var(--green)' : score >= 50 ? 'var(--amber)' : 'var(--text-muted)';
+  return (
+    <div className="flex items-center gap-1.5">
+      <div
+        className="w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-bold tabular-nums"
+        style={{ background: `${color}18`, color }}
+      >
+        {score}
+      </div>
+    </div>
+  );
 }
 
 export default function DashboardPage() {
@@ -67,24 +85,24 @@ export default function DashboardPage() {
   const a = analytics || {};
   const topJobs = jobs.slice(0, 6);
 
-  const stats = [
-    { label: 'Jobs Found', value: a.total_jobs ?? 0 },
-    { label: 'Recruiters', value: recruiters.length },
-    { label: 'Applications', value: a.applications_drafted ?? 0 },
-    { label: 'Emails', value: a.emails_sent ?? 0 },
+  const metrics = [
+    { label: 'Jobs Found',   value: a.total_jobs ?? 0,           icon: <Briefcase size={14} style={{ color: 'var(--accent)' }} />,   color: 'var(--accent)',   delay: 0 },
+    { label: 'Recruiters',   value: recruiters.length,            icon: <Users size={14} style={{ color: 'var(--green)' }} />,        color: 'var(--green)',    delay: 0.05 },
+    { label: 'Applications', value: a.applications_drafted ?? 0, icon: <FileText size={14} style={{ color: 'var(--primary)' }} />,   color: 'var(--primary)',  delay: 0.1 },
+    { label: 'Emails Sent',  value: a.emails_sent ?? 0,          icon: <Mail size={14} style={{ color: 'var(--amber)' }} />,         color: 'var(--amber)',    delay: 0.15 },
   ];
 
   const readiness = [
-    { label: 'Resume', ready: envStatus?.resume_uploaded },
-    { label: 'Email', ready: envStatus?.email?.configured },
-    { label: 'Apollo', ready: envStatus?.recruiter_discovery?.apollo },
-    { label: 'Pipeline', ready: true },
+    { label: 'Resume',   ready: envStatus?.resume_uploaded,           icon: FileText },
+    { label: 'Email',    ready: envStatus?.email?.configured,         icon: Mail },
+    { label: 'Apollo',   ready: envStatus?.recruiter_discovery?.apollo, icon: Users },
+    { label: 'Pipeline', ready: true,                                  icon: CheckCircle2 },
   ];
 
   return (
     <Shell>
-      <div className="space-y-12">
-        {/* ── AI intro — pure typography, no box ──────────────────── */}
+      <div className="space-y-10">
+        {/* AI intro — pure typography */}
         <CommandCenter
           analytics={analytics}
           jobs={jobs}
@@ -94,71 +112,76 @@ export default function DashboardPage() {
           recruiters={recruiters}
         />
 
-        {/* ── Pipeline + Readiness — flat lists, side by side ─────── */}
-        <motion.div {...fadeUp(0.02)} className="grid grid-cols-1 md:grid-cols-2 gap-x-16 gap-y-10">
-          <div>
-            <SectionLabel>Today's Pipeline</SectionLabel>
-            <div className="space-y-3">
-              {stats.map(s => <StatRow key={s.label} label={s.label} value={s.value} />)}
-            </div>
-          </div>
+        {/* Metric cards */}
+        <motion.div {...fadeUp(0.01)} className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {metrics.map(m => (
+            <MetricCard key={m.label} label={m.label} value={m.value} icon={m.icon} color={m.color} delay={m.delay} />
+          ))}
+        </motion.div>
 
-          <div>
-            <SectionLabel>System Readiness</SectionLabel>
-            <div className="space-y-3">
-              {readiness.map(item => (
-                <div key={item.label} className="flex items-center justify-between">
-                  <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{item.label}</span>
-                  <span className="flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: item.ready ? 'var(--green)' : 'var(--amber)' }} />
-                    <span className="text-xs" style={{ color: item.ready ? 'var(--green)' : 'var(--amber)' }}>
-                      {item.ready ? 'Ready' : 'Needs setup'}
-                    </span>
-                  </span>
-                </div>
-              ))}
-            </div>
+        <Divider />
+
+        {/* System Readiness — horizontal status bar */}
+        <motion.div {...fadeUp(0.02)}>
+          <SectionLabel>System Readiness</SectionLabel>
+          <div className="flex items-center gap-6 flex-wrap">
+            {readiness.map(item => (
+              <div key={item.label} className="flex items-center gap-2">
+                <span
+                  className="w-1.5 h-1.5 rounded-full"
+                  style={{ background: item.ready ? 'var(--green)' : 'var(--amber)' }}
+                />
+                <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{item.label}</span>
+                <span
+                  className="text-xs font-medium"
+                  style={{ color: item.ready ? 'var(--green)' : 'var(--amber)' }}
+                >
+                  {item.ready ? 'Ready' : 'Needs setup'}
+                </span>
+              </div>
+            ))}
           </div>
         </motion.div>
 
         <Divider />
 
-        {/* ── Top Matches + Follow-ups — flat rows ────────────────── */}
+        {/* Top Matches + Follow-ups */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-16 gap-y-10">
-          <motion.div {...fadeUp(0.06)}>
+          <motion.div {...fadeUp(0.04)}>
             <SectionLabel href={topJobs.length > 0 ? '/jobs' : undefined}>Top Matches</SectionLabel>
             {topJobs.length === 0 ? (
               <p className="text-xs" style={{ color: 'var(--text-muted)' }}>No jobs discovered yet.</p>
             ) : (
               <div className="-mx-2">
-                {topJobs.map((job, i) => {
-                  const score = job.fit_score;
-                  const color = score >= 75 ? 'var(--green)' : score >= 50 ? 'var(--amber)' : 'var(--text-muted)';
-                  return (
-                    <Link
-                      key={`job-${job.id || i}`}
-                      href="/jobs"
-                      className="list-row flex items-center justify-between gap-3 px-2 py-2.5"
+                {topJobs.map((job, i) => (
+                  <Link
+                    key={`job-${job.id || i}`}
+                    href="/jobs"
+                    className="list-row flex items-center gap-3 px-2 py-2.5"
+                  >
+                    {/* Company avatar */}
+                    <div
+                      className="w-7 h-7 rounded-md flex items-center justify-center text-[11px] font-bold shrink-0"
+                      style={{ background: 'var(--surface-2)', color: 'var(--text-muted)' }}
                     >
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium truncate" style={{ color: 'var(--text)' }}>
-                          {job.title || '—'}
-                        </div>
-                        <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                          {job.company || '—'}
-                        </div>
+                      {(job.company || '?')[0].toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate" style={{ color: 'var(--text)' }}>
+                        {job.title || '—'}
                       </div>
-                      {score != null && (
-                        <span className="text-sm font-bold tabular-nums" style={{ color }}>{score}</span>
-                      )}
-                    </Link>
-                  );
-                })}
+                      <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                        {job.company || '—'}
+                      </div>
+                    </div>
+                    <ScoreDot score={job.fit_score} />
+                  </Link>
+                ))}
               </div>
             )}
           </motion.div>
 
-          <motion.div {...fadeUp(0.07)}>
+          <motion.div {...fadeUp(0.05)}>
             <SectionLabel>Follow-ups Due</SectionLabel>
             {followupsDue.length === 0 ? (
               <p className="text-xs" style={{ color: 'var(--text-muted)' }}>No follow-ups due. Apply to jobs to start tracking.</p>
@@ -174,7 +197,12 @@ export default function DashboardPage() {
                         {formatDate(item.follow_up_date)}
                       </div>
                     </div>
-                    <span className="text-xs" style={{ color: 'var(--amber)' }}>Due</span>
+                    <span
+                      className="badge shrink-0"
+                      style={{ background: 'var(--amber-muted)', color: 'var(--amber)' }}
+                    >
+                      Due
+                    </span>
                   </div>
                 ))}
               </div>
@@ -182,18 +210,36 @@ export default function DashboardPage() {
           </motion.div>
         </div>
 
-        {/* ── Companies — flat list ───────────────────────────────── */}
+        {/* Matched Companies */}
         {startups.length > 0 && (
           <>
             <Divider />
-            <motion.div {...fadeUp(0.08)}>
+            <motion.div {...fadeUp(0.06)}>
               <SectionLabel href="/startups">Matched Companies</SectionLabel>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-x-8 gap-y-5">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {startups.slice(0, 4).map((s, i) => (
-                  <div key={`startup-${i}`}>
-                    <div className="text-sm font-medium" style={{ color: 'var(--text)' }}>{s.company}</div>
-                    <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                      Score {s.overall_score} · {s.source}{s.is_remote ? ' · Remote' : ''}
+                  <div
+                    key={`startup-${i}`}
+                    className="p-3 rounded-lg"
+                    style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <div
+                        className="w-6 h-6 rounded flex items-center justify-center text-[10px] font-bold"
+                        style={{ background: 'var(--surface-2)', color: 'var(--text-muted)' }}
+                      >
+                        {(s.company || '?')[0].toUpperCase()}
+                      </div>
+                      <span
+                        className="text-[11px] font-bold tabular-nums"
+                        style={{ color: s.overall_score >= 75 ? 'var(--green)' : s.overall_score >= 55 ? 'var(--amber)' : 'var(--text-muted)' }}
+                      >
+                        {s.overall_score}
+                      </span>
+                    </div>
+                    <div className="text-xs font-medium truncate" style={{ color: 'var(--text)' }}>{s.company}</div>
+                    <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-faint)' }}>
+                      {s.source}{s.is_remote ? ' · Remote' : ''}
                     </div>
                   </div>
                 ))}
