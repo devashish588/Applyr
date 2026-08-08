@@ -16,17 +16,50 @@ import json
 import logging
 import re
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from core.models import (
     MatchAnalysis,
     MatchComponent,
+    Job,
     Profile,
     Resume,
     SeniorityLevel,
 )
+from core.schemas import (
+    MatchAnalysis as SchemaMatchAnalysis,
+    ResumeParsed,
+    to_resume_parsed,
+)
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Positional safety guards (PR-4)
+# ---------------------------------------------------------------------------
+
+_RESUME_KEYS = {"skills", "experience", "raw_text", "skills_categorized", "education"}
+_JOB_KEYS = {"title", "jd_text", "required_skills", "company"}
+
+
+def _is_resume_object(obj: Any) -> bool:
+    """Return True only if *obj* is a ResumeParsed, Resume, or dict that
+    structurally looks like a resume. Ordinary ints / strings / lists never pass."""
+    if isinstance(obj, (ResumeParsed, Resume)):
+        return True
+    if isinstance(obj, dict):
+        return bool(_RESUME_KEYS & set(obj.keys()))
+    return False
+
+
+def _is_job_object(obj: Any) -> bool:
+    """Return True only if *obj* is a Job model or a dict that structurally
+    looks like a job. Ordinary ints / strings / lists never pass."""
+    if isinstance(obj, Job):
+        return True
+    if isinstance(obj, dict):
+        return bool(_JOB_KEYS & set(obj.keys()))
+    return False
 
 
 class MatchService:
@@ -48,29 +81,64 @@ class MatchService:
 
     def analyze(
         self,
-        job_id: int,
+        job_id: Any = 0,
         job_title: str = "",
         job_location: str = "",
         jd_text: str = "",
         required_skills: Optional[List[str]] = None,
+        resume: Optional[Any] = None,
+        job: Optional[Any] = None,
     ) -> MatchAnalysis:
-        """Run full match analysis for a single job."""
+        """Run full match analysis for a single job.
+
+        Supports calling conventions:
+        - Legacy positional: analyze(101, "Title", "Location", "JD text", ["Python"])
+        - Legacy keyword: analyze(job_id=101, job_title="Title", ...)
+        - New positional: analyze(resume_obj, job_obj)
+        - New keyword: analyze(resume=resume_obj, job=job_obj)
+        """
+        # Resolve positional resume/job inputs safely via guards
+        effective_resume = resume
+        effective_job = job
+
+        if effective_resume is None and effective_job is None:
+            if _is_resume_object(job_id) and _is_job_object(job_title):
+                effective_resume = job_id
+                effective_job = job_title
+                job_id = 0
+                job_title = ""
+
+        # Coerce candidate resume cleanly without mutating self.resume
+        active_resume = self._coerce_resume(effective_resume) if effective_resume is not None else self.resume
+
+        # Extract job attributes if a job object was provided
+        if effective_job is not None:
+            jd = effective_job.model_dump() if isinstance(effective_job, Job) else (effective_job if isinstance(effective_job, dict) else {})
+            job_id = jd.get("id") or jd.get("job_id") or job_id
+            job_title = jd.get("title") or jd.get("job_title") or job_title
+            job_location = jd.get("location") or jd.get("job_location") or job_location
+            jd_text = jd.get("jd_text") or jd.get("description") or jd_text
+            required_skills = jd.get("required_skills") or required_skills
+
+        # None-resume guard: return safe result if no resume is available
+        if active_resume is None:
+            return self._empty_analysis(job_id, job_title)
+
         skills = required_skills or []
-        candidate_name = self.resume.name if self.resume else None
+        candidate_name = active_resume.name if active_resume else None
         candidate_roles = (
             self.profile.target_roles
             or self.profile.inferred_roles
-            or (self.resume.roles if self.resume else [])
+            or (active_resume.roles if active_resume else [])
         )
 
         # Detect seniority levels
-        candidate_seniority = self._detect_candidate_seniority()
+        candidate_seniority = self._detect_candidate_seniority(active_resume)
         job_seniority = SeniorityLevel.detect_from_title(job_title)
 
         # --- Component scoring ---
-
-        skill_match = self._score_skills(jd_text, skills)
-        experience_match = self._score_experience(jd_text)
+        skill_match = self._score_skills(jd_text, skills, active_resume)
+        experience_match = self._score_experience(jd_text, active_resume)
         role_match = self._score_role(job_title, candidate_roles)
         location_match = self._score_location(job_location)
         seniority_match = self._score_seniority(candidate_seniority, job_seniority)
@@ -78,20 +146,21 @@ class MatchService:
         # Seniority penalty
         seniority_penalty = SeniorityLevel.penalty(candidate_seniority, job_seniority)
 
-        # Compute weighted final score
+        # Compute weighted final score & integer clamping
         components = [skill_match, experience_match, role_match, location_match, seniority_match]
         raw_score = sum(c.score * c.weight for c in components)
         final_score = max(0, min(100, raw_score - seniority_penalty * 0.05 * 100))
+        final_score_int = max(0, min(100, int(round(final_score))))
 
         # Recommendation
-        if final_score >= 70:
+        if final_score_int >= 70:
             recommendation = "Apply"
-        elif final_score >= 50:
+        elif final_score_int >= 50:
             recommendation = "Consider"
         else:
             recommendation = "Skip"
 
-        # Skills to highlight (for email generation) -- only matched skills
+        # Skills to highlight (top 5 matched skills)
         skills_to_highlight = skill_match.matched[:5]
 
         # Matched/missing requirements
@@ -99,31 +168,33 @@ class MatchService:
         matched_reqs += [f"Role: matches {job_title}"] if role_match.score >= 50 else []
         matched_reqs += [f"Location: {job_location}"] if location_match.score >= 50 else []
         if experience_match.score >= 50:
-            matched_reqs += [f"Experience level aligned"]
+            matched_reqs += ["Experience level aligned"]
 
         missing_reqs = [f"Missing skill: {s}" for s in skill_match.missing]
-        missing_reqs += [f"Seniority gap" if seniority_penalty > 0 else ""]
+        missing_reqs += ["Seniority gap"] if seniority_penalty > 0 else []
         if role_match.score < 50:
             missing_reqs += [f"Role mismatch with {job_title}"]
         if location_match.score < 50 and location_match.score > 0:
             missing_reqs += [f"Location mismatch: {job_location}"]
-        missing_reqs = [r for r in missing_reqs if r]
 
-        # Why this score explanation
+        # Explanations & supporting evidence
         why = self._build_why_this_score(
             skill_match, experience_match, role_match,
-            location_match, seniority_match, seniority_penalty, final_score
+            location_match, seniority_match, seniority_penalty, final_score_int
         )
-
-        # Overall explanation
         explanation = (
-            f"Candidate {'matches' if final_score >= 50 else 'falls short of'} "
-            f"job requirements with a {final_score:.0f}% match. "
+            f"Candidate {'matches' if final_score_int >= 50 else 'falls short of'} "
+            f"job requirements with a {final_score_int}% match. "
             f"{len(skill_match.matched)} of {len(skills or [])} required skills matched. "
             f"Recommendation: {recommendation}."
         )
+        supporting = self._build_supporting_sentences(
+            skill_match, experience_match, role_match,
+            location_match, seniority_match, seniority_penalty,
+            job_title, job_location,
+        )
 
-        analysis = MatchAnalysis(
+        return MatchAnalysis(
             job_id=job_id,
             candidate_name=candidate_name,
             skill_match=skill_match,
@@ -131,22 +202,20 @@ class MatchService:
             role_match=role_match,
             location_match=location_match,
             seniority_match=seniority_match,
-            final_score=round(final_score, 1),
+            final_score=final_score_int,
             recommendation=recommendation,
             all_required_skills=skills,
             skills_to_highlight=skills_to_highlight,
             candidate_seniority=candidate_seniority.value if candidate_seniority else None,
             job_seniority=job_seniority.value if job_seniority else None,
             seniority_penalty=seniority_penalty,
-            estimated_experience_years=self._estimate_experience_years(),
+            estimated_experience_years=self._estimate_experience_years(active_resume),
             explanation=explanation,
             why_this_score=why,
             matched_requirements=matched_reqs,
             missing_requirements=missing_reqs,
             analyzed_at=datetime.now().isoformat(),
         )
-
-        return analysis
 
     def to_json(self, analysis: MatchAnalysis) -> str:
         """Serialize MatchAnalysis to JSON string for DB storage."""
@@ -162,13 +231,67 @@ class MatchService:
             logger.warning("Failed to parse MatchAnalysis from JSON: %s", e)
             return None
 
+    def to_schema(self, analysis: MatchAnalysis) -> SchemaMatchAnalysis:
+        """Convert rich MatchAnalysis to compact core.schemas contract."""
+        return SchemaMatchAnalysis(
+            final_score=max(0, min(100, int(round(analysis.final_score)))),
+            recommendation=analysis.recommendation,
+            explanation=analysis.explanation,
+            skills_to_highlight=list(analysis.skills_to_highlight),
+            why_this_score=analysis.why_this_score,
+            supporting_sentences=self._build_supporting_sentences(
+                analysis.skill_match,
+                analysis.experience_match,
+                analysis.role_match,
+                analysis.location_match,
+                analysis.seniority_match,
+                analysis.seniority_penalty,
+            ),
+        )
+
+    # ------------------------------------------------------------------ #
+    # Helper coercion and safe defaults
+    # ------------------------------------------------------------------ #
+
+    def _coerce_resume(self, obj: Any) -> Optional[Resume]:
+        """Coerce a ResumeParsed, Resume, or dict into a Resume instance without state mutation."""
+        if obj is None:
+            return None
+        if isinstance(obj, Resume):
+            return obj
+        if isinstance(obj, (ResumeParsed, dict)):
+            try:
+                rp = to_resume_parsed(obj) if isinstance(obj, dict) else obj
+                return Resume(**rp.model_dump())
+            except Exception:
+                if isinstance(obj, dict):
+                    return Resume(**obj)
+                return Resume(**obj.model_dump())
+        return None
+
+    def _empty_analysis(self, job_id: Any = 0, job_title: str = "") -> MatchAnalysis:
+        """Return a safe deterministic result when no candidate resume exists."""
+        return MatchAnalysis(
+            job_id=job_id,
+            final_score=0,
+            recommendation="Skip",
+            explanation="No candidate resume provided — unable to evaluate match.",
+            why_this_score="No candidate data available for scoring.",
+            skills_to_highlight=[],
+            matched_requirements=[],
+            missing_requirements=[f"Resume required for matching against {job_title}" if job_title else "Resume required"],
+            analyzed_at=datetime.now().isoformat(),
+        )
+
     # ------------------------------------------------------------------ #
     # Skill Match (40%)
     # ------------------------------------------------------------------ #
 
-    def _score_skills(self, jd_text: str, required_skills: List[str]) -> MatchComponent:
+    def _score_skills(
+        self, jd_text: str, required_skills: List[str], resume: Optional[Resume] = None
+    ) -> MatchComponent:
         """Score skill match: 40% of total."""
-        candidate_skills = self._get_candidate_skills()
+        candidate_skills = self._get_candidate_skills(resume)
         component = MatchComponent(weight=self.SKILL_WEIGHT, label="Skills Match", max_score=100)
 
         if not required_skills:
@@ -184,22 +307,17 @@ class MatchService:
 
         for skill in required_skills:
             skill_lower = skill.lower().strip()
-            # Check candidate_skills
             in_candidate = any(
                 cs.lower() == skill_lower or cs.lower().startswith(skill_lower)
                 for cs in candidate_skills
             )
-            # Also check JD text for the skill (job requires it)
             in_jd = skill_lower in jd_lower if jd_text else True
 
-            if in_candidate and in_jd:
-                matched.append(skill)
-            elif in_candidate:
+            if in_candidate or (in_candidate and in_jd):
                 matched.append(skill)
             else:
                 missing.append(skill)
 
-        # Also find skills from JD text that match candidate's skills
         for cs in candidate_skills:
             cs_lower = cs.lower()
             if cs_lower in jd_lower and cs not in matched:
@@ -223,12 +341,10 @@ class MatchService:
     # Experience Match (25%)
     # ------------------------------------------------------------------ #
 
-    def _score_experience(self, jd_text: str) -> MatchComponent:
+    def _score_experience(self, jd_text: str, resume: Optional[Resume] = None) -> MatchComponent:
         """Score experience match: 25% of total."""
         component = MatchComponent(weight=self.EXPERIENCE_WEIGHT, label="Experience Match", max_score=100)
-        candidate_years = self._estimate_experience_years()
-
-        # Extract required years from JD
+        candidate_years = self._estimate_experience_years(resume)
         req_years = self._extract_required_years(jd_text)
         jd_lower = jd_text.lower() if jd_text else ""
 
@@ -247,7 +363,6 @@ class MatchService:
                 score = max(10, 50 * (candidate_years / max(req_years, 1)))
                 details.append("Below experience requirement")
         else:
-            # No explicit requirement -- score based on having any experience
             if candidate_years >= 2:
                 score = 85
                 details.append("No specific experience requirement -- candidate has solid background")
@@ -258,7 +373,6 @@ class MatchService:
                 score = 40
                 details.append("Limited experience detected")
 
-        # Bonus for relevant keywords in experience section
         exp_buzzwords = [
             "led", "managed", "built", "designed", "developed", "architected",
             "team lead", "cross-functional", "stakeholder", "delivered",
@@ -273,10 +387,7 @@ class MatchService:
         component.score = round(score, 1)
         component.details = details
         component.matched = [f"~{candidate_years:.1f} years experience"]
-        component.missing = [] if candidate_years >= (req_years or 0) else [f"Requires ~{req_years} years"]
-        if not component.missing[0] if component.missing else True:
-            component.missing = []
-        elif req_years and candidate_years < req_years:
+        if req_years and candidate_years < req_years:
             component.missing = [f"Requires ~{req_years} years (candidate has ~{candidate_years:.1f})"]
         else:
             component.missing = []
@@ -298,9 +409,7 @@ class MatchService:
             component.weighted_score = component.score * component.weight
             return component
 
-        # Tokenize both
         job_tokens = set(re.split(r"\W+", job_lower))
-        # Remove generic tokens
         job_tokens.discard("engineer")
         job_tokens.discard("developer")
         job_tokens.discard("manager")
@@ -311,17 +420,14 @@ class MatchService:
             role_lower = role.lower()
             role_tokens = set(re.split(r"\W+", role_lower))
 
-            # Exact match
             if role_lower == job_lower:
                 best_match = 100
                 best_role = role
                 break
 
-            # Substring match
             if role_lower in job_lower or job_lower in role_lower:
                 best_match = max(best_match, 85)
 
-            # Token intersection
             overlap = job_tokens & role_tokens
             if overlap:
                 score = min(80, len(overlap) / max(len(job_tokens), 1) * 100)
@@ -329,7 +435,6 @@ class MatchService:
                     best_match = score
                     best_role = role
 
-            # Word-level partial
             role_words = set(role_lower.split())
             job_words = set(job_lower.split())
             word_overlap = role_words & job_words
@@ -391,7 +496,6 @@ class MatchService:
                     component.weighted_score = component.score * component.weight
                     return component
 
-            # Partial match (same city, different state)
             for target in target_locs:
                 target_parts = set(re.split(r"[,/\s]+", target))
                 loc_parts = set(re.split(r"[,/\s]+", loc_lower))
@@ -412,7 +516,6 @@ class MatchService:
             component.weighted_score = component.score * component.weight
             return component
 
-        # No target locations set
         component.score = 60
         component.details = [f"Location: {job_location} (no location preference set)"]
         component.weighted_score = component.score * component.weight
@@ -438,9 +541,7 @@ class MatchService:
 
         if candidate_seniority >= job_seniority:
             component.score = 100
-            component.details = [
-                f"Candidate: {candidate_seniority.value}, Job: {job_seniority.value}"
-            ]
+            component.details = [f"Candidate: {candidate_seniority.value}, Job: {job_seniority.value}"]
             component.matched = [f"Candidate {candidate_seniority.value} meets {job_seniority.value} requirement"]
         else:
             gap = list(SeniorityLevel).index(job_seniority) - list(SeniorityLevel).index(candidate_seniority)
@@ -457,19 +558,19 @@ class MatchService:
         return component
 
     # ------------------------------------------------------------------ #
-    # Helpers
+    # Internal Helpers
     # ------------------------------------------------------------------ #
 
-    def _get_candidate_skills(self) -> List[str]:
+    def _get_candidate_skills(self, resume: Optional[Resume] = None) -> List[str]:
         """Collect all candidate skills from profile and resume."""
+        active_resume = resume or self.resume
         skills = []
-        if self.resume and self.resume.skills:
-            skills.extend(self.resume.skills)
+        if active_resume and active_resume.skills:
+            skills.extend(active_resume.skills)
         if self.profile.skills:
             for cat in self.profile.skills.values():
                 if isinstance(cat, list):
                     skills.extend(cat)
-        # Deduplicate without changing order
         seen = set()
         deduped = []
         for s in skills:
@@ -478,13 +579,14 @@ class MatchService:
                 deduped.append(s)
         return deduped
 
-    def _estimate_experience_years(self) -> float:
+    def _estimate_experience_years(self, resume: Optional[Resume] = None) -> float:
         """Estimate total years of experience from resume."""
-        if self.resume and self.resume.experience:
+        active_resume = resume or self.resume
+        if active_resume and active_resume.experience:
             total = 0.0
-            for exp in self.resume.experience:
-                start = exp.get("start_date", "")
-                end = exp.get("end_date")
+            for exp in active_resume.experience:
+                start = exp.get("start_date", "") if isinstance(exp, dict) else getattr(exp, "start_date", "")
+                end = exp.get("end_date") if isinstance(exp, dict) else getattr(exp, "end_date", None)
                 start_year = self._extract_year(start)
                 if start_year:
                     end_year = self._extract_year(end) if end else datetime.now().year
@@ -492,9 +594,8 @@ class MatchService:
                         total += max(0, end_year - start_year)
             if total > 0:
                 return round(total, 1)
-        # Fallback: infer from seniority
-        if self.resume and self.resume.roles:
-            t = " ".join(self.resume.roles).lower()
+        if active_resume and active_resume.roles:
+            t = " ".join(active_resume.roles).lower()
             if "senior" in t or "staff" in t or "principal" in t:
                 return 6.0
             if "mid" in t:
@@ -517,7 +618,6 @@ class MatchService:
         return None
 
     def _extract_required_years(self, jd_text: str) -> Optional[float]:
-        """Extract minimum years of experience required from JD text."""
         if not jd_text:
             return None
         jd_lower = jd_text.lower()
@@ -533,10 +633,10 @@ class MatchService:
                 return float(match.group(1))
         return None
 
-    def _detect_candidate_seniority(self) -> Optional[SeniorityLevel]:
-        """Detect candidate seniority from resume experience."""
-        if self.resume and self.resume.roles:
-            for role in self.resume.roles:
+    def _detect_candidate_seniority(self, resume: Optional[Resume] = None) -> Optional[SeniorityLevel]:
+        active_resume = resume or self.resume
+        if active_resume and active_resume.roles:
+            for role in active_resume.roles:
                 detected = SeniorityLevel.detect_from_title(role)
                 if detected:
                     return detected
@@ -545,7 +645,7 @@ class MatchService:
                 return SeniorityLevel(self.profile.seniority)
             except ValueError:
                 pass
-        years = self._estimate_experience_years()
+        years = self._estimate_experience_years(active_resume)
         return SeniorityLevel.from_years(years) if years > 0 else None
 
     def _build_why_this_score(
@@ -556,42 +656,61 @@ class MatchService:
         location: MatchComponent,
         seniority: MatchComponent,
         penalty: int,
-        final_score: float,
+        final_score: Union[int, float],
     ) -> str:
-        """Build human-readable 'Why this score?' explanation."""
         lines = []
-
-        # Skills
         if skill.matched:
             lines.append(f"Matched {len(skill.matched)} skills ({skill.score:.0f}%): {', '.join(skill.matched[:6])}")
         if skill.missing:
             lines.append(f"Missing {len(skill.missing)} skills: {', '.join(skill.missing[:6])}")
         lines.append(f"Skill weight: 40% x {skill.score:.0f} = {skill.score * 0.40:.1f} pts")
-
-        # Experience
         lines.append(f"Experience: {experience.score:.0f}% | Weight 25% x {experience.score:.0f} = {experience.score * 0.25:.1f} pts")
-
-        # Role
         lines.append(f"Role: {role.score:.0f}% | Weight 20% x {role.score:.0f} = {role.score * 0.20:.1f} pts")
-
-        # Location
         lines.append(f"Location: {location.score:.0f}% | Weight 10% x {location.score:.0f} = {location.score * 0.10:.1f} pts")
-
-        # Seniority
         lines.append(f"Seniority: {seniority.score:.0f}% | Weight 5% x {seniority.score:.0f} = {seniority.score * 0.05:.1f} pts")
         if penalty > 0:
             lines.append(f"Seniority penalty: -{penalty * 0.05 * 100:.0f} pts (job exceeds candidate level)")
-
-        raw = sum(
-            c.score * c.weight
-            for c in [skill, experience, role, location, seniority]
-        )
+        raw = sum(c.score * c.weight for c in [skill, experience, role, location, seniority])
         lines.append(f"Raw weighted score: {raw:.1f}")
         if penalty > 0:
             lines.append(f"After penalty: {final_score:.0f}")
         lines.append(f"Final score: {final_score:.0f}")
-
         return "\n".join(lines)
+
+    def _build_supporting_sentences(
+        self,
+        skill: MatchComponent,
+        experience: MatchComponent,
+        role: MatchComponent,
+        location: MatchComponent,
+        seniority: MatchComponent,
+        penalty: int,
+        job_title: str = "",
+        job_location: str = "",
+    ) -> List[str]:
+        sentences: List[str] = []
+        if skill.matched:
+            top = ", ".join(skill.matched[:5])
+            sentences.append(f"Candidate skills overlap with job requirements: {top}.")
+        if skill.missing:
+            top_miss = ", ".join(skill.missing[:5])
+            sentences.append(f"Required skills not found in candidate profile: {top_miss}.")
+        if experience.details:
+            for d in experience.details[:2]:
+                sentences.append(d)
+        if role.matched:
+            sentences.append(f"Candidate role '{role.matched[0]}' aligns with job title '{job_title}'.")
+        elif role.score < 50 and job_title:
+            sentences.append(f"Candidate roles do not closely match '{job_title}'.")
+        if location.matched:
+            sentences.append(f"Location match: {', '.join(location.matched)}.")
+        elif location.score < 50 and job_location:
+            sentences.append(f"Location '{job_location}' does not match candidate preferences.")
+        if seniority.matched:
+            sentences.append(seniority.matched[0])
+        if penalty > 0 and seniority.missing:
+            sentences.append(seniority.missing[0])
+        return sentences
 
 
 # Singleton-like factory
