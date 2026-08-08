@@ -300,7 +300,10 @@ class ResumeParserService:
             import fitz
             doc = fitz.open(str(path))
             pages = len(doc)
-            text = "\n".join(page.get_text() for page in doc)
+            # Preserve page boundaries explicitly so downstream section detection
+            # and tests can assert content from every page. Use a clear page marker.
+            page_texts = [page.get_text() or "" for page in doc]
+            text = "\n---PAGE_BREAK---\n".join(page_texts)
             doc.close()
             if text.strip():
                 logger.info("[resume_parser] PyMuPDF extracted %d chars from %d pages", len(text), pages)
@@ -319,7 +322,10 @@ class ResumeParserService:
             import pdfplumber
             with pdfplumber.open(str(path)) as pdf:
                 pages = len(pdf.pages)
-                text = "\n".join(page.extract_text() or "" for page in pdf.pages)
+                # Preserve page markers explicitly to avoid accidental merging of
+                # page-end and next-page start which can confuse section detection.
+                page_texts = [page.extract_text() or "" for page in pdf.pages]
+                text = "\n---PAGE_BREAK---\n".join(page_texts)
             if text.strip():
                 logger.info("[resume_parser] pdfplumber extracted %d chars from %d pages", len(text), pages)
                 self.log.append(f"PDF extraction: pdfplumber succeeded ({len(text)} chars)")
@@ -510,6 +516,18 @@ class ResumeParserService:
         try:
             llm_result = self._llm_structure_sections(text, sections)
             result.update(llm_result)
+            # If LLM returned partial results (missing keys), fill them using
+            # regex-based fallbacks so we don't lose data due to LLM truncation
+            for key, fallback_fn, section_key in (
+                ("experience", self._fallback_extract_experience, "experience"),
+                ("education", self._fallback_extract_education, "education"),
+                ("projects", self._fallback_extract_projects, "projects"),
+                ("certifications", self._fallback_extract_certifications, "certifications"),
+            ):
+                if not result.get(key):
+                    result[key] = fallback_fn(sections.get(section_key, ""))
+            if not result.get("summary"):
+                result["summary"] = sections.get("summary", "")[:500]
         except Exception as e:
             logger.warning("LLM structuring failed: %s", e)
             # Fallback: regex extraction
@@ -605,6 +623,20 @@ class ResumeParserService:
                 content = content.rsplit("```", 1)[0]
             content = content.strip()
             parsed = json.loads(content)
+            # Ensure missing structured fields are populated from fallback regex
+            for key, fallback_fn, section_key in (
+                ("experience", self._fallback_extract_experience, "experience"),
+                ("education", self._fallback_extract_education, "education"),
+                ("projects", self._fallback_extract_projects, "projects"),
+                ("certifications", self._fallback_extract_certifications, "certifications"),
+            ):
+                if not parsed.get(key):
+                    parsed[key] = fallback_fn(sections.get(section_key, ""))
+
+            # Fill summary from sections if LLM returned null/empty
+            if not parsed.get("summary"):
+                parsed["summary"] = sections.get("summary", "")[:500]
+
             return parsed
         except Exception as e:
             logger.warning("LLM JSON parse failed: %s", e)
@@ -620,6 +652,17 @@ class ResumeParserService:
                 if start >= 0 and end > start:
                     content = content[start:end+1]
                     parsed = json.loads(content)
+                    # same fallback patching
+                    for key, fallback_fn, section_key in (
+                        ("experience", self._fallback_extract_experience, "experience"),
+                        ("education", self._fallback_extract_education, "education"),
+                        ("projects", self._fallback_extract_projects, "projects"),
+                        ("certifications", self._fallback_extract_certifications, "certifications"),
+                    ):
+                        if not parsed.get(key):
+                            parsed[key] = fallback_fn(sections.get(section_key, ""))
+                    if not parsed.get("summary"):
+                        parsed["summary"] = sections.get("summary", "")[:500]
                     return parsed
             except Exception:
                 pass
@@ -874,11 +917,34 @@ class ResumeParserService:
         exp = structured.get("experience", [])
         exp_conf = 0
         if len(exp) >= 1:
-            exp_conf = 85
-            confidence_score += 20
+            # compute how many experience entries have traceable evidence in the experience section
+            exp_section_text = sections.get("experience", "").lower() if sections else ""
+            def _entry_has_evidence(entry):
+                if not isinstance(entry, dict):
+                    return isinstance(entry, str) and entry.strip().lower() in exp_section_text
+                for k, v in entry.items():
+                    if isinstance(v, str) and v.strip() and v.strip().lower() in exp_section_text:
+                        return True
+                    if isinstance(v, list):
+                        for item in v:
+                            if isinstance(item, str) and item.strip() and item.strip().lower() in exp_section_text:
+                                return True
+                return False
+            found_count = sum(1 for e in exp if _entry_has_evidence(e))
+            # base confidence when entries exist
+            base_conf = 85
+            # scale confidence by fraction of entries with evidence
+            if found_count > 0:
+                exp_conf = int(base_conf * (found_count / max(1, len(exp))))
+                # award experience points proportionally to evidence-backed entries
+                confidence_score += int(20 * (found_count / max(1, len(exp))))
+            else:
+                # entries present but no textual evidence -> very low confidence
+                exp_conf = 20
+                confidence_score += 2
         elif len(exp) > 0:
-            exp_conf = 70
-            confidence_score += 10
+            exp_conf = 10
+            confidence_score += 2
         if exp_conf > 0:
             evidence["experience"] = FieldEvidence(value=exp, source="llm+regex", confidence=exp_conf)
 
@@ -886,23 +952,57 @@ class ResumeParserService:
         edu = structured.get("education", [])
         edu_conf = 0
         if len(edu) >= 1:
-            edu_conf = 85
-            confidence_score += 15
+            edu_section_text = sections.get("education", "").lower() if sections else ""
+            def _edu_has_evidence(entry):
+                if not isinstance(entry, dict):
+                    return isinstance(entry, str) and entry.strip().lower() in edu_section_text
+                for k, v in entry.items():
+                    if isinstance(v, str) and v.strip() and v.strip().lower() in edu_section_text:
+                        return True
+                    if isinstance(v, list):
+                        for item in v:
+                            if isinstance(item, str) and item.strip() and item.strip().lower() in edu_section_text:
+                                return True
+                return False
+            found_edu = sum(1 for e in edu if _edu_has_evidence(e))
+            base_conf = 85
+            if found_edu > 0:
+                edu_conf = int(base_conf * (found_edu / max(1, len(edu))))
+                confidence_score += int(15 * (found_edu / max(1, len(edu))))
+            else:
+                edu_conf = 20
+                confidence_score += 2
         elif len(edu) > 0:
-            edu_conf = 70
-            confidence_score += 7
+            edu_conf = 10
+            confidence_score += 2
         if edu_conf > 0:
             evidence["education"] = FieldEvidence(value=edu, source="llm+regex", confidence=edu_conf)
 
         # Projects validation (20 points for >= 2 entries)
         proj = structured.get("projects", [])
         proj_conf = 0
-        if len(proj) >= 2:
-            proj_conf = 90
-            confidence_score += 20
-        elif len(proj) >= 1:
-            proj_conf = 70
-            confidence_score += 10
+        if len(proj) >= 1:
+            proj_section_text = sections.get("projects", "").lower() if sections else ""
+            def _proj_has_evidence(entry):
+                if not isinstance(entry, dict):
+                    return isinstance(entry, str) and entry.strip().lower() in proj_section_text
+                for k, v in entry.items():
+                    if isinstance(v, str) and v.strip() and v.strip().lower() in proj_section_text:
+                        return True
+                    if isinstance(v, list):
+                        for item in v:
+                            if isinstance(item, str) and item.strip() and item.strip().lower() in proj_section_text:
+                                return True
+                return False
+            found_proj = sum(1 for e in proj if _proj_has_evidence(e))
+            base_conf = 90
+            if found_proj > 0:
+                proj_conf = int(base_conf * (found_proj / max(1, len(proj))))
+                # award project points proportionally (max 20)
+                confidence_score += int(20 * (found_proj / max(1, len(proj))))
+            else:
+                proj_conf = 20
+                confidence_score += 2
         if proj_conf > 0:
             evidence["projects"] = FieldEvidence(value=proj, source="llm+regex", confidence=proj_conf)
 
@@ -1098,7 +1198,7 @@ class ResumeParserService:
             confidence=confidence,
             evidence=evidence,
             parse_log=[],
-            raw_text=raw_text[:10000],
+            raw_text=raw_text,
             source_path=source_path,
             parsed_at=datetime.now().isoformat(),
         )
@@ -1160,3 +1260,51 @@ class ResumeParserService:
             except Exception as e:
                 logger.warning("[resume_parser] Failed to load cache: %s", e)
         return None
+
+    def to_canonical(self, resume: Resume):
+        """Coerce an internal Resume model into the canonical ResumeParsed schema.
+
+        This helper is intentionally tolerant: missing or None fields are
+        mapped to empty lists or None as appropriate. It preserves raw_text
+        and evidence where available and never invents missing information.
+        """
+        try:
+            from core import schemas as canonical
+        except Exception:
+            canonical = None
+
+        data = {
+            "name": resume.name,
+            "email": resume.email,
+            "phone": resume.phone,
+            "linkedin": resume.linkedin,
+            "github": resume.github,
+            "skills": resume.skills or [],
+            "skills_categorized": resume.skills_categorized or self.extract_skills_categorized(resume.skills or []),
+            "experience": resume.experience or [],
+            "projects": resume.projects or [],
+            "education": resume.education or [],
+            "certifications": resume.certifications or [],
+            "roles": resume.roles or [],
+            "quality_score": float(resume.quality_score or 0.0),
+            "confidence": float(resume.confidence or 0.0),
+            "evidence": resume.evidence,
+            "raw_text": resume.raw_text,
+            "source_path": resume.source_path,
+            "parsed_at": resume.parsed_at,
+        }
+
+        # Ensure lists are well-formed
+        for k in ("skills", "experience", "projects", "education", "certifications", "roles"):
+            if data.get(k) is None:
+                data[k] = []
+
+        if canonical:
+            try:
+                return canonical.ResumeParsed(**data)
+            except Exception as e:
+                # If validation fails, log and return a best-effort dict
+                logger.warning("[resume_parser] to_canonical validation failed: %s", e)
+                return data
+
+        return data
