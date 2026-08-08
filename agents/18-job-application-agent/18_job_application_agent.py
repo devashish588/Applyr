@@ -161,6 +161,8 @@ class JobApplicationAgent:
 
         # ── Step 2: save cover letter ──────────────────────────────────────────
         cover_letter_path = os.path.join(self.cover_letter_dir, f"{slug}.txt")
+        # Preserve original txt path in case PDF generation fails — returned as *_txt_path
+        cover_letter_txt_path = cover_letter_path
         cover_letter_text = self._format_cover_letter(
             materials.get("cover_letter", ""),
             job_data,
@@ -170,11 +172,22 @@ class JobApplicationAgent:
             with open(cover_letter_path, "w") as f:
                 f.write(cover_letter_text)
             print(f"[job_agent] Cover letter saved: {cover_letter_path}")
+            # Attempt to generate PDF version and prefer it when available
+            try:
+                from core.utils.pdf_generator import generate_cover_letter_pdf
+                cover_pdf_path = os.path.splitext(cover_letter_path)[0] + ".pdf"
+                pdf_path = generate_cover_letter_pdf(cover_letter_text, cover_pdf_path)
+                cover_letter_path = pdf_path
+                print(f"[job_agent] Cover letter PDF generated: {cover_letter_path}")
+            except Exception as e:
+                print(f"[job_agent] Cover letter PDF generation failed: {e}")
         else:
             print(f"[job_agent] DRY RUN — cover letter not saved (would be: {cover_letter_path})")
 
         # ── Step 3: save tailored resume bullets ──────────────────────────────
         tailored_resume_path = os.path.join(self.tailored_dir, f"{slug}.txt")
+        # Preserve original txt path in case PDF generation fails — returned as *_txt_path
+        tailored_resume_txt_path = tailored_resume_path
         tailored_resume_text = self._format_tailored_resume(
             materials, job_data, profile
         )
@@ -182,6 +195,15 @@ class JobApplicationAgent:
             with open(tailored_resume_path, "w") as f:
                 f.write(tailored_resume_text)
             print(f"[job_agent] Tailored resume saved: {tailored_resume_path}")
+            # Attempt to generate PDF version and prefer it when available
+            try:
+                from core.utils.pdf_generator import generate_resume_pdf
+                tailored_pdf_path = os.path.splitext(tailored_resume_path)[0] + ".pdf"
+                pdf_path = generate_resume_pdf(tailored_resume_text, tailored_pdf_path)
+                tailored_resume_path = pdf_path
+                print(f"[job_agent] Tailored resume PDF generated: {tailored_resume_path}")
+            except Exception as e:
+                print(f"[job_agent] Tailored resume PDF generation failed: {e}")
         else:
             print(f"[job_agent] DRY RUN — tailored resume not saved (would be: {tailored_resume_path})")
 
@@ -192,6 +214,8 @@ class JobApplicationAgent:
             "should_apply":         True,
             "cover_letter_path":    cover_letter_path,
             "tailored_resume_path": tailored_resume_path,
+            "cover_letter_txt_path": cover_letter_txt_path,
+            "tailored_resume_txt_path": tailored_resume_txt_path,
             "cover_letter_text":    cover_letter_text,
             "skills_to_highlight":  materials.get("skills_to_highlight", []),
             "keywords_matched":     materials.get("keywords_matched", []),
