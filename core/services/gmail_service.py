@@ -22,22 +22,41 @@ from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email import encoders
-from typing import Optional, Tuple
+from pathlib import Path
+from typing import Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
+ROOT = Path(__file__).resolve().parents[2]
 
-# State store for OAuth flow (in-memory, single-user)
-_oauth_state: Optional[str] = None
+# State store for OAuth flow (in-memory, single-user dev server)
+_oauth_sessions: Dict[str, Tuple[str, float]] = {}
+_OAUTH_SESSION_TTL_SECONDS = 600
+
+
+def _resolve_project_path(path: str) -> str:
+    p = Path(path)
+    return str(p if p.is_absolute() else ROOT / p)
+
+
+def _prune_oauth_sessions() -> None:
+    now = time.time()
+    for state, (_, created_at) in list(_oauth_sessions.items()):
+        if now - created_at > _OAUTH_SESSION_TTL_SECONDS:
+            _oauth_sessions.pop(state, None)
 
 
 class GmailService:
     """Handles Gmail OAuth, token management, and email sending."""
 
     def __init__(self):
-        self.credentials_path = os.getenv("GMAIL_CREDENTIALS_PATH", "./email/credentials.json")
-        self.token_path = os.getenv("GMAIL_TOKEN_PATH", "./email/token.json")
+        self.credentials_path = _resolve_project_path(
+            os.getenv("GMAIL_CREDENTIALS_PATH", "./email_module/credentials.json")
+        )
+        self.token_path = _resolve_project_path(
+            os.getenv("GMAIL_TOKEN_PATH", "./email_module/token.json")
+        )
         self._service = None
         self._creds = None
 
@@ -124,22 +143,27 @@ class GmailService:
     # ------------------------------------------------------------------ #
 
     def get_auth_url(self, redirect_uri: str) -> Tuple[Optional[str], Optional[str]]:
-        """Generate Google OAuth URL. Returns (url, error)."""
-        global _oauth_state
+        """Generate Google OAuth URL with explicit PKCE. Returns (url, error)."""
         try:
             from google_auth_oauthlib.flow import Flow
             flow = Flow.from_client_secrets_file(
                 self.credentials_path,
                 scopes=SCOPES,
                 redirect_uri=redirect_uri,
+                pkce="S256",
+                autogenerate_code_verifier=False,
             )
             auth_url, state = flow.authorization_url(
                 access_type="offline",
                 include_granted_scopes="true",
                 prompt="consent",
             )
-            _oauth_state = state
-            logger.info("[gmail] OAuth URL generated")
+            code_verifier = getattr(flow.oauth2session, "_code_verifier", None)
+            if not code_verifier:
+                return None, "Failed to generate OAuth PKCE verifier"
+            _prune_oauth_sessions()
+            _oauth_sessions[state] = (code_verifier, time.time())
+            logger.info("[gmail] OAuth URL generated (PKCE enabled)")
             return auth_url, None
         except Exception as e:
             logger.error("[gmail] Failed to generate auth URL: %s", e)
@@ -147,19 +171,27 @@ class GmailService:
 
     def handle_callback(self, code: str, state: str, redirect_uri: str) -> Tuple[bool, str]:
         """Handle OAuth callback — exchange code for token, store securely. Returns (success, message)."""
-        global _oauth_state
         try:
-            if _oauth_state and state != _oauth_state:
-                logger.warning("[gmail] State mismatch in OAuth callback")
-                return False, "State mismatch — possible CSRF"
+            _prune_oauth_sessions()
+            session = _oauth_sessions.pop(state, None)
+            if not session:
+                logger.warning("[gmail] State mismatch or expired session in OAuth callback")
+                return False, "OAuth session expired. Please try connecting Gmail again."
+            
+            code_verifier, _ = session
 
             from google_auth_oauthlib.flow import Flow
             flow = Flow.from_client_secrets_file(
                 self.credentials_path,
                 scopes=SCOPES,
                 redirect_uri=redirect_uri,
+                pkce="S256",
+                autogenerate_code_verifier=False,
             )
+            
+            flow.oauth2session._code_verifier = code_verifier
             flow.fetch_token(code=code)
+                
             creds = flow.credentials
 
             # Store token securely
@@ -167,7 +199,6 @@ class GmailService:
             with open(self.token_path, "w") as f:
                 f.write(creds.to_json())
 
-            _oauth_state = None
             self._creds = creds
 
             account = "Unknown"

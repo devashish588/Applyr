@@ -606,7 +606,7 @@ function filterDiscover(f) {
 }
 
 // ── Search / Pipeline ──────────────────────────────────────
-const STEP_ORDER = {init:0,discover:1,discover_done:1,parse:2,parse_done:2,score:3,score_done:3,tailor:4,tailor_done:4,email:5,email_done:5};
+const STEP_ORDER = {init:1,discover:1,discover_done:1,parse:2,parse_done:2,score:3,score_done:3,tailor:4,tailor_done:4,email:5,email_done:5};
 
 function startPipeline() {
   api('/api/email/status').then(es => {
@@ -637,7 +637,7 @@ function advancePipe(step, state, pct, count, msg) {
   const idx = STEP_ORDER[step];
   if (msg) $('actMsg').textContent = msg;
   if (pct !== undefined) $('actPct').textContent = pct+'%';
-  if (!idx) return;
+  if (idx === undefined) return;
   for (let i=1;i<=5;i++) {
     const n=$('apn'+i), l=$('apnl'+i);
     if (!n) continue;
@@ -654,17 +654,17 @@ function advancePipe(step, state, pct, count, msg) {
 function listenSSE(runId) {
   const es = new EventSource('/api/pipeline/stream/'+runId);
   const msgs = {
-    init:['searching for your next opportunity...','running'],
-    discover:['Looking through job boards...','running'],
-    discover_done:['Found <strong> matching opportunities','ok'],
-    parse:['Reading job descriptions...','running'],
-    parse_done:['Narrowed to <strong> best-fit roles','ok'],
-    score:['Scoring against your profile...','running'],
-    score_done:['Match scores <strong>ready</strong>','ok'],
-    tailor:['Tailoring your resume...','running'],
-    tailor_done:['Prepared <strong> tailored applications','ok'],
-    email:['Drafting emails...','running'],
-    email_done:['Ready to send <strong> emails','ok'],
+    init: (d) => ['Searching for your next opportunity...', 'running'],
+    discover: (d) => ['Looking through job boards...', 'running'],
+    discover_done: (d) => [`Found <strong>${d.count ?? 0}</strong> matching opportunities`, 'ok'],
+    parse: (d) => ['Reading job descriptions...', 'running'],
+    parse_done: (d) => ['Narrowed to best-fit roles', 'ok'],
+    score: (d) => ['Scoring against your profile...', 'running'],
+    score_done: (d) => ['Match scores ready', 'ok'],
+    tailor: (d) => ['Tailoring your resume...', 'running'],
+    tailor_done: (d) => ['Prepared tailored applications', 'ok'],
+    email: (d) => ['Drafting emails...', 'running'],
+    email_done: (d) => ['Ready to send emails', 'ok'],
   };
   es.onmessage = e => {
     const d = JSON.parse(e.data);
@@ -684,16 +684,15 @@ function listenSSE(runId) {
       actLog('error',`Error: ${esc(d.msg||'unknown')}`,'fail'); toast('Search error','error'); resetSearchBtn();
     } else if (d.step === 'timeout') { es.close(); toast('Stream timed out','warning'); resetSearchBtn(); }
     else if (msgs[d.step]) {
-      const [m, st] = msgs[d.step];
-      const msg = m.replace('<strong>', `<strong>${d.count||'?'} `);
-      actLog(d.step, msg, st);
+      const [m, st] = msgs[d.step](d);
+      actLog(d.step, m, st);
     }
   };
   es.onerror = () => { es.close(); toast('Connection lost','warning'); resetSearchBtn(); };
 }
 
 function resetSearchBtn() {
-  const b=$('searchBtn'); b.disabled=false; b.innerHTML='<i data-lucide="search" class="w-4 h-4"></i>Search Opportunities'; lucide.createIcons();
+  const b=$('searchBtn'); b.disabled=false; b.innerHTML='<i data-lucide="search" class="w-4 h-4"></i>Run Discovery'; lucide.createIcons();
 }
 
 // Bug 2: save a corrected company name for a flagged job, clearing needs_review.

@@ -157,10 +157,10 @@ class DBClient:
     def _init_pool(self):
         if DBClient._connection_pool is None:
             try:
-                DBClient._connection_pool = pool.SimpleConnectionPool(
-                    1, 10, dsn=self.database_url
+                DBClient._connection_pool = pool.ThreadedConnectionPool(
+                    1, 25, dsn=self.database_url
                 )
-                logger.info("[db] PostgreSQL connection pool created")
+                logger.info("[db] PostgreSQL threaded connection pool created")
             except Exception as e:
                 logger.error(f"[db] Failed to create connection pool: {e}")
                 raise

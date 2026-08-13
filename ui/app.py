@@ -20,7 +20,6 @@ from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
-load_dotenv()
 
 from flask import Flask, Response, jsonify, request, stream_with_context, render_template, send_from_directory
 from flask_cors import CORS
@@ -28,6 +27,7 @@ from werkzeug.utils import secure_filename
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
+load_dotenv(ROOT / ".env", override=True)
 
 from db.db_client import get_db
 
@@ -37,7 +37,7 @@ from core.services.gmail_service import GmailService, get_gmail_service
 from core.services.startup_service import StartupDiscoveryService
 
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": ["http://localhost:3000", "http://127.0.0.1:3000"]}})
+CORS(app, resources={r"/api/*": {"origins": ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:5173", "http://127.0.0.1:5173"]}})
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024
 app.config["UPLOAD_FOLDER"]      = os.getenv("UPLOAD_DIR", str(ROOT / "uploads"))
 app.config["SECRET_KEY"]         = os.getenv("SECRET_KEY", "dev-secret-change-me")
@@ -890,6 +890,57 @@ def api_job_detail(job_id):
     })
 
 
+# Serve job-specific assets (resume / cover letter) safely from server-side paths
+@app.route("/api/jobs/<int:job_id>/asset/<kind>")
+def api_job_asset(job_id: int, kind: str):
+    """Return an asset for a job: kind in ('resume', 'cover').
+    Looks up the job record for stored filesystem path and streams the file.
+    """
+    job = get_db().get_job_by_id(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    # Common job fields that may contain asset paths
+    candidates = [
+        job.get("tailored_resume_path"),
+        job.get("cover_letter_path"),
+        job.get("cover_letter_asset"),
+        job.get("resume_path"),
+    ]
+
+    chosen = None
+    if kind == "resume":
+        # prefer tailored resume, fall back to any resume_path
+        chosen = job.get("tailored_resume_path") or job.get("resume_path")
+    elif kind == "cover":
+        chosen = job.get("cover_letter_path") or job.get("cover_letter_asset")
+    else:
+        return jsonify({"error": "Unsupported asset kind"}), 400
+
+    if not chosen:
+        return jsonify({"error": "No asset available for this job/kind"}), 404
+
+    # Normalize and resolve relative paths
+    chosen_path = os.path.abspath(os.path.join(str(Path(__file__).parent.parent), chosen) if chosen.startswith("./") or chosen.startswith("../") else chosen)
+    if not os.path.exists(chosen_path):
+        # Try without joining if chosen was already absolute
+        if os.path.exists(chosen):
+            chosen_path = os.path.abspath(chosen)
+        else:
+            return jsonify({"error": "Asset file not found"}), 404
+
+    directory, filename = os.path.split(chosen_path)
+    if not os.path.isdir(directory):
+        return jsonify({"error": "Asset directory not found"}), 404
+
+    # Serve the file; let browser decide inline vs download based on content-type
+    try:
+        return send_from_directory(directory, filename, as_attachment=False)
+    except Exception as e:
+        logger.error(f"[app] Failed to send asset {chosen_path}: {e}")
+        return jsonify({"error": "Failed to serve asset"}), 500
+
+
 @app.route("/api/jobs/<int:job_id>/match")
 def api_job_match(job_id):
     """Return unified MatchAnalysis — single source of truth for scoring."""
@@ -1288,7 +1339,8 @@ def api_email_status():
     except Exception as e:
         logger.warning(f"[app] EmailSender error: {e}")
         resend_configured = False
-        gmail_configured = bool(os.path.exists(os.getenv("GMAIL_CREDENTIALS_PATH", "./email/credentials.json")))
+        gs = {}
+        gmail_configured = bool(os.path.exists(os.getenv("GMAIL_CREDENTIALS_PATH", "./email_module/credentials.json")))
         gmail_account = None
         gmail_status = "error"
         configured = gmail_configured
@@ -1536,13 +1588,14 @@ if __name__ == "__main__":
     else:
         logger.info("[Resend] Not configured")
 
-    logger.info("Starting server on http://localhost:5000")
+    port = int(os.getenv("FLASK_PORT", 5000))
+    logger.info("Starting server on http://localhost:%d", port)
     logger.info("=" * 50)
 
     app.run(
         debug=os.getenv("DEBUG", "true").lower() == "true",
         use_reloader=False,
         host="0.0.0.0",
-        port=int(os.getenv("FLASK_PORT", 5000)),
+        port=port,
         threaded=True,  # serve the SSE stream + UI polls + background run concurrently
     )

@@ -90,7 +90,7 @@ class OpenRouterClient:
             "Content-Type": "application/json",
         }
         # Add OpenRouter-specific headers (optional but recommended)
-        site_url = os.getenv("SITE_URL", "http://localhost:5000")
+        site_url = os.getenv("SITE_URL", "http://localhost:5173")
         site_name = os.getenv("SITE_NAME", "Applyr")
         headers["HTTP-Referer"] = site_url
         headers["X-Title"] = site_name

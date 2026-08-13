@@ -3,10 +3,17 @@ Email sender — Dual provider: Resend (primary) + Gmail API (fallback).
 
 Fixes applied:
   1. gmail_configured now checks BOTH credentials.json AND token.json exist
-  2. GMAIL_TOKEN_PATH from .env is now actually used everywhere
-  3. Added provider_status() for granular health check
-  4. Added gmail_authenticated property that validates the token
-  5. send_test() returns detailed status, not just success:false
+     (previously: credentials.json alone was treated as "configured", even
+     with OAuth never completed — this is exactly why the UI said
+     "configured" but sends silently failed)
+  2. GMAIL_TOKEN_PATH from .env is now actually used everywhere instead of
+     a hardcoded "./email/token.json" string scattered through the class
+  3. Added provider_status() for a real health check — returns granular
+     state (credentials / token / authenticated / can_send) instead of a
+     single boolean the UI can't explain
+  4. Added gmail_authenticated property that actually validates the token
+     is non-expired and refreshable, not just "the file exists"
+  5. send_test() now returns the detailed status, not just success:false
 """
 
 import base64
@@ -30,11 +37,13 @@ class EmailSender:
         self.from_email   = os.getenv("FROM_EMAIL", "")
         self.from_name    = os.getenv("FROM_NAME", "Applyr AI")
 
-        self.gmail_credentials = os.getenv("GMAIL_CREDENTIALS_PATH", "./email/credentials.json")
-        self.gmail_token_path  = os.getenv("GMAIL_TOKEN_PATH",       "./email/token.json")
+        # FIX 2: GMAIL_TOKEN_PATH from .env actually used now
+        self.gmail_credentials = os.getenv("GMAIL_CREDENTIALS_PATH", "./email_module/credentials.json")
+        self.gmail_token_path  = os.getenv("GMAIL_TOKEN_PATH",       "./email_module/token.json")
 
         self._gmail_service = None
 
+    # ── Provider readiness checks ────────────────────────────────────────────
     @property
     def resend_configured(self) -> bool:
         return bool(self.resend_key and self.from_email)
@@ -49,10 +58,21 @@ class EmailSender:
 
     @property
     def gmail_configured(self) -> bool:
+        """
+        FIX 1: requires BOTH the OAuth client file AND a completed token.
+        credentials.json alone means OAuth was never finished — sends
+        would fail at _ensure_gmail_service() with a confusing error,
+        or worse, silently try to open a browser on a headless server.
+        """
         return self.gmail_credentials_exist and self.gmail_token_exists
 
     @property
     def gmail_authenticated(self) -> bool:
+        """
+        Stronger check than gmail_configured — actually loads the token
+        and verifies it's valid or refreshable, not just present on disk.
+        A token.json can exist but be expired with a dead refresh_token.
+        """
         if not self.gmail_configured:
             return False
         try:
@@ -76,7 +96,11 @@ class EmailSender:
         return self.resend_configured or self.gmail_configured
 
     def provider_status(self) -> dict:
-        """Granular health check for the Settings page."""
+        """
+        FIX 3: granular health check for the Settings page / dashboard.
+        Replaces the old binary "configured: true/false" that hid exactly
+        which step (credentials vs token vs auth) was actually missing.
+        """
         resend_ready = self.resend_configured
         gmail_creds  = self.gmail_credentials_exist
         gmail_token  = self.gmail_token_exists
@@ -104,7 +128,8 @@ class EmailSender:
             },
         }
 
-    def send(self, to: str, subject: str, body: str, attachments: list | None = None) -> bool:
+    # ── Sending ───────────────────────────────────────────────────────────────
+    def send(self, to: str, subject: str, body: str, attachments: list[str] | None = None) -> bool:
         if not to:
             logger.error("[email] No recipient address — cannot send")
             return False
@@ -119,7 +144,7 @@ class EmailSender:
             f"[email] No provider ready. Resend configured={status['resend']['configured']}, "
             f"Gmail credentials={status['gmail']['credentials']}, "
             f"Gmail token={status['gmail']['token']}. "
-            "Set RESEND_API_KEY, or complete Gmail OAuth."
+            "Set RESEND_API_KEY, or complete Gmail OAuth (run send_test() once interactively)."
         )
         return False
 
@@ -127,12 +152,14 @@ class EmailSender:
         try:
             import resend
             resend.api_key = self.resend_key
+
             params = {
                 "from": f"{self.from_name} <{self.from_email}>",
                 "to": [to],
                 "subject": subject,
                 "text": body,
             }
+
             if attachments:
                 from resend import Attachment
                 atts = []
@@ -145,6 +172,7 @@ class EmailSender:
                             ))
                 if atts:
                     params["attachments"] = atts
+
             response = resend.Emails.send(params)
             logger.info(f"[email] Sent via Resend to {to}: {response.get('id', 'OK')}")
             return True
@@ -189,6 +217,7 @@ class EmailSender:
             from google_auth_oauthlib.flow import InstalledAppFlow
             import googleapiclient.discovery
 
+            # FIX 2: use self.gmail_token_path everywhere, not a hardcoded string
             creds = None
             if os.path.exists(self.gmail_token_path):
                 creds = Credentials.from_authorized_user_file(self.gmail_token_path, SCOPES)
@@ -205,9 +234,14 @@ class EmailSender:
             logger.error(f"[email] Gmail auth failed: {e}")
 
     def send_test(self, to: str | None = None) -> dict:
-        """Send a test email — returns full provider_status() for diagnostics."""
+        """
+        Send a test email to verify the provider is working.
+        FIX 5: now returns full provider_status() so failures are
+        diagnosable from the response alone, not just success:false.
+        """
         recipient = to or self.from_email or "test@example.com"
         status_before = self.provider_status()
+
         success = self.send(
             to=recipient,
             subject="Applyr — Test Email",
@@ -217,6 +251,7 @@ class EmailSender:
                 "— Applyr"
             ),
         )
+
         return {
             "success": success,
             "to": recipient,
