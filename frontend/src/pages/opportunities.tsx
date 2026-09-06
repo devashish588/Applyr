@@ -1,11 +1,13 @@
-import { useState } from "react"
-import { Briefcase, GripVertical, MoreHorizontal } from "lucide-react"
+import { useState, useEffect } from "react"
+import { Briefcase, GripVertical, MoreHorizontal, ChevronDown, Clock, FileText, User } from "lucide-react"
 import { Spinner } from "@/components/ui"
-import { motion, AnimatePresence } from "framer-motion"
+import { AnimatePresence } from "framer-motion"
 import { Topbar } from "@/components/layout/topbar"
-import { useJobs, useUpdateJobCompany } from "@/hooks/use-jobs"
+import { useJobs, useUpdateJobCompany, usePrioritizedJobs } from "@/hooks/use-jobs"
 import { Button, Badge, Tooltip, Modal, Input, EmptyState } from "@/components/ui"
 import { cn, sanitizeCompany, scoreColor, statusLabel } from "@/lib/utils"
+import { fetchApplications, fetchApplicationTimeline } from "@/api/applications"
+import { fetchInterviews, fetchFollowUps } from "@/api/interviews"
 import type { Job } from "@/types/api"
 
 const COLUMNS = [
@@ -18,8 +20,11 @@ const COLUMNS = [
 type ColumnKey = (typeof COLUMNS)[number]["key"]
 
 export default function OpportunitiesPage() {
+  const [sortBy, setSortBy] = useState<"priority" | "score" | "freshness">("priority")
   const { data: jobs, isLoading } = useJobs()
+  const { data: prioritized } = usePrioritizedJobs(sortBy === "priority")
   const updateCompany = useUpdateJobCompany()
+  const displayJobs = sortBy === "priority" && prioritized ? prioritized.map((p: any) => ({ ...p.job, priority: p.priority, baseline_analysis: p.baseline_analysis })) : jobs
 
   // Local status override map (client-side kanban movement)
   const [statusOverrides, setStatusOverrides] = useState<Record<number, ColumnKey>>({})
@@ -34,9 +39,16 @@ export default function OpportunitiesPage() {
     return "found"
   }
 
+  const sortedJobs = (() => {
+    const list = [...(displayJobs || [])]
+    if (sortBy === "score") list.sort((a: any, b: any) => (b.fit_score || 0) - (a.fit_score || 0))
+    if (sortBy === "freshness") list.sort((a: any, b: any) => new Date((b as any).last_seen_at || b.discovered_at || b.scraped_at || 0).getTime() - new Date((a as any).last_seen_at || a.discovered_at || a.scraped_at || 0).getTime())
+    return list
+  })()
+
   const buckets: Record<ColumnKey, Job[]> = { found: [], draft: [], ready: [], sent: [] }
-  for (const job of jobs || []) {
-    buckets[getStatus(job)].push(job)
+  for (const job of sortedJobs || []) {
+    buckets[getStatus(job as Job)].push(job as Job)
   }
 
   const changeStatus = (id: number, next: ColumnKey) => {
@@ -56,6 +68,11 @@ export default function OpportunitiesPage() {
   return (
     <>
       <Topbar title="Applications" icon={<Briefcase className="h-5 w-5" />} />
+      <div className="flex gap-2 px-4 pt-2">
+        <Button size="sm" variant={sortBy === "priority" ? "primary" : "ghost"} onClick={() => setSortBy("priority")}>Priority</Button>
+        <Button size="sm" variant={sortBy === "score" ? "primary" : "ghost"} onClick={() => setSortBy("score")}>Match Score</Button>
+        <Button size="sm" variant={sortBy === "freshness" ? "primary" : "ghost"} onClick={() => setSortBy("freshness")}>Freshness</Button>
+      </div>
       <div className="flex-1 overflow-y-auto p-4">
         {isLoading ? (
           <div className="flex h-full items-center justify-center text-text-muted">
@@ -92,7 +109,7 @@ function Board({
   draggingId: number | null
   setDraggingId: (id: number | null) => void
   overColumn: ColumnKey | null
-  setOverColumn: (c: ColumnKey | null) => void
+  setOverColumn: (value: React.SetStateAction<ColumnKey | null>) => void
   onDrop: (target: ColumnKey) => void
   onEditCompany: (args: { jobId: number; company: string }) => void
 }) {
@@ -203,6 +220,9 @@ function BoardCard({
   onEditCompany: () => void
 }) {
   const score = job.fit_score || 0
+  const priority: any = (job as any).priority
+  const [showEvidence, setShowEvidence] = useState(false)
+  const [showTimeline, setShowTimeline] = useState(false)
   return (
     <div
       draggable
@@ -219,6 +239,17 @@ function BoardCard({
           <div className="flex items-center gap-1.5">
             <span className="truncate text-[12px] font-semibold text-text-primary">{sanitizeCompany(job.company)}</span>
             {job.needs_review === 1 && <Badge variant="amber" className="px-1 py-0 text-[9px]">?</Badge>}
+            {priority && (
+              <Tooltip content={priority.explanation || priority.tier} side="top">
+                <Badge variant={priority.tier === "HOT" ? "accent" : priority.tier === "WARM" ? "amber" : priority.tier === "COLD" ? "neutral" : "outline"} className="px-1 py-0 text-[9px]">{priority.tier}</Badge>
+              </Tooltip>
+            )}
+            {(job as any).freshness_state && (
+              <Tooltip content={`Freshness: ${(job as any).freshness_state} — scraped ${job.scraped_at ? new Date(job.scraped_at).toLocaleDateString() : "unknown"}`} side="top">
+                <Badge variant={(job as any).freshness_state === "STALE" ? "neutral" : (job as any).freshness_state === "AGING" ? "amber" : (job as any).freshness_state === "NEW" ? "accent" : "outline"} className="px-1 py-0 text-[9px]">{(job as any).freshness_state}</Badge>
+              </Tooltip>
+            )}
+            {(job as any).is_duplicate && <Badge variant="outline" className="px-1 py-0 text-[9px]">duplicate</Badge>}
           </div>
           <div className="truncate text-[13px] text-text-secondary">{job.title || "Role"}</div>
         </div>
@@ -232,6 +263,139 @@ function BoardCard({
         <span className={cn("text-[11px] font-bold", scoreColor(score))}>{score}%</span>
         <Badge variant={job.needs_review === 1 ? "amber" : "neutral"}>{statusLabel(job.status || "found")}</Badge>
       </div>
+      <a href={`/studio/${job.id}`} onClick={(e)=>e.stopPropagation()} className="mt-1 block rounded bg-accent py-1 text-center text-[10px] font-medium text-white">Studio</a>
+      <button onClick={() => setShowTimeline(!showTimeline)} className="mt-1 flex w-full items-center justify-center gap-1 rounded bg-bg-secondary py-1 text-[10px] text-text-muted hover:text-text-primary">Timeline</button>
+      {showTimeline && <ApplicationDetailPanel jobId={job.id} />}
+      <button onClick={() => setShowEvidence(!showEvidence)} className="mt-2 flex w-full items-center justify-center gap-1 rounded bg-bg-secondary py-1 text-[10px] text-text-muted hover:text-text-primary">
+        <ChevronDown className={cn("h-3 w-3 transition", showEvidence && "rotate-180")} /> {showEvidence ? "Hide" : "Evidence"}
+      </button>
+      {showEvidence && <MatchEvidencePanel jobId={job.id} />}
+    </div>
+  )
+}
+
+function TimelinePanel({ jobId }: { jobId: number }) {
+  const [events, setEvents] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    fetchApplicationTimeline(jobId)
+      .then((data) => { setEvents(data); setLoading(false) })
+      .catch(() => setLoading(false))
+  }, [jobId])
+  if (loading) return <div className="mt-2 text-[10px] text-text-muted">Loading timeline…</div>
+  if (events.length === 0) return <div className="mt-2 text-[10px] text-text-muted">No events yet</div>
+  const eventIcon = (type: string) => {
+    if (type.includes("submitted") || type.includes("applied")) return <Clock className="h-3 w-3 text-green" />
+    if (type.includes("note")) return <FileText className="h-3 w-3 text-accent" />
+    return <User className="h-3 w-3 text-text-muted" />
+  }
+  return (
+    <div className="mt-2 space-y-1 rounded border border-border bg-bg-secondary p-2">
+      {events.map((ev, i) => (
+        <div key={ev.id || i} className="flex items-start gap-2 text-[10px]">
+          {eventIcon(ev.event_type)}
+          <div className="min-w-0 flex-1">
+            <span className="font-medium text-text-secondary">{ev.event_type}</span>
+            <span className="ml-1 text-text-muted">by {ev.actor || "user"}</span>
+            {ev.timestamp && <div className="text-[9px] text-text-muted">{new Date(ev.timestamp).toLocaleString()}</div>}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ApplicationDetailPanel({ jobId }: { jobId: number }) {
+  const [app, setApp] = useState<any>(null)
+  const [timeline, setTimeline] = useState<any[]>([])
+  const [interviews, setInterviews] = useState<any[]>([])
+  const [followUps, setFollowUps] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    Promise.all([
+      fetchApplications().then((apps:any[])=> apps.find((a:any)=> a.job_id===jobId) || null).catch(()=>null),
+      fetchApplicationTimeline(jobId).catch(()=>[]),
+    ]).then(async ([foundApp, tl])=>{
+      if (foundApp) {
+        setApp(foundApp)
+        setTimeline(tl)
+        try { setInterviews(await fetchInterviews(foundApp.id)) } catch {}
+        try { setFollowUps(await fetchFollowUps(foundApp.id)) } catch {}
+      } else {
+        setTimeline(tl)
+      }
+      setLoading(false)
+    })
+  }, [jobId])
+  if (loading) return <div className="mt-2 text-[10px] text-text-muted">Loading application…</div>
+  if (!app) return <TimelinePanel jobId={jobId} />
+  const nextAction: Record<string,string> = {
+    PREPARING: "Complete preparation",
+    READY_TO_APPLY: "Apply now",
+    APPLIED: "Follow up after 5–7 days",
+    SCREENING: "Await screening — Prepare for interview",
+    INTERVIEW: "Prepare technical interview",
+    FINAL: "Prepare final interview",
+    OFFER: "Review offer",
+    CLOSED: `Closed — ${app.current_state} ${timeline.find((e:any)=>e.event_type==="closed")?.payload || ""}`,
+  }
+  return (
+    <div className="mt-2 space-y-2 rounded border border-border bg-bg-secondary p-2">
+      <div className="flex items-center justify-between text-[10px]">
+        <span className="font-semibold text-text-primary">{app.current_state}</span>
+        <span className="text-text-muted">Next: {nextAction[app.current_state] || "—"}</span>
+      </div>
+      <div className="space-y-1">
+        {timeline.slice(-5).map((ev:any,i:number)=>(
+          <div key={ev.id||i} className="flex items-center gap-2 text-[10px] text-text-muted">
+            <Clock className="h-3 w-3" /> {ev.event_type} <span className="text-[9px]">{ev.timestamp ? new Date(ev.timestamp).toLocaleDateString() : ""}</span>
+          </div>
+        ))}
+      </div>
+      {interviews.length>0 && <div className="text-[10px]">Interviews: {interviews.map((iv:any)=>`${iv.stage} ${iv.status}`).join(", ")}</div>}
+      {followUps.length>0 && <div className="text-[10px]">Follow-ups: {followUps.map((f:any)=>`${f.follow_up_type} ${f.status}`).join(", ")}</div>}
+      <div className="flex gap-1">
+        <a href={`/studio/${jobId}`} className="rounded bg-accent px-2 py-1 text-[10px] text-white">Interview Prep</a>
+        <button onClick={()=> fetch(`/api/applications/${app.id}/interview-prep`).then(r=>r.json()).then(j=> alert(JSON.stringify(j.prep?.kit?.behavioral_questions?.[0] || j.prep || "No prep")))} className="rounded border border-border px-2 py-1 text-[10px]">Prep</button>
+      </div>
+    </div>
+  )
+}
+
+function MatchEvidencePanel({ jobId }: { jobId: number }) {
+  const [data, setData] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    fetch(`/api/jobs/${jobId}/match`)
+      .then((r) => r.json())
+      .then((j) => {
+        setData(j.match_result || j.match || null)
+        setLoading(false)
+      })
+      .catch(() => setLoading(false))
+  }, [jobId])
+  if (loading) return <div className="mt-2 text-[10px] text-text-muted">Loading evidence…</div>
+  if (!data) return <div className="mt-2 text-[10px] text-text-muted">No evidence</div>
+  const rows: Array<{ label: string; evals: any[] }> = [
+    { label: "Skills", evals: data.requirement_evaluations || [] },
+    { label: "Experience", evals: data.experience_evaluations || [] },
+    { label: "Role", evals: data.role_evaluations || [] },
+    { label: "Location", evals: data.location_evaluations || [] },
+    { label: "Seniority", evals: data.seniority_evaluations || [] },
+  ]
+  return (
+    <div className="mt-2 space-y-1 rounded border border-border bg-bg-secondary p-2">
+      {rows.map((row) => {
+        const status = row.evals.length === 0 ? "NO_REQUIREMENT" : row.evals[0]?.status || "UNKNOWN"
+        const color = status === "satisfied" || status === "SATISFIED" ? "text-green" : status === "missing" || status === "MISSING" ? "text-amber" : "text-text-muted"
+        return (
+          <div key={row.label} className="flex items-center justify-between text-[10px]">
+            <span className="font-medium text-text-secondary">{row.label}</span>
+            <span className={cn("rounded px-1.5 py-0.5 text-[9px] font-semibold", color, status === "UNKNOWN" ? "bg-bg-tertiary" : "bg-bg")}>{status}</span>
+          </div>
+        )
+      })}
+      <div className="pt-1 text-[9px] text-text-muted">Evidence: {data.requirement_evaluations?.[0]?.relationship_type || data.experience_evaluations?.[0]?.evidence_source || "provenance preserved"}</div>
     </div>
   )
 }

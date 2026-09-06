@@ -1,0 +1,14 @@
+[
+  {"candidate": "JUNIOR", "candidate_source": "explicit", "job": "JUNIOR", "relationship": "EXACT", "status": "SATISFIED"},
+  {"candidate": "MID", "candidate_source": "explicit", "job": "MID", "relationship": "EXACT", "status": "SATISFIED"},
+  {"candidate": "SENIOR", "candidate_source": "explicit", "job": "SENIOR", "relationship": "EXACT", "status": "SATISFIED"},
+  {"candidate": "MID", "candidate_source": "explicit", "job": "SENIOR", "relationship": "LOWER_THAN_REQUIRED", "status": "MISSING"},
+  {"candidate": "SENIOR", "candidate_source": "explicit", "job": "JUNIOR", "relationship": "HIGHER_THAN_REQUIRED", "status": "SATISFIED"},
+  {"candidate": "STAFF", "candidate_source": "explicit", "job": "SENIOR", "relationship": "HIGHER_THAN_REQUIRED", "status": "SATISFIED"},
+  {"candidate": null, "candidate_source": "unknown", "job": "SENIOR", "relationship": "UNKNOWN", "status": "UNKNOWN"},
+  {"candidate": "SENIOR", "candidate_source": "inferred", "job": "SENIOR", "relationship": "UNKNOWN", "status": "UNKNOWN"},
+  {"candidate": "SENIOR", "candidate_source": "explicit", "job": null, "relationship": "AMBIGUOUS", "status": "UNKNOWN"},
+  {"candidate": "SENIOR", "candidate_source": "explicit", "job": "LEAD", "relationship": "UNKNOWN", "status": "UNKNOWN"},
+  {"candidate": "SENIOR", "candidate_source": "explicit", "job": "MANAGER", "relationship": "UNKNOWN", "status": "UNKNOWN"},
+  {"candidate": "SENIOR", "candidate_source": "explicit", "job": "Senior/Staff", "relationship": "MULTI_LEVEL", "status": "UNKNOWN"}
+]

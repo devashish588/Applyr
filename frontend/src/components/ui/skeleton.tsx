@@ -2,7 +2,6 @@ import { cn } from "@/lib/utils"
 
 interface SkeletonProps {
   className?: string
-  as?: keyof JSX.IntrinsicElements
   lines?: number
   width?: string
 }

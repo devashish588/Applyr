@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Mail, Send, Check, X, Edit3, ChevronDown, ChevronUp } from "lucide-react"
+import { Mail, Send, Check, ChevronDown, ChevronUp } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { Topbar } from "@/components/layout/topbar"
 import { useEmailDrafts, useSendEmails, useSendTestEmail } from "@/hooks/use-emails"
@@ -19,7 +19,7 @@ export default function InboxPage() {
   const toggleApproval = (id: number) => {
     setApproved((prev) => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) next.delete(id); else next.add(id)
       return next
     })
   }

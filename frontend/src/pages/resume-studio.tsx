@@ -1,11 +1,11 @@
 import { useCallback, useMemo, useRef, useState } from "react"
-import { Wand2, Upload, FileText, Shield, Zap, BookOpen, GraduationCap, Code, Award, Sparkles, Lightbulb, TrendingUp } from "lucide-react"
+import { Wand2, Upload, FileText, Shield, Zap, BookOpen, GraduationCap, Code, Sparkles } from "lucide-react"
 import { motion } from "framer-motion"
 import { Topbar } from "@/components/layout/topbar"
 import { useResumeStatus, useParsedResume, useResumeSkills, useResumeExperience, useResumeEducation, useResumeHealth, useUploadResume } from "@/hooks/use-resume"
 import { useJobs } from "@/hooks/use-jobs"
 import { useAnalytics } from "@/hooks/use-dashboard"
-import { Card, Badge, EmptyState } from "@/components/ui"
+import { Badge } from "@/components/ui"
 import { cn } from "@/lib/utils"
 
 export default function ResumeStudioPage() {
@@ -44,7 +44,7 @@ export default function ResumeStudioPage() {
   ] : []
 
   const { data: jobs } = useJobs()
-  const { data: analytics } = useAnalytics()
+  useAnalytics()
 
   // Aggregate missing skills across all jobs → AI keyword suggestions
   const missingSkills = useMemo(() => {
@@ -66,7 +66,6 @@ export default function ResumeStudioPage() {
   }, [jobs])
 
   const currentSkills = useMemo(() => new Set((skills as string[]) || []), [skills])
-  const suggestionGap = missingSkills.length
 
   return (
     <>

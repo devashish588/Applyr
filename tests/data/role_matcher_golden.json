@@ -1,0 +1,12 @@
+[
+  {"candidate": "Backend Engineer", "job": "Backend Engineer", "relationship": "EXACT", "status": "SATISFIED"},
+  {"candidate": "Software Engineer", "job": "Software Developer", "relationship": "ALIAS", "status": "SATISFIED"},
+  {"candidate": "ML Engineer", "job": "Machine Learning Engineer", "relationship": "ALIAS", "status": "SATISFIED"},
+  {"candidate": "Data Analyst", "job": "Data Scientist", "relationship": "TRANSFERABLE", "status": "SATISFIED"},
+  {"candidate": "Frontend Developer", "job": "Backend Developer", "relationship": "NONE", "status": "MISSING"},
+  {"candidate": "Product Manager", "job": "Software Engineer", "relationship": "NONE", "status": "MISSING"},
+  {"candidate": null, "job": "Backend Engineer", "relationship": "NONE", "status": "UNKNOWN"},
+  {"candidate": "Backend Engineer", "job": null, "relationship": "NONE", "status": "UNKNOWN"},
+  {"candidate_history": ["Product Manager","Backend Engineer"], "job": "Backend Engineer", "relationship": "EXACT", "status": "SATISFIED"},
+  {"candidate": "Engineer", "job": "Software Engineer", "relationship": "NONE", "status": "MISSING", "note": "no wildcard Engineer==Engineer"}
+]

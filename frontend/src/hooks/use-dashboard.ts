@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { fetchAnalytics, fetchSystemStatus, fetchEmailStatus } from "@/api/dashboard"
+import { fetchAnalytics, fetchSystemStatus, fetchEmailStatus, fetchOutcomeOverview, fetchOutcomeInsights } from "@/api/dashboard"
 import { fetchResumeStatus } from "@/api/resume"
 
 export function useAnalytics() {
@@ -22,6 +22,22 @@ export function useEmailStatus() {
   return useQuery({
     queryKey: ["emailStatus"],
     queryFn: fetchEmailStatus,
+  })
+}
+
+export function useOutcomeOverview() {
+  return useQuery({
+    queryKey: ["outcomeOverview"],
+    queryFn: fetchOutcomeOverview,
+    refetchInterval: 30000,
+  })
+}
+
+export function useOutcomeInsights() {
+  return useQuery({
+    queryKey: ["outcomeInsights"],
+    queryFn: fetchOutcomeInsights,
+    refetchInterval: 30000,
   })
 }
 

@@ -1,0 +1,129 @@
+[
+  {
+    "id": "all_satisfied",
+    "candidate": {"skills": ["Python", "Docker"], "experience_years": 4, "role": "Backend Engineer", "location": "Bangalore", "seniority": "SENIOR", "seniority_origin": "EXPLICIT_USER"},
+    "job": {"experience": "3+ years", "role": "Backend Engineer", "location": "Bangalore", "seniority": "SENIOR"},
+    "expected": {"skills": "SATISFIED", "experience": "SATISFIED", "role": "SATISFIED", "location": "SATISFIED", "seniority": "SATISFIED"}
+  },
+  {
+    "id": "skill_missing",
+    "candidate": {"skills": ["Python"], "experience_years": 4, "role": "Backend Engineer", "location": "Bangalore", "seniority": "SENIOR"},
+    "job": {"required_skills": ["Python", "Kubernetes"], "experience": "3+ years", "role": "Backend Engineer", "location": "Bangalore", "seniority": "SENIOR"},
+    "expected": {"skills": "MISSING", "experience": "SATISFIED", "role": "SATISFIED", "location": "SATISFIED", "seniority": "SATISFIED"}
+  },
+  {
+    "id": "experience_missing",
+    "candidate": {"skills": ["Python"], "experience_years": 1, "role": "Backend Engineer", "location": "Bangalore", "seniority": "SENIOR"},
+    "job": {"experience": "3+ years", "role": "Backend Engineer", "location": "Bangalore", "seniority": "SENIOR"},
+    "expected": {"experience": "MISSING"}
+  },
+  {
+    "id": "role_missing",
+    "candidate": {"role": "Frontend Engineer", "skills": ["Python"], "experience_years": 4, "location": "Bangalore", "seniority": "SENIOR"},
+    "job": {"role": "Backend Engineer", "experience": "3+ years", "location": "Bangalore", "seniority": "SENIOR"},
+    "expected": {"role": "MISSING"}
+  },
+  {
+    "id": "location_missing",
+    "candidate": {"location": "Mumbai", "skills": ["Python"], "experience_years": 4, "role": "Backend Engineer", "seniority": "SENIOR"},
+    "job": {"location": "Bangalore", "experience": "3+ years", "role": "Backend Engineer", "seniority": "SENIOR"},
+    "expected": {"location": "MISSING"}
+  },
+  {
+    "id": "seniority_missing",
+    "candidate": {"seniority": "MID", "seniority_origin": "EXPLICIT_USER", "skills": ["Python"], "experience_years": 4, "role": "Backend Engineer", "location": "Bangalore"},
+    "job": {"seniority": "SENIOR", "experience": "3+ years", "role": "Backend Engineer", "location": "Bangalore"},
+    "expected": {"seniority": "MISSING"}
+  },
+  {
+    "id": "multiple_unknown",
+    "candidate": {"provenance": "UNDETERMINED"},
+    "job": {"experience": "up to 5 years", "role": "Backend Engineer", "location": "Bangalore", "seniority": "SENIOR"},
+    "expected": {"experience": "UNKNOWN", "role": "UNKNOWN", "location": "UNKNOWN", "seniority": "UNKNOWN"}
+  },
+  {
+    "id": "unknown_vs_missing",
+    "candidate": {"skills": [], "provenance": "UNDETERMINED"},
+    "job": {"required_skills": ["Python"]},
+    "expected": {"skills": "UNKNOWN"},
+    "contrast": {"skills_provenance_determined_empty": "MISSING"}
+  },
+  {
+    "id": "skill_alias",
+    "candidate": {"skills": ["postgres"], "experience_years": 4, "role": "Backend Engineer", "location": "Bangalore", "seniority": "SENIOR"},
+    "job": {"required_skills": ["PostgreSQL"], "experience": "3+ years", "role": "Backend Engineer", "location": "Bangalore", "seniority": "SENIOR"},
+    "expected": {"skills": "SATISFIED", "relationship": "ALIAS"}
+  },
+  {
+    "id": "role_alias",
+    "candidate": {"role": "Software Engineer", "skills": ["Python"], "experience_years": 4, "location": "Bangalore", "seniority": "SENIOR"},
+    "job": {"role": "Software Developer", "experience": "3+ years", "location": "Bangalore", "seniority": "SENIOR"},
+    "expected": {"role": "SATISFIED", "relationship": "ALIAS"}
+  },
+  {
+    "id": "remote_compatible",
+    "candidate": {"location": "Remote", "remote_ok": true, "skills": ["Python"], "experience_years": 4, "role": "Backend Engineer", "seniority": "SENIOR"},
+    "job": {"location": "Remote", "remote_type": "remote", "experience": "3+ years", "role": "Backend Engineer", "seniority": "SENIOR"},
+    "expected": {"location": "SATISFIED", "relationship": "REMOTE_COMPATIBLE"}
+  },
+  {
+    "id": "explicit_seniority",
+    "candidate": {"seniority": "SENIOR", "seniority_origin": "EXPLICIT_USER", "skills": ["Python"], "experience_years": 4, "role": "Backend Engineer", "location": "Bangalore"},
+    "job": {"seniority": "SENIOR"},
+    "expected": {"seniority": "SATISFIED"}
+  },
+  {
+    "id": "inferred_seniority_unknown",
+    "candidate": {"seniority": "SENIOR", "seniority_origin": "INFERRED", "skills": ["Python"], "experience_years": 4, "role": "Backend Engineer", "location": "Bangalore"},
+    "job": {"seniority": "SENIOR"},
+    "expected": {"seniority": "UNKNOWN"}
+  },
+  {
+    "id": "authoritative_empty",
+    "candidate": {"skills": [], "provenance": "DETERMINED_EMPTY"},
+    "job": {"required_skills": ["Python"]},
+    "expected": {"skills": "MISSING"}
+  },
+  {
+    "id": "jd_no_experience",
+    "candidate": {"skills": ["Python"], "experience_years": 4, "role": "Backend Engineer", "location": "Bangalore", "seniority": "SENIOR"},
+    "job": {"jd_text": "We are hiring a Backend Engineer. Great team.", "experience": null},
+    "expected": {"experience": "UNKNOWN"}
+  },
+  {
+    "id": "jd_no_role_signal",
+    "candidate": {"role": "Backend Engineer", "skills": ["Python"], "experience_years": 4, "location": "Bangalore", "seniority": "SENIOR"},
+    "job": {"title": null, "jd_text": "We need someone.", "role": null},
+    "expected": {"role": "UNKNOWN"}
+  },
+  {
+    "id": "jd_no_location_signal",
+    "candidate": {"location": "Bangalore", "skills": ["Python"], "experience_years": 4, "role": "Backend Engineer", "seniority": "SENIOR"},
+    "job": {"location": null, "jd_text": "Backend role."},
+    "expected": {"location": "UNKNOWN"}
+  },
+  {
+    "id": "jd_no_seniority_signal",
+    "candidate": {"seniority": "SENIOR", "seniority_origin": "EXPLICIT_USER", "skills": ["Python"], "experience_years": 4, "role": "Backend Engineer", "location": "Bangalore"},
+    "job": {"seniority": null, "jd_text": "Backend role."},
+    "expected": {"seniority": "UNKNOWN"}
+  },
+  {
+    "id": "source_unavailable",
+    "candidate": {"provenance": "SOURCE_UNAVAILABLE"},
+    "job": {"provenance": "SOURCE_UNAVAILABLE"},
+    "expected": {"skills": "UNKNOWN", "experience": "UNKNOWN", "role": "UNKNOWN", "location": "UNKNOWN", "seniority": "UNKNOWN"}
+  },
+  {
+    "id": "extraction_failed",
+    "candidate": {"provenance": "EXTRACTION_FAILED"},
+    "job": {"provenance": "EXTRACTION_FAILED"},
+    "expected": {"skills": "UNKNOWN", "experience": "UNKNOWN"}
+  },
+  {
+    "id": "authoritative_no_requirement",
+    "candidate": {"skills": ["Python"], "experience_years": 4, "role": "Backend Engineer", "location": "Bangalore", "seniority": "SENIOR"},
+    "job": {"no_requirement": true},
+    "expected": {"experience": "NO_REQUIREMENT"}
+  }
+]

@@ -4,7 +4,7 @@ import ReactDOM from "react-dom"
 import { AnimatePresence, motion } from "framer-motion"
 import {
   Home, Compass, Briefcase, Wand2, Users, Mail, BarChart3, Settings,
-  CornerDownLeft, Rocket, Search, ArrowRight, X,
+  CornerDownLeft, Rocket, Search, ArrowRight, X, Bot, GraduationCap,
 } from "lucide-react"
 import { useLayoutStore } from "@/store/layout-store"
 import { cn } from "@/lib/utils"
@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils"
 interface Command {
   label: string
   group: string
-  icon: React.ReactNode
+  icon: string
   hint?: string
   path?: string
   action?: () => void
@@ -46,6 +46,9 @@ export function CommandPalette() {
       { label: "Applications", group: "Navigate", icon: "kanban", path: "/opportunities", action: go("/opportunities") },
       { label: "Pipeline", group: "Navigate", icon: "rocket", path: "/pipeline", action: go("/pipeline") },
       { label: "Resume Studio", group: "Navigate", icon: "wand", path: "/resume", action: go("/resume") },
+      { label: "Career Copilot", group: "Navigate", icon: "bot", path: "/copilot", action: go("/copilot") },
+      { label: "Interview Prep", group: "Navigate", icon: "graduation", path: "/interview", action: go("/interview") },
+      { label: "Application Studio", group: "Navigate", icon: "wand", path: "/studio/1", action: go("/studio/1") },
       { label: "Networking", group: "Navigate", icon: "users", path: "/network", action: go("/network") },
       { label: "Inbox", group: "Navigate", icon: "mail", path: "/inbox", action: go("/inbox") },
       { label: "Analytics", group: "Navigate", icon: "analytics", path: "/analytics", action: go("/analytics") },
@@ -59,6 +62,7 @@ export function CommandPalette() {
     wand: <Wand2 className="h-4 w-4" />, users: <Users className="h-4 w-4" />,
     mail: <Mail className="h-4 w-4" />, analytics: <BarChart3 className="h-4 w-4" />,
     settings: <Settings className="h-4 w-4" />, search: <Search className="h-4 w-4" />,
+    bot: <Bot className="h-4 w-4" />, graduation: <GraduationCap className="h-4 w-4" />,
   }
 
   const filtered = query.trim()
@@ -70,7 +74,7 @@ export function CommandPalette() {
   const handleKey = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") { e.preventDefault(); setActiveIdx((i) => Math.min(i + 1, filtered.length - 1)) }
     if (e.key === "ArrowUp") { e.preventDefault(); setActiveIdx((i) => Math.max(i - 1, 0)) }
-    if (e.key === "Enter") { e.preventDefault(); filtered[activeIdx] && onSelect(filtered[activeIdx]) }
+    if (e.key === "Enter") { e.preventDefault(); if (filtered[activeIdx]) onSelect(filtered[activeIdx]) }
   }
 
   return ReactDOM.createPortal(

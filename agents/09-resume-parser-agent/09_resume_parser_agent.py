@@ -83,12 +83,12 @@ class ResumeParserAgent:
             "total_pages": self._count_pages(path),
             "sections_detected": list(sections.keys()),
             "sections_missing": self._find_missing_sections(sections),
-            "confidence": self._compute_confidence(structured),
             "parse_log": self.parse_log,
             "raw_text": raw_text[:12000],
             "source_path": str(resume_path),
             "parsed_at": datetime.now().isoformat(),
         }
+        structured["confidence"] = self._compute_confidence(structured)
         return structured
 
     # ── Multi-engine text extraction ───────────────────────────────────────

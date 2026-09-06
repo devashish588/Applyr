@@ -26,6 +26,14 @@ export interface Job {
   match_details_json: string | null
   needs_review: number | null
   required_skills?: string[]
+  canonical_id?: string | null
+  last_seen_at?: string | null
+  source_url_canonical?: string | null
+  source_reliability?: string | null
+  is_duplicate_of?: string | null
+  is_duplicate?: boolean | null
+  canonical_job_id?: string | null
+  freshness_state?: string | null
 }
 
 export interface MatchDetails {
@@ -265,3 +273,57 @@ export interface RunLog {
   status: string
   summary_json: string | null
 }
+
+export interface CopilotRequest {
+  message: string
+  history?: { role: string; content: string }[]
+  job_id?: number
+}
+
+export interface CopilotResponse {
+  success: boolean
+  message: string
+  suggestions?: string[]
+  action_type?: string
+  error?: string
+}
+
+export interface BehavioralQuestion {
+  question: string
+  category: string
+  star_guidance: string
+}
+
+export interface TechnicalQuestion {
+  question: string
+  topic: string
+  expected_answer_outline: string
+}
+
+export interface InterviewPrepKit {
+  behavioral_questions: BehavioralQuestion[]
+  technical_questions: TechnicalQuestion[]
+  talking_points: string[]
+  company_insights: string
+}
+
+export interface InterviewPrepResponse {
+  success: boolean
+  prep: InterviewPrepKit
+  error?: string
+}
+
+export interface InterviewEvaluation {
+  score: number
+  feedback: string
+  strengths: string[]
+  areas_for_improvement: string[]
+  sample_improved_answer: string
+}
+
+export interface InterviewEvalResponse {
+  success: boolean
+  evaluation: InterviewEvaluation
+  error?: string
+}
+

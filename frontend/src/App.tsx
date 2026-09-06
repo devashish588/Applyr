@@ -10,6 +10,11 @@ import NetworkingPage from "@/pages/networking"
 import InboxPage from "@/pages/inbox"
 import AnalyticsPage from "@/pages/analytics"
 import SettingsPage from "@/pages/settings"
+import CopilotPage from "@/pages/copilot"
+import InterviewPage from "@/pages/interview"
+import StudioPage from "@/pages/studio"
+import JobDetailPage from "@/pages/job-detail"
+import ApplicationDetailPage from "@/pages/application-detail"
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -32,6 +37,11 @@ export default function App() {
             <Route path="/opportunities" element={<OpportunitiesPage />} />
             <Route path="/pipeline" element={<PipelinePage />} />
             <Route path="/resume" element={<ResumeStudioPage />} />
+            <Route path="/copilot" element={<CopilotPage />} />
+            <Route path="/interview" element={<InterviewPage />} />
+            <Route path="/studio/:jobId" element={<StudioPage />} />
+            <Route path="/jobs/:jobId" element={<JobDetailPage />} />
+            <Route path="/applications/:appId" element={<ApplicationDetailPage />} />
             <Route path="/network" element={<NetworkingPage />} />
             <Route path="/inbox" element={<InboxPage />} />
             <Route path="/analytics" element={<AnalyticsPage />} />
@@ -42,3 +52,4 @@ export default function App() {
     </QueryClientProvider>
   )
 }
+

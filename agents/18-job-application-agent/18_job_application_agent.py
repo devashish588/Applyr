@@ -30,10 +30,17 @@ import argparse
 import json
 import os
 import re
+import sys
 from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+# Ensure project root is in sys.path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 from langchain_core.messages import HumanMessage, SystemMessage
 from utils.llm_client import get_llm
 

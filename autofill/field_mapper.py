@@ -52,32 +52,53 @@ class FieldMapper:
             
             "city": personal.get("city", ""),
             "location": personal.get("city", ""),
-            
+            "address": personal.get("city", ""),
+
             "pincode": personal.get("pincode", ""),
             "zipcode": personal.get("pincode", ""),
             "zip": personal.get("pincode", ""),
             "postalCode": personal.get("pincode", ""),
             "postal_code": personal.get("pincode", ""),
+
+            # Greenhouse / Lever / Ashby specific field selectors & attributes
+            "job_application[first_name]": personal.get("name", "").split()[0] if personal.get("name") else "",
+            "job_application[last_name]": personal.get("name", "").split()[-1] if personal.get("name") else "",
+            "job_application[email]": personal.get("email", ""),
+            "job_application[phone]": personal.get("phone", ""),
+            "job_application[location]": personal.get("city", ""),
+            "urls[LinkedIn]": personal.get("linkedin", ""),
+            "urls[GitHub]": personal.get("github", ""),
+            "urls[Portfolio]": personal.get("portfolio", ""),
         }
-    
+
     def get_field_value(self, field_name: str) -> str:
-        """Get profile value for field name."""
-        return self.field_mapping.get(field_name, "")
-    
+        """Get profile value for field name with fuzzy key matching."""
+        if field_name in self.field_mapping:
+            return self.field_mapping[field_name]
+
+        # Fuzzy match on normalized field name
+        norm = field_name.lower().replace("-", "_").replace(" ", "_")
+        for key, val in self.field_mapping.items():
+            if key.lower().replace("-", "_") in norm or norm in key.lower().replace("-", "_"):
+                return val
+
+        return ""
+
     def detect_and_map_fields(self, form_labels: list) -> Dict[str, str]:
         """
         Detect form fields and return mapped values.
-        
+
         Args:
-            form_labels: List of form field labels/names
-        
+            form_labels: List of form field labels/names/selectors
+
         Returns:
             Dict mapping field names to profile values
         """
         mapped = {}
         for field in form_labels:
-            value = self.get_field_value(field)
+            value = self.get_field_value(str(field))
             if value:
                 mapped[field] = value
-        
+
         return mapped
+

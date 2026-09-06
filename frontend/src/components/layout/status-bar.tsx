@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 
 export function StatusBar() {
   const navigate = useNavigate()
-  const { isRunning, currentStep, currentPct, currentMsg, events, error } = usePipelineStore()
+  const { isRunning, currentPct, currentMsg, events, error } = usePipelineStore()
 
   const status = error ? { icon: XCircle, color: "text-red", label: "Error" }
     : isRunning ? { icon: Loader2, color: "text-accent-sub", label: "Running" }

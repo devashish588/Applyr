@@ -14,7 +14,6 @@ import json
 import logging
 import os
 import re
-import subprocess
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -26,21 +25,54 @@ logger = logging.getLogger(__name__)
 
 
 def _get_llm():
-    """Get configured LLM (OpenRouter primary, Groq fallback)."""
+    """Get configured LLM through AIGateway (OpenRouter primary, Groq fallback)."""
     from core.services.llm_service import get_llm_client
     try:
         client = get_llm_client()
-        if client.available:
+        if hasattr(client, 'available') and client.available:
             return client
-    except RuntimeError:
+        # _AIGatewayWrapper is always available (gateway handles provider cascade)
+        return client
+    except Exception:
         pass
-    # Last-resort fallback: LangChain Groq
-    groq_key = os.getenv("GROQ_API_KEY", "")
-    if groq_key and groq_key != "gsk_xxxxxxxxxxxxx":
-        from langchain_groq import ChatGroq
-        return ChatGroq(model="llama-3.1-8b-instant", temperature=0)
-    from langchain_groq import ChatGroq
-    return ChatGroq(model="llama-3.1-8b-instant", temperature=0)
+    # Last-resort fallback: route through AIGateway with Groq preference
+    from core.ai.gateway import get_ai_gateway
+    from core.ai.schemas import AIRequest
+
+    class _GatewayFallback:
+        """Minimal LangChain-compatible wrapper routing through AIGateway."""
+        def invoke(self, messages, **kwargs):
+            gateway = get_ai_gateway()
+            normalized = []
+            if isinstance(messages, list):
+                for m in messages:
+                    if hasattr(m, 'type') and hasattr(m, 'content'):
+                        role = getattr(m, 'type', 'user')
+                        if role == 'human':
+                            role = 'user'
+                        elif role == 'ai':
+                            role = 'assistant'
+                        normalized.append({"role": role, "content": str(getattr(m, 'content', ''))})
+                    elif isinstance(m, dict):
+                        normalized.append(m)
+                    else:
+                        normalized.append({"role": "user", "content": str(m)})
+            else:
+                normalized = [{"role": "user", "content": str(messages)}]
+            req = AIRequest(
+                task="resume_parser_fallback",
+                messages=normalized,
+                provider_preference="groq",
+                temperature=0,
+            )
+            res = gateway.generate(req)
+
+            class _Resp:
+                def __init__(self, text):
+                    self.content = text
+            return _Resp(res.text)
+
+    return _GatewayFallback()
 
 
 SECTION_HEADERS = re.compile(

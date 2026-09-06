@@ -17,15 +17,15 @@ export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChan
   const end = Math.min(total, page * pageSize)
 
   const seen = new Set<number>()
-  const items: (number | "ellipsis")[] = []
+  const items: number[] = []
   const add = (p: number) => { if (!seen.has(p)) { seen.add(p); items.push(p) } }
   add(1); add(pages)
   for (let p = page - 1; p <= page + 1; p++) if (p > 1 && p < pages) add(p)
-  items.sort((a, b) => (a === "ellipsis" ? -1 : b === "ellipsis" ? 1 : a - b))
+  items.sort((a, b) => a - b)
 
   const rendered: ("ellipsis" | number)[] = []
   for (let i = 0; i < items.length; i++) {
-    if (i > 0 && typeof items[i] === "number" && typeof items[i - 1] === "number" && items[i] - (items[i - 1] as number) > 1) {
+    if (i > 0 && items[i] - items[i - 1] > 1) {
       rendered.push("ellipsis")
     }
     rendered.push(items[i])

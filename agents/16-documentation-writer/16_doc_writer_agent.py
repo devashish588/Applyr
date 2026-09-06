@@ -12,12 +12,22 @@ Usage:
 import argparse
 import ast
 import os
+import sys
+
+# Ensure project root is in sys.path
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 from dotenv import load_dotenv
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
 
 load_dotenv()
+
+
+def _get_llm(temperature: float = 0.0):
+    """Get LLM through AIGateway instead of direct provider calls."""
+    from utils.llm_client import get_llm
+    return get_llm(temperature=temperature)
 
 
 def extract_structure(code: str) -> str:
@@ -81,20 +91,20 @@ Return the complete updated Python file with docstrings added."""
 
 
 def generate_readme(code: str, filename: str) -> str:
-    llm = ChatOpenAI(model="gpt-4o", temperature=0)
+    llm = _get_llm(temperature=0)
     structure = extract_structure(code)
     messages = [
-        SystemMessage(content=README_PROMPT),
-        HumanMessage(content=f"File: {filename}\n\nCode structure:\n{structure}\n\nFull code:\n```python\n{code[:3000]}\n```"),
+        {"role": "system", "content": README_PROMPT},
+        {"role": "user", "content": f"File: {filename}\n\nCode structure:\n{structure}\n\nFull code:\n```python\n{code[:3000]}\n```"},
     ]
     return llm.invoke(messages).content
 
 
 def add_docstrings(code: str, filename: str) -> str:
-    llm = ChatOpenAI(model="gpt-4o", temperature=0)
+    llm = _get_llm(temperature=0)
     messages = [
-        SystemMessage(content=DOCSTRING_PROMPT),
-        HumanMessage(content=f"Add docstrings to this Python file ({filename}):\n\n```python\n{code}\n```"),
+        {"role": "system", "content": DOCSTRING_PROMPT},
+        {"role": "user", "content": f"Add docstrings to this Python file ({filename}):\n\n```python\n{code}\n```"},
     ]
     result = llm.invoke(messages).content
     # Clean markdown fences
@@ -151,6 +161,9 @@ class UserValidator:
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
     parser = argparse.ArgumentParser(description="Documentation Writer Agent")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--file", help="Python file to document")

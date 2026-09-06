@@ -1,0 +1,16 @@
+[
+  {"id": "strong_fresh", "match": {"required_satisfied": 3, "required_missing": 0, "unknown": 0}, "freshness": "fresh", "expected_tier": "HOT"},
+  {"id": "strong_stale", "match": {"required_satisfied": 3, "required_missing": 0, "unknown": 0}, "freshness": "stale", "expected_tier": "WARM"},
+  {"id": "weaker_fresh", "match": {"required_satisfied": 2, "required_missing": 0, "unknown": 0}, "freshness": "fresh", "expected_tier": "WARM"},
+  {"id": "unknown_2", "match": {"unknown": 2}, "expected_tier": "REVIEW"},
+  {"id": "required_missing", "match": {"required_missing": 1}, "expected_tier": "COLD"},
+  {"id": "required_missing_plus_unknown", "match": {"required_missing": 1, "unknown": 2}, "expected_tier": "REVIEW"},
+  {"id": "seniority_lower", "match": {"seniority": "LOWER"}, "expected_tier": "COLD"},
+  {"id": "preferred_missing", "match": {"preferred_missing": 1}, "expected_tier": "WARM"},
+  {"id": "experience_missing", "match": {"experience": "MISSING"}, "expected_tier": "WARM"},
+  {"id": "unparseable", "match": {"unparseable": 1}, "expected_tier": "REVIEW"},
+  {"id": "empty_evaluation", "match": {"empty": true}, "expected_tier": "WARM"},
+  {"id": "recruiter_available", "match": {"required_satisfied": 2, "unknown": 0}, "recruiter": true, "expected_tier": "WARM", "note": "recruiter tie-breaker only"},
+  {"id": "deterministic_tie", "match": {"required_satisfied": 3}, "discovered": ["2024-01-02", "2024-01-01"], "expected_order": "desc"},
+  {"id": "legacy_preserved", "match": {"fit_score": 85}, "expected_tier": "HOT", "note": "legacy preserved"}
+]

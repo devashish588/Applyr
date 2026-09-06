@@ -16,17 +16,23 @@ export function Tooltip({ content, children, side = "top", delay = 200, classNam
   const [rect, setRect] = useState<DOMRect | null>(null)
   const [coords, setCoords] = useState<{ x: number; y: number } | null>(null)
 
-  const show = (e: React.MouseEvent<HTMLElement>) => {
+  const show = (el: HTMLElement) => {
     if (disabled) return
-    const el = e.currentTarget.getBoundingClientRect()
-    setRect(el)
-    setTimeout(() => setCoords({ x: el.left + el.width / 2, y: el.top }), delay)
+    const r = el.getBoundingClientRect()
+    setRect(r)
+    setTimeout(() => setCoords({ x: r.left + r.width / 2, y: r.top }), delay)
     setTimeout(() => setOpen(true), delay)
   }
   const hide = () => {
     setOpen(false)
     setCoords(null)
   }
+
+  const onMouseEnter = () => show(document.getElementById(tagId) as HTMLElement)
+  const onMouseLeave = () => hide()
+  const onFocus = (e: React.FocusEvent) => show(e.currentTarget as HTMLElement)
+  const onBlur = () => hide()
+  const tagId = `tt-${Math.random().toString(36).slice(2, 8)}`
 
   const placements: Record<string, React.CSSProperties> = {
     top: { left: (rect?.left || 0) + (rect?.width || 0) / 2, top: (rect?.top || 0) - 8, transform: "translate(-50%, -100%)" },
@@ -35,7 +41,7 @@ export function Tooltip({ content, children, side = "top", delay = 200, classNam
     right: { left: (rect?.right || 0) + 8, top: (rect?.top || 0) + (rect?.height || 0) / 2, transform: "translate(0, -50%)" },
   }
 
-  const tooltip = open && coords ? (
+  const tooltip = open ? (
     ReactDOM.createPortal(
       <div
         className={cn(
@@ -43,7 +49,7 @@ export function Tooltip({ content, children, side = "top", delay = 200, classNam
           className
         )}
         style={placements[side]}
-        key={coords.x}
+        key={coords?.x}
       >
         {content}
       </div>,
@@ -52,7 +58,7 @@ export function Tooltip({ content, children, side = "top", delay = 200, classNam
   ) : null
 
   return (
-    <span className="inline-flex" onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide}>
+    <span id={tagId} className="inline-flex" onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave} onFocus={onFocus} onBlur={onBlur}>
       {children}
       {tooltip}
     </span>

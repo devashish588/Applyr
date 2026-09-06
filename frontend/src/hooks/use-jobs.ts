@@ -26,3 +26,14 @@ export function useUpdateJobCompany() {
     },
   })
 }
+
+export function usePrioritizedJobs(enabled: boolean) {
+  return useQuery({
+    queryKey: ["jobs-prioritized"],
+    queryFn: async () => {
+      const { fetchPrioritizedJobs } = await import("@/api/jobs")
+      return fetchPrioritizedJobs()
+    },
+    enabled,
+  })
+}

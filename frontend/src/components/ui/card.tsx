@@ -24,26 +24,35 @@ export function Card({ children, className, interactive, onClick }: CardProps) {
 }
 
 interface CardHeaderProps {
-  title: string
+  title?: string
   subtitle?: string
   action?: ReactNode
   icon?: ReactNode
+  children?: ReactNode
   className?: string
 }
 
-export function CardHeader({ title, subtitle, action, icon, className }: CardHeaderProps) {
+export function CardHeader({ title, subtitle, action, icon, children, className }: CardHeaderProps) {
+  if (children) {
+    return <div className={cn("flex items-center justify-between border-b border-border px-4 py-3", className)}>{children}</div>
+  }
+
   return (
     <div className={cn("flex items-center justify-between border-b border-border px-4 py-3", className)}>
       <div className="flex min-w-0 items-center gap-2">
         {icon}
         <div className="min-w-0">
-          <h3 className="truncate text-[13px] font-semibold text-text-primary">{title}</h3>
+          {title && <h3 className="truncate text-[13px] font-semibold text-text-primary">{title}</h3>}
           {subtitle && <p className="truncate text-[11px] text-text-muted">{subtitle}</p>}
         </div>
       </div>
       {action}
     </div>
   )
+}
+
+export function CardTitle({ children, className }: { children: ReactNode; className?: string }) {
+  return <h3 className={cn("text-[13px] font-semibold text-text-primary", className)}>{children}</h3>
 }
 
 interface CardBodyProps {
@@ -54,4 +63,8 @@ interface CardBodyProps {
 
 export function CardBody({ children, className, padded = true }: CardBodyProps) {
   return <div className={cn(padded ? "p-4" : "", className)}>{children}</div>
+}
+
+export function CardContent({ children, className }: { children: ReactNode; className?: string }) {
+  return <div className={cn("p-4", className)}>{children}</div>
 }

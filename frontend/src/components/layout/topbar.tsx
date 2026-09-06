@@ -1,4 +1,4 @@
-import { Upload, UserPlus, MailPlus, Search, Loader2, FileText, Command } from "lucide-react"
+import { UserPlus, MailPlus, Search, Loader2, FileText, Command } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { usePipeline } from "@/hooks/use-pipeline"
 import { useLayoutStore } from "@/store/layout-store"

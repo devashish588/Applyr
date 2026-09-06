@@ -3,9 +3,10 @@ import { motion } from "framer-motion"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, LineChart, Line } from "recharts"
 import { Topbar } from "@/components/layout/topbar"
 import { StatCard } from "@/components/dashboard/stat-card"
-import { Card, CardBody, Badge, EmptyState } from "@/components/ui"
-import { useAnalytics } from "@/hooks/use-dashboard"
+import { Badge } from "@/components/ui"
+import { useAnalytics, useOutcomeOverview, useOutcomeInsights } from "@/hooks/use-dashboard"
 import type { Analytics } from "@/types/api"
+import { Link } from "react-router-dom"
 
 const COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"]
 
@@ -28,7 +29,7 @@ function buildWeeklyTrend(analytics?: Analytics | null) {
 }
 
 export default function AnalyticsPage() {
-  const { data: analytics, isLoading } = useAnalytics()
+  const { data: analytics } = useAnalytics()
 
   const sourceData = analytics?.applications_by_source
     ? Object.entries(analytics.applications_by_source).map(([name, value]) => ({ name, value: value as number }))
@@ -240,8 +241,48 @@ export default function AnalyticsPage() {
               )}
             </div>
           </div>
+
+          {/* Outcome Learning — lightweight path from Outcome → Analytics */}
+          <div className="mt-4 rounded-lg border border-border bg-surface p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Outcome Analytics — Learning</span>
+              <Link to="/opportunities" className="text-xs text-accent hover:underline">View applications →</Link>
+            </div>
+            <OutcomeLearningMini />
+          </div>
         </motion.div>
       </div>
     </>
+  )
+}
+
+function OutcomeLearningMini() {
+  const overview = useOutcomeOverview()
+  const insights = useOutcomeInsights()
+  const funnel = overview.data?.funnel
+  if (overview.isLoading) return <div className="h-16 animate-shimmer rounded" />
+  if (!funnel || funnel.applications_started === 0) return <p className="text-sm text-text-muted">Not enough data yet — complete applications to see learning</p>
+  const rates = [
+    { label: "Applications", val: funnel.applications_started },
+    { label: "Screenings", val: funnel.screening_count },
+    { label: "Interviews", val: funnel.interview_count },
+    { label: "Offers", val: funnel.offer_count },
+    { label: "Accepted", val: funnel.accepted_count },
+  ]
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-5 gap-2">
+        {rates.map(r => (
+          <div key={r.label} className="rounded bg-bg-secondary p-2 text-center">
+            <div className="text-[10px] text-text-muted">{r.label}</div>
+            <div className="font-mono text-sm font-bold">{r.val}</div>
+          </div>
+        ))}
+      </div>
+      <div className="text-xs text-text-muted">
+        {insights.data?.insights?.length ? `Top insight: ${insights.data.insights[0].segment} — ${Math.round((insights.data.insights[0].interview_rate||0)*100)}% interview rate` : "Collect more data for insights"}
+      </div>
+      <Link to="/analytics" className="text-xs text-accent">Outcome → Analytics</Link>
+    </div>
   )
 }

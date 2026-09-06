@@ -1,0 +1,16 @@
+[
+  {"candidate": "Bangalore", "job": "Bangalore", "relationship": "EXACT", "status": "SATISFIED"},
+  {"candidate": "Bengaluru", "job": "Bangalore", "relationship": "CITY_ALIAS", "status": "SATISFIED"},
+  {"candidate": "Mumbai", "job": "Pune", "relationship": "NONE", "status": "MISSING"},
+  {"candidate": "Bangalore, India", "job": "Bangalore, India", "relationship": "EXACT", "status": "SATISFIED"},
+  {"candidate": "Bangalore", "job": "Bangalore / Hyderabad", "relationship": "EXACT", "status": "SATISFIED"},
+  {"candidate": "Hyderabad", "job": "Bangalore / Hyderabad", "relationship": "EXACT", "status": "SATISFIED"},
+  {"candidate": "Bangalore", "job": "Bangalore OR Hyderabad", "relationship": "EXACT", "status": "SATISFIED"},
+  {"candidate": "Bangalore", "job": "Bangalore | Hyderabad", "relationship": "EXACT", "status": "SATISFIED"},
+  {"candidate_remote": "REMOTE", "job_remote": "remote", "relationship": "REMOTE_COMPATIBLE", "status": "SATISFIED"},
+  {"candidate_remote": "REMOTE", "job_remote": "hybrid", "relationship": "NONE", "status": "UNKNOWN"},
+  {"candidate": null, "job": "Bangalore", "relationship": "NONE", "status": "UNKNOWN"},
+  {"candidate": "Bangalore", "job": null, "relationship": "NONE", "status": "UNKNOWN"},
+  {"candidate": "Bangalore", "job": "!!!", "relationship": "NONE", "status": "UNKNOWN"},
+  {"candidate": null, "job": null, "status": "NO_REQUIREMENT"}
+]

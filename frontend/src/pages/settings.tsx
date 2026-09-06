@@ -1,4 +1,4 @@
-import { Settings as SettingsIcon, Check, X, ExternalLink, Send, RefreshCw } from "lucide-react"
+import { Settings as SettingsIcon, Check, X, ExternalLink, Send } from "lucide-react"
 import { motion } from "framer-motion"
 import { Topbar } from "@/components/layout/topbar"
 import { useConfig, useSetupStatus, useGmailStatus } from "@/hooks/use-settings"
@@ -13,7 +13,7 @@ export default function SettingsPage() {
   const { data: setup } = useSetupStatus()
   const { data: email } = useEmailStatus()
   const { data: status } = useSystemStatus()
-  const { data: gmail } = useGmailStatus()
+  useGmailStatus()
   const testMutation = useSendTestEmail()
   const [testTo, setTestTo] = useState("")
 

@@ -1,5 +1,6 @@
 import { useState } from "react"
-import { Compass, Star, MapPin, ExternalLink, Mail as MailIcon } from "lucide-react"
+import { Link } from "react-router-dom"
+import { Compass, Star, MapPin, ExternalLink } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { Topbar } from "@/components/layout/topbar"
 import { useJobs, useJobDetail } from "@/hooks/use-jobs"
@@ -125,7 +126,17 @@ function JobCard({ job, index, isSelected, onSelect }: { job: Job; index: number
           <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{job.location || "Remote"}</span>
           <span>·</span>
           <span>{job.source || "web"}</span>
+          {(job as any).freshness_state && (
+            <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", (job as any).freshness_state === "STALE" ? "bg-surface text-text-muted border border-border" : (job as any).freshness_state === "AGING" ? "bg-amber-bg text-amber" : (job as any).freshness_state === "NEW" ? "bg-accent-bg text-accent-sub" : "bg-surface text-text-muted")}>
+              {(job as any).freshness_state}
+            </span>
+          )}
+          {(job as any).is_duplicate && <span className="rounded border border-border px-1.5 py-0.5 text-[10px]">duplicate→{(job as any).canonical_job_id}</span>}
           {job.hr_email && <span className="rounded bg-green-bg px-1.5 py-0.5 text-[10px] font-medium text-green">Contact found</span>}
+        </div>
+        <div className="mt-2 flex gap-1">
+          <Link to={`/jobs/${job.id}`} onClick={e=>e.stopPropagation()} className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-surface">View details →</Link>
+          <Link to={`/studio/${job.id}`} onClick={e=>e.stopPropagation()} className="rounded bg-accent px-2 py-0.5 text-[10px] text-white">Prepare</Link>
         </div>
         {isBest && matchedSkills.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1">
@@ -141,6 +152,7 @@ function JobCard({ job, index, isSelected, onSelect }: { job: Job; index: number
           <span className={cn("rounded px-2 py-0.5 text-[11px] font-medium", statusColor(job.status || "found"))}>
             {statusLabel(job.status || "found")}
           </span>
+          <a href={`/studio/${job.id}`} onClick={(e)=>{e.stopPropagation()}} className="ml-auto rounded bg-accent px-2 py-0.5 text-[11px] font-medium text-white">Studio</a>
         </div>
       </div>
     </motion.div>
@@ -187,12 +199,7 @@ function JobDetailPanel({ job, match, onClose }: { job: Job; match: MatchDetails
     }
   }
 
-  const CompanyMark = ({ name }: { name?: string }) => {
-    const mark = (name || "?").trim().split(" ").map(s => s[0]).slice(0,2).join('').toUpperCase()
-    return (<div style={{ width: 56, height: 56, borderRadius: 12, background: 'var(--accent)', color: 'white', display: 'grid', placeItems: 'center', fontWeight: 700 }}>{mark}</div>)
-  }
-
-  const jdText = (job.jd_text || job.description || job.title || '').toString()
+  const jdText = (job.jd_text || (job as any).description || job.title || '').toString()
   const extractHighlights = (text: string) => {
     if (!text) return { keywords: [] as string[], sentences: [] as string[] }
     const stop = new Set(['the','and','or','a','an','to','for','with','of','in','on','that','as','is','are','be','by','at','from'])
@@ -268,10 +275,10 @@ function JobDetailPanel({ job, match, onClose }: { job: Job; match: MatchDetails
               </div>
             ) : (
               <div>
-                {job.cover_letter_path || job.cover_letter_asset ? (
+                {job.cover_letter_path ? (
                   <div>
                     <div className="mb-3">Cover letter available</div>
-                    <a href={assetHref(`/api/jobs/${job.id}/asset/cover`)} target="_blank" rel="noopener noreferrer" download={filenameFrom(job.cover_letter_path || job.cover_letter_asset)} className="rounded-md bg-accent px-3 py-1 text-white">Download cover letter</a>
+                    <a href={assetHref(`/api/jobs/${job.id}/asset/cover`)} target="_blank" rel="noopener noreferrer" download={filenameFrom(job.cover_letter_path)} className="rounded-md bg-accent px-3 py-1 text-white">Download cover letter</a>
                   </div>
                 ) : (
                   <div>
@@ -279,13 +286,13 @@ function JobDetailPanel({ job, match, onClose }: { job: Job; match: MatchDetails
                     <div className="text-[13px] mb-3">Suggested short cover (copy & paste):</div>
                     <div className="rounded border border-border p-3 text-[13px] text-text-primary bg-surface">
                       <div style={{ marginBottom: 8 }}><strong>Dear Hiring Manager,</strong></div>
-                      <div style={{ marginBottom: 8 }}>{match?.summary || 'I am excited to apply for this role.'}</div>
+                      <div style={{ marginBottom: 8 }}>{match?.explanation || 'I am excited to apply for this role.'}</div>
                       <div style={{ marginBottom: 8 }}>Key fit: {(match?.skills_to_highlight || []).slice(0,4).join(', ')}</div>
                       <div>Best regards,</div>
                       <div>Your name</div>
                     </div>
                     <div className="mt-3 flex gap-2">
-                      <button onClick={() => navigator.clipboard?.writeText((match?.summary || '') + '\n\n' + ((match?.skills_to_highlight||[]).slice(0,4).join(', ')))} className="rounded-md border border-border px-3 py-2">Copy</button>
+                      <button onClick={() => navigator.clipboard?.writeText((match?.explanation || '') + '\n\n' + ((match?.skills_to_highlight||[]).slice(0,4).join(', ')))} className="rounded-md border border-border px-3 py-2">Copy</button>
                       <button onClick={startGeneratePackage} disabled={generating} className="rounded-md bg-purple-600 px-3 py-2 text-white">Generate package</button>
                     </div>
                   </div>

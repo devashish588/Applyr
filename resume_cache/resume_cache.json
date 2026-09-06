@@ -1,114 +1,93 @@
 {
-  "name": "E-COMMERCE ACCOUNT",
-  "email": "siddarthb2003@gmail.com",
-  "phone": "7024638099",
+  "name": "Alice Example",
+  "email": null,
+  "phone": null,
   "location": "",
-  "linkedin": "https://linkedin.com/in/siddarth-bose-",
-  "github": null,
+  "linkedin": null,
+  "github": "https://github.com/example",
   "portfolio": "",
   "skills": [
     "R",
     "Git",
-    "Excel"
+    "GitHub"
   ],
   "skills_categorized": {
     "languages": [
       "R"
     ],
+    "cloud": [
+      "GitHub"
+    ],
     "tools": [
-      "Git",
-      "Excel"
+      "Git"
     ]
   },
-  "projects": [],
-  "experience": [
+  "projects": [
     {
-      "company": "Heterize Infotech Pvt. Ltd.",
-      "role": "",
-      "title": "E-Commerce Account Manager",
-      "start_date": "",
-      "end_date": null,
-      "description": "",
-      "technologies_used": [
+      "name": "Project X - github.com/example/project",
+      "description": "Project X - github.com/example/project",
+      "tech_stack": [
+        "Git",
+        "GitHub",
         "R"
-      ]
-    },
-    {
-      "company": "",
-      "role": "",
-      "title": "2026",
-      "start_date": "",
-      "end_date": null,
-      "description": "\u2022 Managed 50+ Amazon seller accounts daily, prioritizing catalog, operational and account-level requirements. \u2022 Increased sales and regular order rate by 80% through listing optimization, marketplace support and account-level improvements. \u2022 Improved listing visibility by 90% through SEO-focused content, keyword research, catalog optimization and backend search- term refinement. \u2022 Created and optimized Amazon listings including titles, item names, descriptions, bullet points, generic keywords, S",
-      "technologies_used": [
-        "Agile",
+      ],
+      "technologies": [
+        "Git",
+        "GitHub",
         "R"
-      ]
+      ],
+      "github": "github.com/example/project",
+      "deployment": ""
     }
   ],
-  "education": [
-    {
-      "institution": "MBA \u2013 Finance & IT \u2014 Institute of Business Management & Research (IBMR), IPS Academy, Indore | 2024\u20132026",
-      "degree": "B.Com \u2014 St. Aloysius College, Jabalpur | Completed 2024",
-      "field": "TOP CERTIFICATIONS",
-      "cgpa": "",
-      "start_year": "20",
-      "end_year": "20"
-    }
-  ],
+  "experience": [],
+  "education": [],
   "certifications": [],
-  "target_roles": [
-    "product manager"
-  ],
-  "scored_roles": [
-    {
-      "role": "product manager",
-      "score": 30.0
-    }
-  ],
-  "quality_score": 60.0,
+  "target_roles": [],
+  "scored_roles": [],
+  "quality_score": 18.0,
   "quality_breakdown": {
     "name": 10,
-    "email": 10,
-    "phone": 5,
+    "email": 0,
+    "phone": 0,
     "links": 2,
     "skills": 3,
-    "experience": 20,
-    "education": 10,
-    "projects": 0,
+    "experience": 0,
+    "education": 0,
+    "projects": 3,
     "certifications": 0
   },
-  "confidence": 72.0,
-  "parsed_at": "2026-08-13T13:40:30.257920",
-  "source_path": "resume\\master_resume.pdf",
+  "confidence": 47.0,
+  "parsed_at": "2026-09-04T15:41:33.900809",
+  "source_path": "C:\\Users\\hp\\AppData\\Local\\Temp\\tmp4i4tx9vh\\test_multi.pdf",
   "total_pages": 2,
   "sections_detected": [
     "preamble",
     "experience",
-    "skills",
-    "education"
+    "projects"
   ],
   "sections_missing": [
     "summary",
-    "projects"
+    "skills",
+    "education"
   ],
   "extraction_stats": {
     "engine_used": null,
-    "chars_extracted": 3784,
+    "chars_extracted": 144,
     "pages": 2,
-    "confidence": 72
+    "confidence": 47
   },
   "parse_log": [
-    "Starting parse: ./resume/master_resume.pdf",
-    "File size: 276449 bytes",
-    "PDF extraction: PyMuPDF succeeded (3788 chars)",
-    "Level 1: Extracted 3784 chars, 2 page(s)",
-    "Level 2: Detected sections: ['preamble', 'experience', 'skills', 'education']",
-    "Level 2: Missing sections: ['summary', 'projects']",
-    "Level 3: Extracted name=E-COMMERCE ACCOUNT, skills=3, experience=2",
-    "Confidence breakdown: 72 -> 72% (skills=3, exp=2, edu=1, proj=0)",
-    "Level 4: Confidence=72%",
-    "Level 5: Roles=['product manager']",
-    "Parse complete in 0.5s -- confidence 72%"
+    "Starting parse: C:\\Users\\hp\\AppData\\Local\\Temp\\tmp4i4tx9vh\\test_multi.pdf",
+    "File size: 1333 bytes",
+    "PDF extraction: PyMuPDF succeeded (145 chars)",
+    "Level 1: Extracted 144 chars, 2 page(s)",
+    "Level 2: Detected sections: ['preamble', 'experience', 'projects']",
+    "Level 2: Missing sections: ['summary', 'skills', 'education']",
+    "Level 3: Extracted name=Alice Example, skills=3, experience=0",
+    "Confidence breakdown: 47 -> 47% (skills=3, exp=0, edu=0, proj=1)",
+    "Level 4: Confidence=47%",
+    "Level 5: Roles=[]",
+    "Parse complete in 1.2s -- confidence 47%"
   ]
 }

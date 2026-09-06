@@ -21,7 +21,7 @@ const badgeVariants = cva(
         pulse: "before:mr-1 before:inline-block before:h-1.5 before:w-1.5 before:animate-blink before:rounded-full before:bg-current",
       },
     },
-    defaultVariants: { variant: "neutral", status: "default" },
+    defaultVariants: { variant: "neutral", status: "none" },
   }
 )
 

@@ -597,7 +597,8 @@ def api_resume_parsed():
                     "roles_json": parsed.roles if parsed else [],
                 })
             except Exception as e:
-                return jsonify({"success": False, "error": str(e)}), 500
+                logger.error("Resume re-parse failed: %s", e, exc_info=True)
+                return jsonify({"error": "Internal server error"}), 500
 
     return jsonify({"success": False, "error": "No resume uploaded"}), 404
 
@@ -817,12 +818,29 @@ def api_pipeline_logs(run_id):
 def api_jobs():
     try:
         jobs = get_db().get_all_jobs(limit=100)
-        # Sanitize company names
-        for j in jobs:
-            j["company"] = _sanitize_company(j.get("company"))
+        # Enrich with freshness/quality additive fields (backward compatible)
+        try:
+            from core.services.job_canonical_service import freshness_state, determine_source_reliability
+            for j in jobs:
+                j["company"] = _sanitize_company(j.get("company"))
+                # Additive fields — do not break existing consumers
+                j.setdefault("canonical_id", j.get("canonical_id"))
+                j.setdefault("last_seen_at", j.get("last_seen_at") or j.get("scraped_at"))
+                # Freshness derived from scraped_at/last_seen_at
+                try:
+                    j["freshness_state"] = freshness_state(j.get("scraped_at"), j.get("last_seen_at"))
+                except Exception:
+                    j["freshness_state"] = "UNKNOWN"
+                j["source_reliability"] = j.get("source_reliability") or determine_source_reliability(j.get("source"), j.get("url"))
+                j["is_duplicate"] = bool(j.get("is_duplicate_of"))
+                j["canonical_job_id"] = j.get("is_duplicate_of")
+        except Exception:
+            for j in jobs:
+                j["company"] = _sanitize_company(j.get("company"))
         return jsonify({"success": True, "jobs": jobs, "total": len(jobs)})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        logger.error("List jobs failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @app.route("/api/jobs/<int:job_id>/company", methods=["POST"])
@@ -920,14 +938,34 @@ def api_job_asset(job_id: int, kind: str):
     if not chosen:
         return jsonify({"error": "No asset available for this job/kind"}), 404
 
-    # Normalize and resolve relative paths
-    chosen_path = os.path.abspath(os.path.join(str(Path(__file__).parent.parent), chosen) if chosen.startswith("./") or chosen.startswith("../") else chosen)
-    if not os.path.exists(chosen_path):
-        # Try without joining if chosen was already absolute
-        if os.path.exists(chosen):
-            chosen_path = os.path.abspath(chosen)
+    # Normalize and resolve to canonical path, then verify inside approved ROOT/resume or ROOT/uploads
+    try:
+        raw = Path(chosen)
+        if not raw.is_absolute():
+            # Resolve relative to project ROOT
+            candidate = (ROOT / raw).resolve()
         else:
+            candidate = raw.resolve()
+        # Also handle legacy "./" prefix via ROOT join
+        if chosen.startswith("./") or chosen.startswith("../"):
+            candidate = (ROOT / Path(chosen)).resolve()
+        # Approved roots
+        approved_resume = (ROOT / "resume").resolve()
+        approved_uploads = (ROOT / "uploads").resolve()
+        # Must be inside approved_resume or approved_uploads
+        try:
+            is_inside = candidate.is_relative_to(approved_resume) or candidate.is_relative_to(approved_uploads)
+        except AttributeError:
+            # Python <3.9 fallback
+            is_inside = str(candidate).startswith(str(approved_resume)) or str(candidate).startswith(str(approved_uploads))
+        if not is_inside:
             return jsonify({"error": "Asset file not found"}), 404
+        chosen_path = str(candidate)
+    except Exception:
+        return jsonify({"error": "Asset file not found"}), 404
+
+    if not os.path.exists(chosen_path):
+        return jsonify({"error": "Asset file not found"}), 404
 
     directory, filename = os.path.split(chosen_path)
     if not os.path.isdir(directory):
@@ -943,63 +981,645 @@ def api_job_asset(job_id: int, kind: str):
 
 @app.route("/api/jobs/<int:job_id>/match")
 def api_job_match(job_id):
-    """Return unified MatchAnalysis — single source of truth for scoring."""
+    """Return unified MatchAnalysis + additive MatchEngine2 MatchResult."""
     job = get_db().get_job_by_id(job_id)
     if not job:
         return jsonify({"error": "Job not found"}), 404
 
-    # Try stored match details (from pipeline)
+    # Try stored match details (from pipeline) for baseline
+    baseline = None
     if job.get("match_details_json"):
         try:
             details = json.loads(job["match_details_json"])
-            # If stored as MatchAnalysis, return it
             if "final_score" in details or "skill_match" in details:
-                return jsonify({"success": True, "match": details})
+                baseline = details
         except (json.JSONDecodeError, TypeError):
             pass
 
-    # Compute on the fly using MatchService
-    try:
-        service = _build_match_service()
-        required_skills_raw = job.get("required_skills", [])
-        if isinstance(required_skills_raw, str):
+    # Compute baseline on the fly if needed
+    if baseline is None:
+        try:
+            service = _build_match_service()
+            required_skills_raw = job.get("required_skills", [])
+            if isinstance(required_skills_raw, str):
+                try:
+                    required_skills = json.loads(required_skills_raw)
+                except (json.JSONDecodeError, TypeError):
+                    required_skills = [s.strip() for s in required_skills_raw.split(",") if s.strip()]
+            elif isinstance(required_skills_raw, list):
+                required_skills = required_skills_raw
+            else:
+                required_skills = []
+
+            analysis = service.analyze(
+                job_id=job_id,
+                job_title=job.get("title", ""),
+                job_location=job.get("location", ""),
+                jd_text=job.get("jd_text", ""),
+                required_skills=required_skills,
+            )
+            match_json = service.to_json(analysis)
             try:
-                required_skills = json.loads(required_skills_raw)
-            except (json.JSONDecodeError, TypeError):
-                required_skills = [s.strip() for s in required_skills_raw.split(",") if s.strip()]
-        elif isinstance(required_skills_raw, list):
-            required_skills = required_skills_raw
-        else:
-            required_skills = []
-
-        analysis = service.analyze(
-            job_id=job_id,
-            job_title=job.get("title", ""),
-            job_location=job.get("location", ""),
-            jd_text=job.get("jd_text", ""),
-            required_skills=required_skills,
-        )
-
-        # Persist to DB for future use
-        match_json = service.to_json(analysis)
-        db = get_db()
-        db.update_job_match(job_id, match_json, fit_score=int(analysis.final_score))
-
-        return jsonify({
-            "success": True,
-            "match": json.loads(match_json),
-        })
-    except Exception as e:
-        logger.error("Match analysis failed: %s", e)
-        # Fallback: return stored fit_score
-        return jsonify({
-            "success": True,
-            "match": {
+                get_db().update_job_match(job_id, match_json, fit_score=int(analysis.final_score))
+            except Exception:
+                pass
+            baseline = json.loads(match_json)
+        except Exception as e:
+            logger.warning("Baseline match failed for job %s: %s", job_id, e)
+            baseline = {
                 "final_score": job.get("fit_score", 0) or 0,
                 "recommendation": "Apply" if (job.get("fit_score", 0) or 0) >= 70 else ("Consider" if (job.get("fit_score", 0) or 0) >= 50 else "Skip"),
                 "explanation": "Match analysis temporarily unavailable",
             }
-        })
+
+    # Additive MatchEngine2 result (deterministic, no scoring mutation)
+    match_result = None
+    try:
+        from core.services.match_engine_adapters import CandidateAdapter, JobAdapter
+        from core.services.match_engine2 import MatchEngine2
+        from core.services.job_intelligence_service import get_job_intelligence_service
+
+        cand_input = CandidateAdapter().adapt_safe()
+        # Build job intelligence with provenance
+        try:
+            j_service = get_job_intelligence_service()
+            job_profile = j_service.build_job_intelligence(job)
+        except Exception:
+            job_profile = None
+        if job_profile is not None:
+            job_input = JobAdapter().adapt(job_profile)
+        else:
+            # Fallback to legacy raw
+            job_input = JobAdapter().adapt_from_legacy(
+                job_id=job_id,
+                job_title=job.get("title", ""),
+                job_location=job.get("location", ""),
+                jd_text=job.get("jd_text", ""),
+                required_skills=baseline.get("all_required_skills") if isinstance(baseline, dict) else [],
+            )
+        engine = MatchEngine2()
+        # Need baseline MatchAnalysis object for MatchResult baseline_analysis
+        try:
+            from core.models import MatchAnalysis as _MA
+            baseline_obj = _MA.model_validate(baseline) if isinstance(baseline, dict) and "final_score" in baseline else None
+        except Exception:
+            baseline_obj = None
+        mr = engine.analyze(cand_input, job_input, baseline_analysis=baseline_obj)
+        # Minimal evidence — do not expose full resume/JD
+        match_result = {
+            "inventory_status": mr.inventory_status.value if hasattr(mr.inventory_status, "value") else str(mr.inventory_status),
+            "analysis_completeness": mr.analysis_completeness,
+            "data_completeness": mr.data_completeness,
+            "match_confidence": mr.match_confidence,
+            "engine_version": mr.engine_version,
+            "requirement_evaluations": [e.model_dump() for e in mr.requirement_evaluations],
+            "experience_evaluations": [e.model_dump() for e in mr.experience_evaluations],
+            "role_evaluations": [e.model_dump() for e in mr.role_evaluations],
+            "location_evaluations": [e.model_dump() for e in mr.location_evaluations],
+            "seniority_evaluations": [e.model_dump() for e in mr.seniority_evaluations],
+        }
+        # Analysis completeness deterministic: fraction of DETERMINED dimensions
+        try:
+            from core.models.match_engine import ExperienceAvailability, RoleAvailability, LocationAvailability, SeniorityAvailability
+
+            dims = [
+                cand_input.skill_inventory_status.value == "determined",
+                cand_input.experience_availability.value == "determined",
+                cand_input.role_availability.value == "determined",
+                cand_input.location_availability.value == "determined",
+                cand_input.seniority_availability.value == "determined",
+            ]
+            match_result["analysis_completeness"] = round(sum(1 for d in dims if d) / len(dims), 2)
+        except Exception:
+            pass
+    except Exception as e:
+        logger.warning("MatchEngine2 evaluation failed for job %s: %s", job_id, e)
+
+    resp = {"success": True, "match": baseline, "baseline_analysis": baseline}
+    if match_result is not None:
+        resp["match_result"] = match_result
+    return jsonify(resp)
+
+
+@app.route("/api/jobs/prioritized")
+def api_jobs_prioritized():
+    """Return jobs sorted by Application Priority (HOT→WARM→COLD→REVIEW)."""
+    try:
+        from core.services.application_priority_service import get_priority_service
+        from core.services.match_engine_adapters import CandidateAdapter, JobAdapter
+        from core.services.match_engine2 import MatchEngine2
+        from core.services.job_intelligence_service import get_job_intelligence_service
+        from core.models import MatchAnalysis as _MA
+
+        jobs = get_db().get_all_jobs(limit=100)
+        # Phase 9: do not surface duplicates as independent recommendations
+        try:
+            jobs = [j for j in jobs if not j.get("is_duplicate_of")]
+        except Exception:
+            pass
+        # Preload recruiters for tie-breaker
+        try:
+            recruiters = get_db().get_all_recruiters()
+            recruiter_job_ids = {r.get("job_id") for r in recruiters if r.get("job_id") and r.get("email")}
+        except Exception:
+            recruiter_job_ids = set()
+
+        cand_input = CandidateAdapter().adapt_safe()
+        j_service = get_job_intelligence_service()
+        engine = MatchEngine2()
+        pri_service = get_priority_service()
+
+        # Try baseline once for candidate
+        items = []
+        for job in jobs:
+            job_id = job.get("id")
+            # Baseline
+            baseline = None
+            if job.get("match_details_json"):
+                try:
+                    d = json.loads(job["match_details_json"])
+                    if "final_score" in d:
+                        baseline = d
+                except Exception:
+                    pass
+            if baseline is None:
+                try:
+                    svc = _build_match_service()
+                    rs = job.get("required_skills", [])
+                    if isinstance(rs, str):
+                        try:
+                            rs = json.loads(rs)
+                        except Exception:
+                            rs = [s.strip() for s in rs.split(",") if s.strip()]
+                    elif not isinstance(rs, list):
+                        rs = []
+                    analysis = svc.analyze(job_id=job_id, job_title=job.get("title",""), job_location=job.get("location",""), jd_text=job.get("jd_text",""), required_skills=rs)
+                    baseline = json.loads(svc.to_json(analysis))
+                except Exception:
+                    baseline = {"final_score": job.get("fit_score",0) or 0}
+
+            # MatchResult
+            try:
+                job_profile = j_service.build_job_intelligence(job)
+                job_input = JobAdapter().adapt(job_profile)
+            except Exception:
+                job_input = JobAdapter().adapt_from_legacy(job_id=job_id, job_title=job.get("title",""), job_location=job.get("location",""))
+
+            try:
+                baseline_obj = _MA.model_validate(baseline) if isinstance(baseline, dict) and "final_score" in baseline else None
+            except Exception:
+                baseline_obj = None
+            try:
+                mr = engine.analyze(cand_input, job_input, baseline_analysis=baseline_obj)
+            except Exception:
+                continue
+
+            has_desc = bool(job.get("jd_text") and job.get("jd_text","").strip())
+            # Phase 6 contract: freshness age from original discovery (scraped_at), NOT last_seen_at
+            disc = job.get("scraped_at") or job.get("discovered_date") or job.get("discovered_at")
+            pri = pri_service.evaluate(
+                job_id=job_id,
+                match_result=mr,
+                discovered_date=disc,
+                has_description=has_desc,
+                source=job.get("source"),
+                application_url=job.get("url") or job.get("application_url"),
+                recruiter_email_exists=(job_id in recruiter_job_ids),
+            )
+            items.append((job_id, pri, job, baseline, mr))
+
+        # Sort via service rank (tier order + recruiter + timestamp). For tie-break timestamp we may use last_seen_at for "recently observed" ordering, but tier (freshness) already decided via scraped_at.
+        # Reuse service rank for ordering
+        # Build tuples for rank
+        rank_input = []
+        for job_id, pri, job, baseline, mr in items:
+            disc = job.get("scraped_at") or job.get("discovered_date") or job.get("scraped_at")
+            rank_input.append((job_id, mr, disc, bool(job.get("jd_text")), job.get("source"), job.get("url"), job_id in recruiter_job_ids))
+        ranked = pri_service.rank(rank_input)
+        # Map ranked order to jobs
+        order = {job_id: idx for idx, (job_id, _) in enumerate(ranked)}
+        items_sorted = sorted(items, key=lambda x: order.get(x[0], 999))
+
+        out = []
+        for job_id, pri, job, baseline, mr in items_sorted:
+            # Enrich job with Phase 9 additive fields
+            try:
+                from core.services.job_canonical_service import freshness_state, determine_source_reliability
+                job["freshness_state"] = freshness_state(job.get("scraped_at"), job.get("last_seen_at"))
+                job["source_reliability"] = job.get("source_reliability") or determine_source_reliability(job.get("source"), job.get("url"))
+                job["is_duplicate"] = bool(job.get("is_duplicate_of"))
+                job["canonical_job_id"] = job.get("is_duplicate_of")
+                job["canonical_id"] = job.get("canonical_id")
+                job["last_seen_at"] = job.get("last_seen_at") or job.get("scraped_at")
+            except Exception:
+                pass
+            out.append({
+                "job": job,
+                "baseline_analysis": baseline,
+                "match_result": {
+                    "requirement_evaluations": [e.model_dump() for e in mr.requirement_evaluations],
+                    "experience_evaluations": [e.model_dump() for e in mr.experience_evaluations],
+                    "role_evaluations": [e.model_dump() for e in mr.role_evaluations],
+                    "location_evaluations": [e.model_dump() for e in mr.location_evaluations],
+                    "seniority_evaluations": [e.model_dump() for e in mr.seniority_evaluations],
+                    "analysis_completeness": mr.analysis_completeness,
+                },
+                "priority": pri.model_dump(),
+            })
+        return jsonify({"success": True, "jobs": out, "total": len(out)})
+    except Exception as e:
+        logger.error("Prioritized failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/jobs/<int:job_id>/priority")
+def api_job_priority(job_id):
+    """Return ApplicationPriority for a single job."""
+    job = get_db().get_job_by_id(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    try:
+        from core.services.application_priority_service import get_priority_service
+        from core.services.match_engine_adapters import CandidateAdapter, JobAdapter
+        from core.services.match_engine2 import MatchEngine2
+        from core.services.job_intelligence_service import get_job_intelligence_service
+        from core.models import MatchAnalysis as _MA
+
+        cand_input = CandidateAdapter().adapt_safe()
+        j_service = get_job_intelligence_service()
+        try:
+            job_profile = j_service.build_job_intelligence(job)
+            job_input = JobAdapter().adapt(job_profile)
+        except Exception:
+            job_input = JobAdapter().adapt_from_legacy(job_id=job_id, job_title=job.get("title",""), job_location=job.get("location",""))
+
+        # Baseline
+        baseline = None
+        if job.get("match_details_json"):
+            try:
+                d = json.loads(job["match_details_json"])
+                if "final_score" in d:
+                    baseline = d
+            except Exception:
+                pass
+        if baseline is None:
+            svc = _build_match_service()
+            rs = job.get("required_skills", [])
+            if isinstance(rs, str):
+                try:
+                    rs = json.loads(rs)
+                except Exception:
+                    rs = []
+            analysis = svc.analyze(job_id=job_id, job_title=job.get("title",""), job_location=job.get("location",""), jd_text=job.get("jd_text",""), required_skills=rs if isinstance(rs, list) else [])
+            baseline = json.loads(svc.to_json(analysis))
+
+        try:
+            baseline_obj = _MA.model_validate(baseline) if isinstance(baseline, dict) and "final_score" in baseline else None
+        except Exception:
+            baseline_obj = None
+        mr = MatchEngine2().analyze(cand_input, job_input, baseline_analysis=baseline_obj)
+        disc = job.get("discovered_date") or job.get("scraped_at")
+        has_desc = bool(job.get("jd_text") and job.get("jd_text","").strip())
+        try:
+            recruiters = get_db().get_all_recruiters()
+            rec_exists = any(r.get("job_id")==job_id and r.get("email") for r in recruiters)
+        except Exception:
+            rec_exists = False
+        pri = get_priority_service().evaluate(job_id, mr, disc, has_desc, job.get("source"), job.get("url"), rec_exists)
+        return jsonify({"success": True, "priority": pri.model_dump(), "match_result": {
+            "requirement_evaluations": [e.model_dump() for e in mr.requirement_evaluations],
+            "experience_evaluations": [e.model_dump() for e in mr.experience_evaluations],
+            "role_evaluations": [e.model_dump() for e in mr.role_evaluations],
+            "location_evaluations": [e.model_dump() for e in mr.location_evaluations],
+            "seniority_evaluations": [e.model_dump() for e in mr.seniority_evaluations],
+        }})
+    except Exception as e:
+        logger.error("Priority failed for %s: %s", job_id, e, exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Applications (Phase 7 P0) ────────────────────────────────────────────────
+
+@app.route("/api/applications", methods=["GET"])
+def api_applications():
+    try:
+        from core.services.application_service import get_application_service
+        svc = get_application_service()
+        apps = svc.list_applications(limit=50)
+        return jsonify({"success": True, "applications": apps})
+    except Exception as e:
+        logger.error("List applications failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/applications", methods=["POST"])
+def api_applications_create():
+    data = request.get_json(silent=True) or {}
+    job_id = data.get("job_id")
+    if not job_id:
+        return jsonify({"error": "job_id required"}), 400
+    try:
+        int(job_id)
+    except (TypeError, ValueError):
+        return jsonify({"error": "job_id must be a valid integer"}), 400
+    try:
+        from core.services.application_service import get_application_service
+        svc = get_application_service()
+        app_row = svc.create_application(job_id=int(job_id), application_method=data.get("application_method", "MANUAL"))
+        return jsonify({"success": True, "application": app_row}), 201
+    except ValueError as e:
+        msg = str(e)
+        code = 409 if "already exists" in msg else 400
+        return jsonify({"error": msg}), code
+    except Exception as e:
+        logger.error("Create application failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/applications/<int:app_id>", methods=["GET"])
+def api_application_get(app_id):
+    try:
+        from core.services.application_service import get_application_service
+        svc = get_application_service()
+        app_row = svc.get_application(app_id)
+        if not app_row:
+            return jsonify({"error": "Application not found"}), 404
+        timeline = svc.get_timeline(app_id)
+        return jsonify({"success": True, "application": app_row, "timeline": timeline})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.error("Get application failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/applications/<int:app_id>", methods=["PATCH"])
+def api_application_patch(app_id):
+    data = request.get_json(silent=True) or {}
+    state = data.get("state")
+    if not state:
+        return jsonify({"error": "state required"}), 400
+    try:
+        from core.services.application_service import get_application_service
+        svc = get_application_service()
+        app_row = svc.patch_state(app_id, state)
+        return jsonify({"success": True, "application": app_row})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.error("Patch failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/applications/<int:app_id>/apply", methods=["POST"])
+def api_application_apply(app_id):
+    data = request.get_json(silent=True) or {}
+    try:
+        from core.services.application_service import get_application_service
+        svc = get_application_service()
+        # Capture snapshots if available (match/priority) — optional
+        app_row = svc.apply_application(app_id, application_method=data.get("application_method", "MANUAL"))
+        return jsonify({"success": True, "application": app_row})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.error("Apply failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/applications/<int:app_id>/outcome", methods=["POST"])
+def api_application_outcome(app_id):
+    data = request.get_json(silent=True) or {}
+    outcome = data.get("outcome")
+    if not outcome:
+        return jsonify({"error": "outcome required"}), 400
+    try:
+        from core.services.application_service import get_application_service
+        svc = get_application_service()
+        app_row = svc.set_outcome(app_id, outcome, reason=data.get("reason"))
+        return jsonify({"success": True, "application": app_row})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.error("Outcome failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/applications/<int:app_id>/events", methods=["POST"])
+def api_application_events(app_id):
+    data = request.get_json(silent=True) or {}
+    event_type = data.get("event_type") or data.get("type")
+    if not event_type:
+        return jsonify({"error": "event_type required"}), 400
+    try:
+        from core.services.application_service import get_application_service
+        svc = get_application_service()
+        ev = svc.add_event(app_id, event_type, actor=data.get("actor", "user"), payload=json.dumps(data.get("payload", {})) if data.get("payload") else None)
+        return jsonify({"success": True, "event": ev}), 201
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.error("Add event failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/applications/<int:app_id>/timeline", methods=["GET"])
+def api_application_timeline(app_id):
+    try:
+        from core.services.application_service import get_application_service
+        svc = get_application_service()
+        timeline = svc.get_timeline(app_id)
+        return jsonify({"success": True, "timeline": timeline})
+    except Exception as e:
+        logger.error("Get timeline failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/applications/studio/<int:job_id>", methods=["POST", "GET"])
+def api_application_studio(job_id):
+    """Application Studio — per-job preparation workspace (Phase 10). POST generates, GET returns latest."""
+    if request.method == "GET":
+        # Return latest studio run for this job if exists
+        try:
+            from core.services.studio_service import _safe_conn
+            conn = _safe_conn()
+            try:
+                with conn.cursor(cursor_factory=extras.RealDictCursor) as cur:
+                    cur.execute("SELECT * FROM studio_runs WHERE job_id=%s ORDER BY created_at DESC LIMIT 1", (job_id,))
+                    row = cur.fetchone()
+                    if row:
+                        return jsonify({"success": True, "studio": dict(row)})
+                    return jsonify({"success": False, "error": "No studio run found"}), 404
+            finally:
+                conn.close()
+        except Exception as e:
+            logger.error("Studio GET failed: %s", e, exc_info=True)
+            return jsonify({"error": "Internal server error"}), 500
+    # POST — orchestrate
+    try:
+        from core.services.studio_service import get_studio_service
+        svc = get_studio_service()
+        ctx = svc.build(job_id)
+        # Persist (bounded snapshots)
+        try:
+            sid = svc.persist(ctx)
+            ctx["studio_run_id"] = sid
+        except Exception as e:
+            logger.warning("Studio persist failed (non-fatal): %s", e)
+        return jsonify({"success": True, "studio": ctx})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.error("Studio failed for %s: %s", job_id, e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+# ── Interviews & Follow-ups (Phase 11) ────────────────────────────────────────
+
+@app.route("/api/applications/<int:app_id>/interviews", methods=["GET", "POST"])
+def api_application_interviews(app_id):
+    if request.method == "GET":
+        try:
+            from core.services.interview_store_service import get_interview_store_service
+            svc = get_interview_store_service()
+            items = svc.list_for_application(app_id)
+            return jsonify({"success": True, "interviews": items})
+        except Exception as e:
+            logger.error("List interviews failed: %s", e, exc_info=True)
+            return jsonify({"error": "Internal server error"}), 500
+    # POST
+    data = request.get_json(silent=True) or {}
+    stage = (data.get("stage") or "OTHER").strip().upper()
+    scheduled_at = data.get("scheduled_at")
+    notes = data.get("notes")
+    if notes and len(notes) > 2000:
+        return jsonify({"error": "Notes too long"}), 400
+    try:
+        from core.services.interview_store_service import get_interview_store_service
+        svc = get_interview_store_service()
+        row = svc.create(app_id, stage=stage, scheduled_at=scheduled_at, notes=notes)
+        return jsonify({"success": True, "interview": row}), 201
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.error("Create interview failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/interviews/<int:interview_id>/complete", methods=["POST"])
+def api_interview_complete(interview_id):
+    data = request.get_json(silent=True) or {}
+    notes = data.get("notes")
+    try:
+        from core.services.interview_store_service import get_interview_store_service
+        svc = get_interview_store_service()
+        row = svc.complete(interview_id, notes=notes)
+        return jsonify({"success": True, "interview": row})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.error("Complete interview failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/interviews/<int:interview_id>/cancel", methods=["POST"])
+def api_interview_cancel(interview_id):
+    try:
+        from core.services.interview_store_service import get_interview_store_service
+        svc = get_interview_store_service()
+        row = svc.cancel(interview_id)
+        return jsonify({"success": True, "interview": row})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.error("Cancel interview failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/applications/<int:app_id>/interview-prep", methods=["GET", "POST"])
+def api_application_interview_prep(app_id):
+    try:
+        from core.services.interview_prep_service import get_interview_prep_service
+        svc = get_interview_prep_service()
+        kit = svc.generate_for_application(app_id)
+        return jsonify({"success": True, "prep": kit})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.error("Interview prep failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/applications/<int:app_id>/follow-ups", methods=["GET", "POST"])
+def api_application_followups(app_id):
+    if request.method == "GET":
+        try:
+            from core.services.follow_up_service import get_follow_up_service
+            svc = get_follow_up_service()
+            items = svc.list_for_application(app_id)
+            return jsonify({"success": True, "follow_ups": items})
+        except Exception as e:
+            logger.error("List follow-ups failed: %s", e, exc_info=True)
+            return jsonify({"error": "Internal server error"}), 500
+    data = request.get_json(silent=True) or {}
+    ftype = (data.get("follow_up_type") or data.get("type") or "POST_APPLICATION").strip().upper()
+    channel = (data.get("channel") or "EMAIL").strip().upper()
+    scheduled_at = data.get("scheduled_at")
+    subject = data.get("subject")
+    preview = data.get("message_preview") or data.get("preview")
+    try:
+        from core.services.follow_up_service import get_follow_up_service
+        svc = get_follow_up_service()
+        row = svc.create(app_id, follow_up_type=ftype, channel=channel, scheduled_at=scheduled_at, subject=subject, message_preview=preview)
+        return jsonify({"success": True, "follow_up": row}), 201
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.error("Create follow-up failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/follow-ups/<int:follow_up_id>/review", methods=["POST"])
+def api_followup_review(follow_up_id):
+    try:
+        from core.services.follow_up_service import get_follow_up_service
+        svc = get_follow_up_service()
+        row = svc.review(follow_up_id)
+        return jsonify({"success": True, "follow_up": row})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.error("Review follow-up failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/follow-ups/<int:follow_up_id>/approve", methods=["POST"])
+def api_followup_approve(follow_up_id):
+    try:
+        from core.services.follow_up_service import get_follow_up_service
+        svc = get_follow_up_service()
+        row = svc.approve(follow_up_id)
+        return jsonify({"success": True, "follow_up": row})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.error("Approve follow-up failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/follow-ups/<int:follow_up_id>/send", methods=["POST"])
+def api_followup_send(follow_up_id):
+    # Only allowed after APPROVED — never auto-send
+    try:
+        from core.services.follow_up_service import get_follow_up_service
+        svc = get_follow_up_service()
+        row = svc.mark_sent(follow_up_id)
+        return jsonify({"success": True, "follow_up": row})
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.error("Send follow-up failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
 
 
 # ── Emails ────────────────────────────────────────────────────────────────────
@@ -1219,6 +1839,114 @@ def api_analytics():
                 pass
 
 
+# ── Outcome Analytics (Phase 12) ────────────────────────────────────────────
+
+@app.route("/api/analytics/overview", methods=["GET"])
+def api_analytics_overview():
+    try:
+        from core.services.outcome_analytics_service import get_outcome_analytics_service
+        svc = get_outcome_analytics_service()
+        return jsonify({"success": True, "funnel": svc.funnel(), "time": svc.time_metrics()})
+    except Exception as e:
+        logger.error("Analytics overview failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route("/api/analytics/funnel", methods=["GET"])
+def api_analytics_funnel():
+    try:
+        from core.services.outcome_analytics_service import get_outcome_analytics_service
+        return jsonify({"success": True, "funnel": get_outcome_analytics_service().funnel()})
+    except Exception as e:
+        logger.error("Funnel failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route("/api/analytics/sources", methods=["GET"])
+def api_analytics_sources():
+    try:
+        from core.services.outcome_analytics_service import get_outcome_analytics_service
+        return jsonify({"success": True, "sources": get_outcome_analytics_service().source_performance()})
+    except Exception as e:
+        logger.error("Sources failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route("/api/analytics/priority", methods=["GET"])
+def api_analytics_priority():
+    try:
+        from core.services.outcome_analytics_service import get_outcome_analytics_service
+        return jsonify({"success": True, "priority": get_outcome_analytics_service().priority_insights()})
+    except Exception as e:
+        logger.error("Priority analytics failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route("/api/analytics/insights", methods=["GET"])
+def api_analytics_insights():
+    try:
+        from core.services.outcome_analytics_service import get_outcome_analytics_service
+        return jsonify({"success": True, "insights": get_outcome_analytics_service().insights()})
+    except Exception as e:
+        logger.error("Insights failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route("/api/feedback", methods=["GET", "POST"])
+def api_feedback():
+    if request.method == "GET":
+        try:
+            from core.services.feedback_service import get_feedback_service
+            app_id = request.args.get("application_id", type=int)
+            items = get_feedback_service().list(application_id=app_id)
+            return jsonify({"success": True, "feedback": items})
+        except Exception as e:
+            logger.error("List feedback failed: %s", e, exc_info=True)
+            return jsonify({"error": "Internal server error"}), 500
+    data = request.get_json(silent=True) or {}
+    try:
+        from core.services.feedback_service import get_feedback_service
+        row = get_feedback_service().create(application_id=data.get("application_id"), job_id=data.get("job_id"), signal_type=data.get("signal_type"), value=data.get("value"))
+        return jsonify({"success": True, "feedback": row}), 201
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        logger.error("Create feedback failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+# ── Scheduler / Automation (Phase 13) ───────────────────────────────────────
+
+@app.route("/api/scheduler/status", methods=["GET"])
+def api_scheduler_status():
+    try:
+        from core.services.scheduler_service import get_scheduler_service
+        return jsonify({"success": True, **get_scheduler_service().get_status()})
+    except Exception as e:
+        logger.error("Scheduler status failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/scheduler/runs", methods=["GET"])
+def api_scheduler_runs():
+    try:
+        from core.services.scheduler_service import get_scheduler_service
+        limit = min(int(request.args.get("limit", 20)), 50)
+        runs = get_scheduler_service().get_run_history(limit=limit)
+        return jsonify({"success": True, "runs": runs, "total": len(runs)})
+    except Exception as e:
+        logger.error("Scheduler runs failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/scheduler/trigger", methods=["POST"])
+def api_scheduler_trigger():
+    try:
+        from core.services.scheduler_service import get_scheduler_service
+        run_id = get_scheduler_service().trigger_run(triggered_by="manual")
+        if not run_id:
+            return jsonify({"success": False, "error": "Another run is already active"}), 409
+        return jsonify({"success": True, "run_id": run_id, "message": "Pipeline run started"})
+    except Exception as e:
+        logger.error("Scheduler trigger failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+
 # ── Startup Discovery ────────────────────────────────────────────────────────
 
 @app.route("/api/startups", methods=["GET"])
@@ -1289,7 +2017,7 @@ def api_startup_message(company: str):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@app.route("/api/applications", methods=["GET", "POST"])
+@app.route("/api/tracker", methods=["GET", "POST"])
 def api_application_tracker():
     try:
         if request.method == "POST":
@@ -1311,8 +2039,8 @@ def api_application_tracker():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@app.route("/api/applications/followups", methods=["GET"])
-def api_application_followups():
+@app.route("/api/tracker/followups", methods=["GET"])
+def api_tracker_followups():
     try:
         items = _startup_service.get_followups_due()
         return jsonify({"success": True, "applications": items, "total": len(items)})
@@ -1320,7 +2048,134 @@ def api_application_followups():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route("/api/candidate/intelligence", methods=["GET"])
+def api_candidate_intelligence():
+    """Return canonical Candidate Intelligence profile."""
+    try:
+        from core.services.candidate_intelligence_service import get_candidate_intelligence_service
+        svc = get_candidate_intelligence_service()
+        canonical_profile = svc.build_candidate_intelligence()
+        return jsonify({"success": True, "intelligence": canonical_profile.dict()})
+    except Exception as e:
+        logger.error(f"[app] Candidate Intelligence error: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+
+# ── Career Copilot & Interview Prep ───────────────────────────────────────────
+
+
+@app.route("/api/copilot/chat", methods=["POST"])
+def api_copilot_chat():
+    try:
+        data = request.get_json(silent=True) or {}
+        user_message = data.get("message", "").strip()
+        history = data.get("history", [])
+        job_id = data.get("job_id")
+
+        # Load profile context
+        profile_path = os.getenv("PROFILE_PATH", str(ROOT / "profile.json"))
+        profile = {}
+        if os.path.exists(profile_path):
+            with open(profile_path) as f:
+                profile = json.load(f)
+
+        # Enhance with resume data
+        resume_data = get_db().get_resume_data()
+        if resume_data and resume_data.get("parsed_json"):
+            pj = resume_data["parsed_json"]
+            profile["inferred_roles"] = resume_data.get("roles_json") or pj.get("roles", [])
+            profile["skills"] = resume_data.get("skills_json") or pj.get("skills", [])
+
+        # Load job context if job_id provided
+        job_context = None
+        if job_id:
+            job_context = get_db().get_job_by_id(job_id)
+
+        from core.services.copilot_service import get_copilot_service
+        service = get_copilot_service()
+        result = service.ask_copilot(
+            user_message=user_message,
+            history=history,
+            candidate_profile=profile,
+            job_context=job_context,
+        )
+        return jsonify({"success": True, **result})
+    except Exception as e:
+        logger.error(f"[app] Copilot error: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/interview/prep", methods=["POST"])
+def api_interview_prep():
+    try:
+        data = request.get_json(silent=True) or {}
+        job_id = data.get("job_id")
+        title = data.get("title", "")
+        company = data.get("company", "")
+        jd_text = data.get("jd_text", "")
+
+        if job_id:
+            job = get_db().get_job_by_id(job_id)
+            if job:
+                title = title or job.get("title", "")
+                company = company or job.get("company", "")
+                jd_text = jd_text or job.get("jd_text", "")
+
+        if not title:
+            title = "Software Engineer"
+        if not company:
+            company = "Target Company"
+
+        # Load candidate skills
+        candidate_skills = []
+        resume_data = get_db().get_resume_data()
+        if resume_data:
+            candidate_skills = resume_data.get("skills_json") or []
+            if isinstance(candidate_skills, dict):
+                all_s = []
+                for v in candidate_skills.values():
+                    if isinstance(v, list):
+                        all_s.extend(v)
+                candidate_skills = all_s
+
+        from core.services.interview_service import get_interview_service
+        service = get_interview_service()
+        prep_kit = service.generate_prep_kit(
+            job_title=title,
+            company=company,
+            jd_text=jd_text,
+            candidate_skills=candidate_skills if isinstance(candidate_skills, list) else [],
+        )
+        return jsonify({"success": True, "prep": prep_kit})
+    except Exception as e:
+        logger.error(f"[app] Interview prep error: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/interview/evaluate", methods=["POST"])
+def api_interview_evaluate():
+    try:
+        data = request.get_json(silent=True) or {}
+        question = data.get("question", "").strip()
+        user_answer = data.get("user_answer", "").strip()
+        expected_topic = data.get("expected_topic", "").strip()
+
+        from core.services.interview_service import get_interview_service
+        service = get_interview_service()
+        evaluation = service.evaluate_answer(
+            question=question,
+            user_answer=user_answer,
+            expected_topic=expected_topic,
+        )
+        return jsonify({"success": True, "evaluation": evaluation})
+    except Exception as e:
+        logger.error(f"[app] Interview evaluation error: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 # ── Email Status & Test ──────────────────────────────────────────────────────
+
 
 @app.route("/api/email/status")
 def api_email_status():
@@ -1587,6 +2442,17 @@ if __name__ == "__main__":
         logger.info("[Resend] Configured — from: %s", from_email)
     else:
         logger.info("[Resend] Not configured")
+
+    # Phase 13: Start scheduler singleton
+    try:
+        from core.services.scheduler_service import init_scheduler
+        scheduler_started = init_scheduler()
+        if scheduler_started:
+            logger.info("[Scheduler] Started — runs at 09:00, 12:00, 15:00, 18:00 IST")
+        else:
+            logger.info("[Scheduler] Not started — SCHEDULER_ENABLED=false or APScheduler missing")
+    except Exception as e:
+        logger.warning("[Scheduler] Init failed (non-fatal): %s", e)
 
     port = int(os.getenv("FLASK_PORT", 5000))
     logger.info("Starting server on http://localhost:%d", port)

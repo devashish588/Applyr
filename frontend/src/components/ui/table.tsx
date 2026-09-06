@@ -13,7 +13,7 @@ interface TableProps<T> {
   columns: Column<T>[]
   data: T[]
   className?: string
-  rowClassName?: (row: T) => string
+  rowClassName?: (row: T, index: number) => string
   onRowClick?: (row: T) => void
   emptyState?: ReactNode
 }

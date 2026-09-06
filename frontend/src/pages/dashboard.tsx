@@ -1,11 +1,15 @@
-import { Home, Briefcase, Send, Calendar, Target, Search, RefreshCw, Upload, Eye, Mail, TrendingUp, Check } from "lucide-react"
+import { Home, Briefcase, Send, Calendar, Target, Search, RefreshCw, Upload, Eye, Mail, TrendingUp, Check, BarChart3, Lightbulb } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { motion } from "framer-motion"
 import { Topbar } from "@/components/layout/topbar"
 import { StatCard } from "@/components/dashboard/stat-card"
-import { useDashboard } from "@/hooks/use-dashboard"
+import { useDashboard, useOutcomeOverview, useOutcomeInsights } from "@/hooks/use-dashboard"
 import { usePipeline } from "@/hooks/use-pipeline"
+import { useApplications } from "@/hooks/use-applications"
+import { useJobs } from "@/hooks/use-jobs"
 import { cn } from "@/lib/utils"
+import { getNextActionForApplication } from "@/lib/next-action"
+import { Link } from "react-router-dom"
 
 export default function DashboardPage() {
   const { analytics, status, resume, email, isLoading } = useDashboard()
@@ -23,6 +27,9 @@ export default function DashboardPage() {
   const name = resume?.uploaded && resume?.parsed ? (resume.parsed as any)?.name?.split(" ")[0] || "there" : "there"
 
   const onboarded = resume?.uploaded && resume?.parsed && (totalJobs > 0 || recruiters > 0)
+
+  const outcomeOverview = useOutcomeOverview()
+  const outcomeInsights = useOutcomeInsights()
 
   if (isLoading) {
     return (
@@ -224,6 +231,12 @@ export default function DashboardPage() {
             </div>
           </div>
 
+          {/* ── Outcome / Learning Section (Phase 12) ── */}
+          <OutcomeSection overview={outcomeOverview} insights={outcomeInsights} />
+
+          {/* ── Active Work (Phase 14) ── */}
+          <ActiveWorkSection />
+
           {/* Recent Activity */}
           <div className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-text-muted">Recent Activity</div>
           <div className="rounded-lg border border-border bg-surface p-4">
@@ -265,5 +278,166 @@ export default function DashboardPage() {
         </motion.div>
       </div>
     </>
+  )
+}
+
+function Rate({ num, den }: { num: number | null | undefined; den: number | null | undefined }) {
+  if (!den || den === 0 || num == null) return <span className="text-text-muted">Not enough data yet</span>
+  const pct = Math.round((num / den) * 100)
+  return <span className="font-mono text-text-primary">{pct}%</span>
+}
+
+function OutcomeSection({
+  overview,
+  insights,
+}: {
+  overview: ReturnType<typeof useOutcomeOverview>
+  insights: ReturnType<typeof useOutcomeInsights>
+}) {
+  const funnel = overview.data?.funnel
+  const loading = overview.isLoading
+  const ins = insights.data
+
+  if (loading) {
+    return (
+      <div className="mb-5">
+        <div className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-text-muted">Outcome</div>
+        <div className="h-24 w-full animate-shimmer rounded-lg" />
+      </div>
+    )
+  }
+
+  if (!funnel || funnel.applications_started === 0) {
+    return (
+      <div className="mb-5">
+        <div className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-text-muted">Outcome</div>
+        <div className="rounded-lg border border-border bg-surface p-4">
+          <p className="text-center text-[13px] text-text-muted">Not enough data yet</p>
+        </div>
+      </div>
+    )
+  }
+
+  const rateRows = [
+    { label: "Apply → Screening", num: funnel.application_to_screening_rate, den: funnel.applications_submitted },
+    { label: "Apply → Interview", num: funnel.application_to_interview_rate, den: funnel.applications_submitted },
+    { label: "Interview → Offer", num: funnel.final_to_offer_rate, den: funnel.interview_count },
+    { label: "Offer → Accepted", num: funnel.offer_to_acceptance_rate, den: funnel.offer_count },
+  ]
+
+  const topInsights = (ins?.insights || []).filter((i) => i.confidence === "OBSERVED").slice(0, 2)
+
+  return (
+    <div className="mb-5">
+      <div className="mb-2 flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-wider text-text-muted">
+        <BarChart3 className="h-3.5 w-3.5" />
+        Outcome
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="rounded-lg border border-border bg-surface p-4">
+          <div className="mb-3 text-[12px] font-semibold text-text-secondary">Funnel</div>
+          <div className="space-y-1.5">
+            {[
+              { label: "Applications Started", val: funnel.applications_started },
+              { label: "Applications Submitted", val: funnel.applications_submitted },
+              { label: "Screening", val: funnel.screening_count },
+              { label: "Interview", val: funnel.interview_count },
+              { label: "Offer", val: funnel.offer_count },
+              { label: "Accepted", val: funnel.accepted_count },
+            ].map((r) => (
+              <div key={r.label} className="flex items-center justify-between text-[12px]">
+                <span className="text-text-muted">{r.label}</span>
+                <span className="font-mono text-text-primary">{r.val}</span>
+              </div>
+            ))}
+          </div>
+          <div className="my-2 border-t border-border" />
+          <div className="mb-2 text-[11px] font-semibold text-text-muted">Conversion Rates</div>
+          <div className="space-y-1.5">
+            {rateRows.map((r) => (
+              <div key={r.label} className="flex items-center justify-between text-[12px]">
+                <span className="text-text-muted">{r.label}</span>
+                <Rate num={r.num} den={r.den} />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-border bg-surface p-4">
+          <div className="mb-3 flex items-center gap-1.5 text-[12px] font-semibold text-text-secondary">
+            <Lightbulb className="h-3.5 w-3.5" />
+            Insights
+          </div>
+          {ins?.status === "INSUFFICIENT_DATA" || topInsights.length === 0 ? (
+            <p className="text-[13px] text-text-muted">Not enough data yet</p>
+          ) : (
+            <div className="space-y-3">
+              {topInsights.map((i, idx) => (
+                <div key={idx} className="rounded-md bg-bg-secondary p-3">
+                  <div className="mb-1 text-[11px] font-semibold uppercase text-text-muted">
+                    {i.dimension === "application_priority" ? `Priority: ${i.segment}` : `Source: ${i.segment}`}
+                  </div>
+                  <div className="space-y-0.5 text-[12px]">
+                    <div className="flex justify-between">
+                      <span className="text-text-muted">Applications</span>
+                      <span className="font-mono text-text-primary">{i.applications}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-text-muted">Interviews</span>
+                      <span className="font-mono text-text-primary">{i.interviews}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-text-muted">Interview Rate</span>
+                      <span className="font-mono text-text-primary">
+                        {i.interview_rate != null ? `${Math.round(i.interview_rate * 100)}%` : "N/A"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ActiveWorkSection() {
+  const { data: apps } = useApplications()
+  const { data: jobs } = useJobs()
+  const needingReview = jobs?.filter((j: any) => !apps?.some((a: any) => a.job_id === j.id)).slice(0, 3) || []
+  const needingAction = apps?.filter((a: any) => ["PREPARING", "READY_TO_APPLY", "OFFER"].includes(a.current_state)).slice(0, 3) || []
+  const recentOutcomes = apps?.filter((a: any) => a.current_state === "CLOSED").slice(0, 2) || []
+
+  if (!apps && !jobs) return null
+  if (needingReview.length === 0 && needingAction.length === 0 && recentOutcomes.length === 0) return null
+
+  return (
+    <div className="mb-5">
+      <div className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-text-muted">Active Work</div>
+      <div className="grid grid-cols-3 gap-4">
+        <div className="rounded-lg border border-border bg-surface p-4">
+          <div className="mb-2 text-[12px] font-semibold">Jobs needing review</div>
+          {needingReview.length === 0 ? <p className="text-sm text-text-muted">No jobs needing review</p> : needingReview.map((j: any) => (
+            <Link key={j.id} to={`/jobs/${j.id}`} className="block py-1 text-sm text-accent hover:underline">{j.title} · {j.company}</Link>
+          ))}
+        </div>
+        <div className="rounded-lg border border-border bg-surface p-4">
+          <div className="mb-2 text-[12px] font-semibold">Applications needing action</div>
+          {needingAction.length === 0 ? <p className="text-sm text-text-muted">No applications needing action</p> : needingAction.map((a: any) => {
+            const next = getNextActionForApplication(a)
+            return <Link key={a.id} to={next.to} className="block py-1 text-sm text-accent hover:underline">{a.job_title_snapshot || `App #${a.id}`} — {next.label}</Link>
+          })}
+        </div>
+        <div className="rounded-lg border border-border bg-surface p-4">
+          <div className="mb-2 text-[12px] font-semibold">Recent outcomes</div>
+          {recentOutcomes.length === 0 ? <p className="text-sm text-text-muted">No outcomes yet</p> : recentOutcomes.map((a: any) => (
+            <div key={a.id} className="py-1 text-sm">{a.job_title_snapshot} — {a.final_outcome || "CLOSED"}</div>
+          ))}
+          <Link to="/analytics" className="text-xs text-accent hover:underline">View Analytics → Learning</Link>
+        </div>
+      </div>
+    </div>
   )
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react"
 import {
-  Rocket, Play, Loader2, Clock, Search, FileText, Sparkles, Mail, Users, Zap,
+  Rocket, Play, Clock, Search, FileText, Sparkles, Mail, Users, Zap,
 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 import { Topbar } from "@/components/layout/topbar"
@@ -21,7 +21,7 @@ const agentColors: Record<string, string> = {
   outreach: "text-green", followup_scheduler: "text-accent-sub", fit_scorer: "text-amber",
 }
 
-const logStateClass = (step: string) =>
+const logStateColor = (step: string) =>
   ["error", "blocked"].includes(step) ? "text-red" : "text-text-secondary"
 
 export default function PipelinePage() {

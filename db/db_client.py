@@ -203,7 +203,12 @@ class DBClient:
                         tailored_resume_path TEXT,
                         email_subject        TEXT,
                         email_body           TEXT,
-                        match_details_json   TEXT
+                        match_details_json   TEXT,
+                        canonical_id         TEXT,
+                        last_seen_at         TEXT,
+                        source_url_canonical TEXT,
+                        source_reliability   TEXT,
+                        is_duplicate_of      TEXT
                     )
                 """)
                 cur.execute("""
@@ -358,6 +363,11 @@ class DBClient:
                 "linkedin_message": "TEXT",
                 "careers_page_url": "TEXT",
                 "needs_review": "INTEGER DEFAULT 0",
+                "canonical_id": "TEXT",
+                "last_seen_at": "TEXT",
+                "source_url_canonical": "TEXT",
+                "source_reliability": "TEXT",
+                "is_duplicate_of": "TEXT",
             })
             self._ensure_columns(conn, "emails", {
                 "job_id": "INTEGER",
@@ -507,16 +517,72 @@ class DBClient:
                    email: dict = None, status: str = "found"):
         self._disk_invalidate("all_jobs")
         now  = datetime.now().isoformat()
+        # Compute canonical fields (deterministic, no LLM)
+        try:
+            from core.services.job_canonical_service import (
+                canonicalize_url, compute_canonical_id, determine_source_reliability
+            )
+            url_raw = job.get("url")
+            url_canon = canonicalize_url(url_raw)
+            canon_id = compute_canonical_id(
+                job.get("title"), job.get("company"), job.get("location"), url_raw
+            )
+            src_rel = determine_source_reliability(job.get("source"), url_raw)
+        except Exception:
+            url_canon = None
+            canon_id = None
+            src_rel = "neutral"
         conn = self._conn()
         try:
             with conn.cursor() as cur:
+                # 1) Same URL re-seen → update last_seen_at only
+                existing_url = job.get("url")
+                if existing_url:
+                    cur.execute("SELECT id, scraped_at FROM jobs WHERE url = %s", (existing_url,))
+                    row = cur.fetchone()
+                    if row:
+                        cur.execute(
+                            "UPDATE jobs SET last_seen_at = %s, source_url_canonical = COALESCE(source_url_canonical, %s), source_reliability = COALESCE(source_reliability, %s) WHERE id = %s",
+                            (now, url_canon, src_rel, row[0]),
+                        )
+                        conn.commit()
+                        return
+                # 2) Canonical duplicate check (conservative: host must match or url is fallback)
+                is_dup_of = None
+                if canon_id:
+                    cur.execute(
+                        "SELECT id, source_url_canonical, url FROM jobs WHERE canonical_id = %s AND is_duplicate_of IS NULL ORDER BY id ASC LIMIT 1",
+                        (canon_id,),
+                    )
+                    canon_row = cur.fetchone()
+                    if canon_row:
+                        canon_id_existing, canon_url_canon, canon_url_raw = canon_row[0], canon_row[1], canon_row[2]
+                        # Host comparison via canonical urls
+                        try:
+                            from urllib.parse import urlparse
+                            def _host(u):
+                                return urlparse(u).netloc.lower() if u else ""
+                            incoming_host = _host(url_canon or "")
+                            existing_host = _host(canon_url_canon or canon_url_raw or "")
+                        except Exception:
+                            incoming_host = existing_host = ""
+                        # Only link if hosts match or incoming is fallback (no http)
+                        incoming_is_fallback = not (job.get("url") or "").strip().lower().startswith("http")
+                        if incoming_host == existing_host or incoming_is_fallback or not incoming_host or not existing_host:
+                            is_dup_of = str(canon_id_existing)
+                            # Update canonical's last_seen_at
+                            cur.execute("UPDATE jobs SET last_seen_at = %s WHERE id = %s", (now, canon_id_existing))
+                        else:
+                            # Different host + same canonical_id → retain separate (avoid false merge)
+                            is_dup_of = None
                 cur.execute("""
                     INSERT INTO jobs
                     (title, company, url, source, location, type, hr_email,
-                     fit_score, status, scraped_at, applied_at,
+                     fit_score, status, scraped_at, last_seen_at, applied_at,
                      jd_text, cover_letter_path, tailored_resume_path,
-                     email_subject, email_body, needs_review)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                     email_subject, email_body, needs_review,
+                     canonical_id, source_url_canonical, source_reliability, is_duplicate_of)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (url) DO NOTHING
                 """, (
                     job.get("title"),
@@ -529,6 +595,7 @@ class DBClient:
                     (app_result or {}).get("fit_score"),
                     status,
                     now,
+                    now,
                     now if status == "sent" else None,
                     job.get("description_snippet", job.get("jd_text", "")),
                     (app_result or {}).get("cover_letter_path"),
@@ -536,6 +603,10 @@ class DBClient:
                     (email or {}).get("subject"),
                     (email or {}).get("body"),
                     1 if job.get("needs_review") else 0,
+                    canon_id,
+                    url_canon,
+                    src_rel,
+                    is_dup_of,
                 ))
             conn.commit()
         except Exception as e:

@@ -1,7 +1,7 @@
-import { NavLink, useLocation, useNavigate } from "react-router-dom"
+import { NavLink, useNavigate } from "react-router-dom"
 import {
   Home, Compass, Briefcase, Wand2, Users, Mail, BarChart3, Settings,
-  Zap, Search, Rocket, PanelLeftClose, PanelLeft, ChevronRight,
+  Zap, Search, Rocket, PanelLeftClose, PanelLeft, ChevronRight, Bot, GraduationCap,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useSystemStatus } from "@/hooks/use-dashboard"
@@ -17,6 +17,13 @@ const navSections = [
       { path: "/opportunities", icon: Briefcase, label: "Applications", badge: true },
       { path: "/resume", icon: Wand2, label: "Resume Studio" },
       { path: "/pipeline", icon: Rocket, label: "Pipeline" },
+    ],
+  },
+  {
+    label: "AI Assist",
+    items: [
+      { path: "/copilot", icon: Bot, label: "Career Copilot" },
+      { path: "/interview", icon: GraduationCap, label: "Interview Prep" },
     ],
   },
   {
@@ -36,8 +43,8 @@ const navSections = [
   },
 ]
 
+
 export function AppSidebar() {
-  const location = useLocation()
   const navigate = useNavigate()
   const { collapsed, toggleSidebar } = useLayoutStore()
   const { data: status } = useSystemStatus()
