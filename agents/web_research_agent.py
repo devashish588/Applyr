@@ -27,3 +27,7 @@ search_web = _mod.search_web
 parse_jobs = _mod.parse_jobs
 generate_report = _mod.generate_report
 main = _mod.main
+# Adapters need low-level helpers for per-source search
+_run_tavily = getattr(_mod, "_run_tavily", None)
+_extract_job_listings = getattr(_mod, "_extract_job_listings", None)
+_JOB_SITE_POOL = getattr(_mod, "_JOB_SITE_POOL", [])

@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import sys
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -210,6 +211,41 @@ class Orchestrator:
                 self.results["jobs_rejected"] = len(job_listings)
                 return self._finalise()
 
+            # Batch cross-host grouping: same underlying job from different hosts in same run -> one canonical with multiple attributions (host not primary)
+            # Preserve distinct requisitions (different levels/locations/stable IDs) as separate
+            try:
+                from core.services.canonical_identity_service import get_canonical_identity_service
+                _batch_resolver = get_canonical_identity_service()
+                _grouped: dict[str, dict] = {}
+                _batch_extra: dict[str, list[dict]] = {}
+                _representatives: list[dict] = []
+                for j in job_listings:
+                    from core.services.job_canonical_service import _normalize_company, normalize_title, _normalize_location
+                    from core.services.canonical_identity_service import _extract_stable_id, _normalize_type
+                    company_n = _normalize_company(j.get("company"))
+                    title_n = " ".join(normalize_title(j.get("title") or "").lower().split())
+                    loc_n = _normalize_location(j.get("location"))
+                    type_n = _normalize_type(j.get("type"))
+                    stable = _extract_stable_id(j.get("url"), j.get("source")) or ""
+                    batch_key = f"{company_n}|{title_n}|{loc_n}|{type_n}|{stable}"
+                    if batch_key in _grouped:
+                        _batch_extra.setdefault(batch_key, []).append(j)
+                    else:
+                        # Check via resolver for near-matches that differ only by stable/description? Use resolver for T1/T2 with existing batch cands
+                        # For batch, we consider same composite without stable as same, but stable difference already in key, so this is new
+                        _grouped[batch_key] = j
+                        _representatives.append(j)
+                # Replace job_listings with representatives for DB dedup, keep extra for post-insert attribution
+                self._batch_extra_attributions = _batch_extra
+                self._batch_grouped = _grouped
+                job_listings = _representatives
+                if _batch_extra:
+                    logger.info(f"[orchestrator] Batch grouping: {len(_representatives)} canonical representatives from batch, {sum(len(v) for v in _batch_extra.values())} extra source observations (host not primary)")
+            except Exception as e:
+                logger.warning(f"[orchestrator] batch grouping failed: {e}")
+                self._batch_extra_attributions = {}
+                self._batch_grouped = {}
+
             # STEP 2: deduplicate against DB
             self._emit("dedup", "Deduplicating jobs", agent="orchestrator")
             new_listings = self._deduplicate(job_listings)
@@ -218,6 +254,30 @@ class Orchestrator:
             self.results["jobs_duplicate"] = len(job_listings) - len(new_listings)
             logger.info(f"[orchestrator] {len(new_listings)} new jobs after dedup "
                         f"({len(job_listings) - len(new_listings)} already seen)")
+            # 33.1 Additive attribution for duplicates already in DB (no new canonical)
+            try:
+                from core.services.job_attribution_service import get_attribution_service
+                attr = get_attribution_service()
+                # Duplicates are those not in new_listings (by url)
+                new_urls = {j.get("url") for j in new_listings}
+                for j in job_listings:
+                    if j.get("url") in new_urls:
+                        continue
+                    # Already seen URL -> record observation for existing canonical
+                    if j.get("_source_id"):
+                        try:
+                            from core.services.job_canonical_service import compute_canonical_id
+                            cid = compute_canonical_id(j.get("title"), j.get("company"), j.get("location"), j.get("url"))
+                        except Exception:
+                            cid = None
+                        attr.record_observation(
+                            source_id=j.get("_source_id"), source_name=j.get("_source_name") or j.get("_source_host") or "Unknown",
+                            host=j.get("_source_host") or "unknown", mode=j.get("_source_mode") or "SEARCH",
+                            adapter=j.get("_source_adapter") or "SearchAdapter", source_url=j.get("url") or "",
+                            job_url=j.get("url"), canonical_id=cid, title=j.get("title"), company=j.get("company"), location=j.get("location"),
+                        )
+            except Exception as e:
+                logger.warning(f"[orchestrator] attribution (duplicates) failed: {e}")
 
             # STEP 3: process each job
             applied_count = 0
@@ -238,6 +298,30 @@ class Orchestrator:
 
             self.results["jobs_applied"] = applied_count
             self.results["jobs_rejected"] = rejected
+            # Batch extra attributions: same job from different hosts in same run -> one canonical, multiple sources (host not primary)
+            try:
+                _extra = getattr(self, "_batch_extra_attributions", {}) or {}
+                if _extra:
+                    from core.services.job_attribution_service import get_attribution_service
+                    from core.services.job_canonical_service import compute_canonical_id
+                    attr2 = get_attribution_service()
+                    for _k, _extras in _extra.items():
+                        for _ej in _extras:
+                            if not _ej.get("_source_id"):
+                                continue
+                            try:
+                                _cid = compute_canonical_id(_ej.get("title"), _ej.get("company"), _ej.get("location"), _ej.get("url"))
+                            except Exception:
+                                _cid = None
+                            attr2.record_observation(
+                                source_id=_ej.get("_source_id"), source_name=_ej.get("_source_name") or _ej.get("_source_host") or "Unknown",
+                                host=_ej.get("_source_host") or "unknown", mode=_ej.get("_source_mode") or "SEARCH",
+                                adapter=_ej.get("_source_adapter") or "SearchAdapter", source_url=_ej.get("url") or "",
+                                job_url=_ej.get("url"), canonical_id=_cid, title=_ej.get("title"), company=_ej.get("company"), location=_ej.get("location"),
+                            )
+                    logger.info(f"[orchestrator] Batch extra attributions recorded: {sum(len(v) for v in _extra.values())}")
+            except Exception as e:
+                logger.warning(f"[orchestrator] batch extra attribution failed: {e}")
             # Determine final status with fallback distinction
             if self.results["fallback_used"]:
                 self.results["status"] = "completed_with_fallback" if applied_count>0 or len(new_listings)>0 else "completed_empty"
@@ -273,20 +357,17 @@ class Orchestrator:
             logger.info("[orchestrator] Manual trigger -- pasted JD text")
             return [self._text_to_job_dict(job_text)]
 
-        # Scheduled: web search
-        logger.info("[orchestrator] Scheduled trigger -- running web research agent")
+        # Scheduled: multi-source independent discovery (reuses Quality→Dedup→Intelligence→Match→Priority)
+        logger.info("[orchestrator] Scheduled trigger -- independent per-source discovery")
         try:
-            from agents.web_research_agent import build_graph as build_research_graph
-            
-            # Fetch inferred roles and skills from parsed resume in DB
+            from core.services.job_source_service import get_job_source_service
+            from core.services.job_source_adapters import dispatch
+            from db.db_client import get_db as _get_db
             resume_data = None
             try:
-                from db.db_client import get_db
-                resume_data = get_db().get_resume_data()
+                resume_data = _get_db().get_resume_data()
             except Exception as e:
                 logger.warning(f"[orchestrator] Failed to get resume data: {e}")
-
-            # Log the search strategy for transparency
             if resume_data:
                 roles = resume_data.get("roles_json", []) or resume_data.get("roles", [])
                 skills = resume_data.get("skills_json", []) or resume_data.get("skills", [])
@@ -294,27 +375,101 @@ class Orchestrator:
             else:
                 logger.info("[orchestrator] No resume data — using profile.json target_roles")
 
-            graph  = build_research_graph()
-            result = graph.invoke({
-                "query":          "",
-                "profile":        self.profile,
-                "resume_data":    resume_data or {},
-                "messages":       [],
-                "search_results": [],
-                "job_listings":   [],
-                "report":         "",
-            })
-            listings = result.get("job_listings", [])
-            logger.info(f"[orchestrator] Web research found {len(listings)} jobs")
-            # Explicit fallback detection: web_research_agent retry without site: filter sets fallback
-            if result.get("fallback_used"):
-                self.results["fallback_used"] = True
-            try:
-                if "site:" in state.get("query","") and len(listings)==0 and not self.results["fallback_used"]:
-                    # Heuristic fallback for older agent without explicit flag
-                    self.results["fallback_used"] = True
-            except: pass
-            return listings
+            svc = get_job_source_service()
+            sources = svc.list_enabled()
+            # No registry yet (cold DB) -> fallback to single web_research_graph but per-source contract
+            if not sources:
+                logger.warning("[orchestrator] No enabled job sources — seeding built-ins")
+                svc._seed_builtins()
+                sources = svc.list_enabled()
+
+            all_listings: list[dict] = []
+            per_source: list[dict] = []
+            run_id = self.run_id
+            for src in sources:
+                t0 = time.time()
+                rid = None
+                try:
+                    rid = svc.start_source_run(run_id, src.id, src.adapter)
+                except Exception:
+                    rid = None
+                try:
+                    jobs, cat, err = dispatch(src, self.profile, resume_data)
+                    duration = int((time.time() - t0) * 1000)
+                    # Normalize cat
+                    if cat not in ("SUCCESS", "NO_RESULTS", "TIMEOUT", "HTTP_ERROR", "BLOCKED",
+                                   "ROBOTS_DISALLOWED", "AUTH_REQUIRED", "PARSER_ERROR",
+                                   "SCHEMA_CHANGED", "RATE_LIMITED", "UNSUPPORTED", "NETWORK", "UNKNOWN"):
+                        cat = "UNKNOWN" if err else ("SUCCESS" if jobs else "NO_RESULTS")
+                    status = "success" if cat in ("SUCCESS", "NO_RESULTS") else "failed"
+                    # Never fabricate jobs; empty is NO_RESULTS
+                    if not jobs and cat == "SUCCESS":
+                        cat = "NO_RESULTS"
+                    res = {
+                        "source_id": src.id,
+                        "status": status,
+                        "adapter": src.adapter,
+                        "jobs_found": len(jobs),
+                        "jobs_normalized": len(jobs),
+                        "jobs_new": 0,  # filled after dedup
+                        "jobs_duplicate": 0,
+                        "failure_category": cat,
+                        "error": err,
+                        "duration_ms": duration,
+                    }
+                    # Record health (Configured/Attempted/Succeeded/Failed) without masking
+                    try:
+                        svc.record_run(src.id, res)
+                        svc.finish_source_run(rid, res)
+                    except Exception:
+                        pass
+                    self._emit("source_done", f"Source {src.host}: {len(jobs)} jobs ({cat})",
+                               agent="web_research", status="done" if status == "success" else "error",
+                               source_id=src.id, host=src.host, adapter=src.adapter,
+                               jobs_found=len(jobs), failure_category=cat, duration_ms=duration)
+                    logger.info(f"[orchestrator] source {src.host} adapter={src.adapter} found={len(jobs)} cat={cat} ms={duration} err={err!r}")
+                    per_source.append(res)
+                    # Tag jobs with truthful source attribution (33.1) before normalization
+                    for j in jobs:
+                        j["_source_id"] = src.id
+                        j["_source_name"] = src.name
+                        j["_source_host"] = src.host
+                        j["_source_mode"] = src.source_type.upper()
+                        j["_source_adapter"] = src.adapter
+                        j["_source_url"] = j.get("url")
+                    # Only extend successes; failures contribute 0 jobs but are tracked
+                    if jobs:
+                        all_listings.extend(jobs)
+                    # Fallback detection: if any search source used broadened query, mark
+                    # but do NOT hide per-source failure — per-source contract is authoritative
+                except Exception as e:
+                    duration = int((time.time() - t0) * 1000)
+                    from core.ai.errors import sanitize_exception_message
+                    safe = sanitize_exception_message(str(e))
+                    res = {"source_id": src.id, "status": "failed", "adapter": src.adapter,
+                           "jobs_found": 0, "jobs_normalized": 0, "jobs_new": 0, "jobs_duplicate": 0,
+                           "failure_category": "UNKNOWN", "error": safe, "duration_ms": duration}
+                    try:
+                        svc.record_run(src.id, res)
+                        svc.finish_source_run(rid, res)
+                    except Exception:
+                        pass
+                    per_source.append(res)
+                    self.results["errors"].append(f"{src.host}: {safe}")
+                    logger.error(f"[orchestrator] source {src.host} failed: {safe}")
+
+            # Attach per-source telemetry to results for UI (Pipeline Status)
+            self.results["sources"] = per_source
+            self.results["sources_configured"] = len(sources)
+            self.results["sources_attempted"] = len(per_source)
+            self.results["sources_succeeded"] = sum(1 for r in per_source if r["status"] == "success" and r["failure_category"] == "SUCCESS")
+            self.results["sources_failed"] = sum(1 for r in per_source if r["status"] == "failed" or r["failure_category"] not in ("SUCCESS", "NO_RESULTS"))
+            # Do NOT fallback built-in on configured failure — per-source results are final
+            # Persist summary for existing run_log consumers
+            self.results["fallback_used"] = False
+            logger.info(f"[orchestrator] Multi-source found {len(all_listings)} jobs across {len(sources)} sources "
+                        f"({self.results['sources_succeeded']} succeeded, {self.results['sources_failed']} failed)")
+            return all_listings
         except Exception as e:
             from core.ai.errors import sanitize_exception_message, classify_error
             safe = sanitize_exception_message(str(e))
@@ -451,10 +606,75 @@ class Orchestrator:
         from db.db_client import get_db
         db = get_db()
         new = []
+        # Batch in-memory grouping for same job from different hosts in same run (host not primary)
+        _batch_seen: set[str] = set()
+        try:
+            from core.services.canonical_identity_service import get_canonical_identity_service, _extract_stable_id, _normalize_type
+            from core.services.job_canonical_service import _normalize_company, normalize_title, _normalize_location
+        except Exception:
+            _batch_seen = set()  # fallback
+            _extract_stable_id = lambda u,s: None  # type: ignore
+            _normalize_company = lambda x: (x or "").lower().strip()  # type: ignore
+            normalize_title = lambda x: x or ""  # type: ignore
+            _normalize_location = lambda x: (x or "").lower().strip()  # type: ignore
+            _normalize_type = lambda x: (x or "").lower().strip()  # type: ignore
+            get_canonical_identity_service = lambda: None  # type: ignore
+        # For cross-source resolver, reuse one connection for candidate lookup to avoid O(N^2)
+        # Preserve existing url_exists semantics, additive tiered identity for host - not primary
+        try:
+            from core.services.canonical_identity_service import get_canonical_identity_service
+            resolver = get_canonical_identity_service()
+        except Exception:
+            resolver = None
+        conn = None
+        try:
+            conn = db._conn()
+        except Exception:
+            conn = None
         for job in jobs:
             url = job.get("url") or f"{job.get('company','')}-{job.get('title','')}"
-            if not db.url_exists(url):
-                new.append(job)
+            # In-batch duplicate check (same underlying job observed via different hosts in same pipeline run)
+            try:
+                company_n = _normalize_company(job.get("company"))
+                title_n = " ".join(normalize_title(job.get("title") or "").lower().split())
+                loc_n = _normalize_location(job.get("location"))
+                type_n = _normalize_type(job.get("type"))
+                stable = _extract_stable_id(job.get("url"), job.get("source")) or ""
+                batch_key = f"{company_n}|{title_n}|{loc_n}|{type_n}|{stable}"
+                if batch_key and batch_key in _batch_seen and company_n and title_n:
+                    # Same job as earlier in this batch (host not primary) -> duplicate, will be attributed via batch extra
+                    continue
+            except Exception:
+                pass
+            if db.url_exists(url):
+                try:
+                    _batch_seen.add(batch_key)  # type: ignore
+                except Exception:
+                    pass
+                continue
+            # Cross-host tiered identity vs DB: if same underlying job exists via different host, treat as duplicate
+            if resolver and conn:
+                try:
+                    candidates = resolver.find_candidates(job, conn)
+                    hit = resolver.resolve(job, candidates)
+                    if hit is not None:
+                        try:
+                            _batch_seen.add(batch_key)  # type: ignore
+                        except Exception:
+                            pass
+                        continue
+                except Exception:
+                    pass
+            try:
+                _batch_seen.add(batch_key)  # type: ignore
+            except Exception:
+                pass
+            new.append(job)
+        if conn:
+            try:
+                db._put_conn(conn)
+            except Exception:
+                pass
         return new
 
     def _daily_count(self):
@@ -470,6 +690,24 @@ class Orchestrator:
         now = datetime.now().isoformat()
         try:
             db.insert_job(job, app_result, email, status=status)
+            # 33.1 Record cross-source attribution for canonical (additive, no duplicate canonical)
+            try:
+                if job.get("_source_id"):
+                    from core.services.job_attribution_service import get_attribution_service
+                    from core.services.job_canonical_service import compute_canonical_id
+                    cid = None
+                    try:
+                        cid = compute_canonical_id(job.get("title"), job.get("company"), job.get("location"), job.get("url"))
+                    except Exception:
+                        pass
+                    get_attribution_service().record_observation(
+                        source_id=job.get("_source_id"), source_name=job.get("_source_name") or job.get("_source_host") or "Unknown",
+                        host=job.get("_source_host") or "unknown", mode=job.get("_source_mode") or "SEARCH",
+                        adapter=job.get("_source_adapter") or "SearchAdapter", source_url=job.get("url") or "",
+                        job_url=job.get("url"), canonical_id=cid, title=job.get("title"), company=job.get("company"), location=job.get("location"),
+                    )
+            except Exception as e:
+                logger.warning(f"[orchestrator] attribution (new) failed: {e}")
 
             # Also save email record
             if email:

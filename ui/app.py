@@ -865,7 +865,328 @@ def api_paste_jd():
 def api_pipeline_logs(run_id):
     """Return all pipeline events for a run."""
     events = get_db().get_pipeline_events(run_id)
-    return jsonify({"success": True, "events": events, "total": len(events)})
+    # Per-source health (Configured/Attempted/Succeeded/Failed) for Pipeline Status
+    sources = []
+    try:
+        from core.services.job_source_service import get_job_source_service
+        sources = get_job_source_service().get_source_runs(run_id)
+    except Exception:
+        sources = []
+    return jsonify({"success": True, "events": events, "total": len(events), "sources": sources})
+
+
+# ── Job Sources (Multi-Source Discovery) ─────────────────────────────────────
+@app.route("/api/job-sources", methods=["GET"])
+def api_job_sources_list():
+    try:
+        from core.services.job_source_service import get_job_source_service
+        svc = get_job_source_service()
+        objs = svc.list_sources()
+        srcs = [s.to_dict() for s in objs]
+        return jsonify({"success": True, "sources": srcs, "total": len(srcs),
+                        "configured": len(srcs), "enabled": sum(1 for s in objs if s.enabled)})
+    except Exception as e:
+        logger.error("List job sources failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route("/api/job-sources", methods=["POST"])
+def api_job_sources_create():
+    data = request.get_json() or {}
+    url = (data.get("url") or "").strip()
+    if not url:
+        return jsonify({"success": False, "error": "url required"}), 400
+    name = (data.get("name") or "").strip() or None
+    enabled = bool(data.get("enabled", True))
+    source_type = data.get("source_type")
+    try:
+        from core.services.job_source_service import get_job_source_service
+        svc = get_job_source_service()
+        js = svc.upsert(url=url, name=name, enabled=enabled, source_type=source_type)
+        return jsonify({"success": True, "source": js.to_dict()})
+    except ValueError as ve:
+        return jsonify({"success": False, "error": str(ve)}), 400
+    except Exception as e:
+        logger.error("Create job source failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route("/api/job-sources/<source_id>", methods=["PUT"])
+def api_job_sources_update(source_id):
+    data = request.get_json() or {}
+    try:
+        from core.services.job_source_service import get_job_source_service
+        svc = get_job_source_service()
+        js = svc.update(source_id, **{k: v for k, v in data.items() if k in ("name","url","enabled","source_type","adapter")})
+        if not js:
+            return jsonify({"success": False, "error": "Source not found"}), 404
+        return jsonify({"success": True, "source": js.to_dict()})
+    except Exception as e:
+        logger.error("Update job source failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route("/api/job-sources/<source_id>", methods=["DELETE"])
+def api_job_sources_delete(source_id):
+    try:
+        from core.services.job_source_service import get_job_source_service
+        svc = get_job_source_service()
+        ok = svc.delete(source_id)
+        if not ok:
+            return jsonify({"success": False, "error": "Source not found"}), 404
+        return jsonify({"success": True})
+    except Exception as e:
+        logger.error("Delete job source failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route("/api/job-sources/<source_id>/test", methods=["POST"])
+def api_job_sources_test(source_id):
+    """Test a single source without inserting jobs (dry-run). Returns common contract."""
+    try:
+        from core.services.job_source_service import get_job_source_service
+        from core.services.job_source_adapters import dispatch
+        svc = get_job_source_service()
+        src = svc.get(source_id)
+        if not src:
+            return jsonify({"success": False, "error": "Source not found"}), 404
+        # Load profile/resume for SearchAdapter context without DB writes
+        profile = {}
+        resume_data = None
+        try:
+            profile_path = os.getenv("PROFILE_PATH", str(ROOT / "profile.json"))
+            if os.path.exists(profile_path):
+                with open(profile_path) as f:
+                    profile = json.load(f)
+            resume_data = get_db().get_resume_data()
+        except Exception:
+            pass
+        t0 = time.time()
+        jobs, cat, err = dispatch(src, profile, resume_data)
+        duration = int((time.time() - t0) * 1000)
+        status = "success" if cat in ("SUCCESS", "NO_RESULTS") else "failed"
+        result = {
+            "source_id": src.id,
+            "status": status,
+            "adapter": src.adapter,
+            "jobs_found": len(jobs),
+            "jobs_normalized": len(jobs),
+            "jobs_new": 0,
+            "jobs_duplicate": 0,
+            "failure_category": cat,
+            "error": err,
+            "duration_ms": duration,
+            "sample": jobs[:3],
+        }
+        # Do NOT update last_run health on test (or mark as test)
+        return jsonify({"success": True, "result": result})
+    except Exception as e:
+        logger.error("Test job source failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+@app.route("/api/job-sources/health", methods=["GET"])
+def api_job_sources_health():
+    """Aggregated health for Pipeline Status: Configured/Attempted/Succeeded/Failed + performance (33.4) + parser health (33.8)"""
+    try:
+        from core.services.job_source_service import get_job_source_service
+        svc = get_job_source_service()
+        srcs = svc.list_sources()
+        enabled = [s for s in srcs if s.enabled]
+        recent = svc.recent_source_runs(limit=100)
+        # per-source performance aggregates from job_source_runs (33.4)
+        perf_map = {}
+        try:
+            db = get_db()
+            conn = db._conn()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT source_id,
+                               COUNT(*) as attempts,
+                               SUM(CASE WHEN status='success' AND failure_category='SUCCESS' THEN 1 ELSE 0 END) as successes,
+                               SUM(CASE WHEN status='failed' OR failure_category NOT IN ('SUCCESS','NO_RESULTS') THEN 1 ELSE 0 END) as failures,
+                               COALESCE(SUM(jobs_found),0) as jobs_found,
+                               COALESCE(SUM(jobs_normalized),0) as jobs_normalized,
+                               COALESCE(SUM(jobs_new),0) as jobs_new,
+                               COALESCE(SUM(jobs_duplicate),0) as duplicates,
+                               COALESCE(AVG(duration_ms),0) as avg_duration
+                        FROM job_source_runs GROUP BY source_id
+                    """)
+                    for row in cur.fetchall():
+                        # row is tuple
+                        perf_map[row[0]] = {
+                            "attempts": int(row[1] or 0),
+                            "successes": int(row[2] or 0),
+                            "failures": int(row[3] or 0),
+                            "jobs_found": int(row[4] or 0),
+                            "jobs_normalized": int(row[5] or 0),
+                            "jobs_new": int(row[6] or 0),
+                            "duplicates": int(row[7] or 0),
+                            "avg_duration_ms": int(row[8] or 0),
+                        }
+                # success rate
+                for v in perf_map.values():
+                    v["success_rate"] = round((v["successes"]/v["attempts"]*100) if v["attempts"] else 0, 1)
+            finally:
+                db._put_conn(conn)
+        except Exception:
+            perf_map = {}
+        # Parser health: POSSIBLE_SCHEMA_CHANGE if current 0 jobs but previous avg >5 (33.8)
+        health = []
+        for s in srcs:
+            d = s.to_dict()
+            perf = perf_map.get(s.id, {"attempts":0,"successes":0,"failures":0,"jobs_found":0,"jobs_normalized":0,"jobs_new":0,"duplicates":0,"avg_duration_ms":0,"success_rate":0})
+            # Determine parser anomaly: last run 0 jobs but historical avg >5 and previous successes >2
+            anomaly = None
+            if s.last_job_count == 0 and perf["successes"] >= 3 and perf["jobs_found"] > 0:
+                # check recent runs for this source: last 3 successes avg
+                try:
+                    db = get_db()
+                    conn = db._conn()
+                    with conn.cursor() as cur:
+                        cur.execute("SELECT jobs_found FROM job_source_runs WHERE source_id=%s AND status='success' ORDER BY started_at DESC LIMIT 5", (s.id,))
+                        hist = [r[0] for r in cur.fetchall() if r[0] is not None]
+                    db._put_conn(conn)
+                    if len(hist) >= 3 and sum(hist[:3])/3 >= 5:
+                        anomaly = "POSSIBLE_SCHEMA_CHANGE"
+                except Exception:
+                    pass
+            health.append({
+                "id": s.id, "name": s.name, "host": s.host, "url": s.url,
+                "enabled": s.enabled, "adapter": s.adapter, "source_type": s.source_type,
+                "is_builtin": d.get("is_builtin", s.id.startswith("builtin-")),
+                "priority": getattr(s, "priority", 100) if hasattr(s, "priority") else 100,
+                "last_run_at": s.last_run_at, "last_success_at": s.last_success_at,
+                "last_failure_at": s.last_failure_at, "last_job_count": s.last_job_count,
+                "failure_category": s.failure_category, "last_failure_category": d.get("last_failure_category"),
+                "last_error": s.last_error,
+                "performance": perf,
+                "parser_health": anomaly,
+            })
+        return jsonify({
+            "success": True,
+            "configured": len(srcs),
+            "enabled": len(enabled),
+            "sources": health,
+            "recent_runs": recent[:20],
+        })
+    except Exception as e:
+        logger.error("Job sources health failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+# 33.2 / 33.3 Attribution API
+@app.route("/api/jobs/<int:job_id>/sources", methods=["GET"])
+def api_job_sources_for_job(job_id):
+    """Return cross-source attribution for canonical job (33.2)"""
+    try:
+        from core.services.job_attribution_service import get_attribution_service
+        svc = get_attribution_service()
+        rows = svc.get_for_canonical_or_duplicate(job_id)
+        # Truthful terminology: mode is SEARCH/HTML/RSS/JSON/ATS, adapter truthful
+        sources = []
+        for r in rows:
+            sources.append({
+                "source_id": r.get("source_id"),
+                "name": r.get("source_name"),
+                "host": r.get("host"),
+                "mode": r.get("mode"),
+                "adapter": r.get("adapter"),
+                "url": r.get("source_url"),
+                "first_seen": r.get("first_seen_at"),
+                "last_seen": r.get("last_seen_at"),
+            })
+        # Also include primary source from jobs table for completeness
+        job = get_db().get_job_by_id(job_id)
+        primary = None
+        best_url = None
+        if job:
+            # Prefer official employer URL over aggregator if attribution exists
+            # Minimal heuristic: if host is not known job board, prefer it
+            from core.services.job_attribution_service import get_attribution_service as _gas
+            # Determine best application source (33.10) - prefer non-board host
+            board_hosts = {"linkedin.com","indeed.com","glassdoor.com","dice.com","wellfound.com","builtin.com","naukri.com","remotive.com","remoteok.com","weworkremotely.com","ycombinator.com","arc.dev"}
+            canonical_attribs = rows
+            if canonical_attribs:
+                # Prefer smallest is_duplicate? Actually prefer source where host not in board list
+                non_board = [a for a in canonical_attribs if a.get("host") not in board_hosts]
+                best = (non_board[0] if non_board else canonical_attribs[0]) if canonical_attribs else None
+                if best:
+                    best_url = best.get("source_url")
+            primary = {"source": job.get("source"), "url": job.get("url"), "best_application_url": best_url}
+        return jsonify({"success": True, "job_id": job_id, "sources": sources, "primary": primary, "count": len(sources)})
+    except Exception as e:
+        logger.error("Job sources for job failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+# 33.5 / 33.6 Diversity + New Jobs
+@app.route("/api/sources/diversity", methods=["GET"])
+def api_sources_diversity():
+    """Distribution of canonical jobs across sources (33.5), new since last run (33.6)"""
+    try:
+        db = get_db()
+        # Diversity: count canonical jobs per primary source (is_duplicate_of IS NULL)
+        conn = db._conn()
+        try:
+            from psycopg2.extras import RealDictCursor
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("SELECT source, COUNT(*) as cnt FROM jobs WHERE is_duplicate_of IS NULL GROUP BY source ORDER BY cnt DESC")
+                rows = cur.fetchall()
+                total = sum(r["cnt"] for r in rows) or 1
+                diversity = [{"source": r["source"] or "unknown", "count": int(r["cnt"]), "pct": round(int(r["cnt"])/total*100,1)} for r in rows]
+                # Concentration warning
+                top_pct = diversity[0]["pct"] if diversity else 0
+                warning = f"{top_pct}% of discovered opportunities came from one source." if top_pct >= 60 and total >= 10 else None
+                # New since last run: use jobs_new from latest run_log (TEXT timestamps, not scraped_at)
+                cur.execute("SELECT jobs_found, jobs_filtered, summary_json FROM run_log ORDER BY started_at DESC LIMIT 1")
+                last_run = cur.fetchone()
+                new_jobs = 0
+                if last_run and last_run.get("summary_json"):
+                    try:
+                        summary = last_run["summary_json"]
+                        if isinstance(summary, str):
+                            import json as _j
+                            summary = _j.loads(summary)
+                        new_jobs = int(summary.get("jobs_new") or summary.get("jobs_filtered") or 0)
+                    except Exception:
+                        new_jobs = int(last_run.get("jobs_filtered") or 0)
+            return jsonify({"success": True, "total_canonical": total, "diversity": diversity, "concentration_warning": warning, "new_jobs_last_run": new_jobs})
+        finally:
+            db._put_conn(conn)
+    except Exception as e:
+        logger.error("Diversity failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
+# 33.7 Diagnostics per source
+@app.route("/api/sources/diagnostics", methods=["GET"])
+def api_sources_diagnostics():
+    """Per-source diagnostics: http, adapter, duration, listings, normalized, failure (33.7)"""
+    try:
+        from core.services.job_source_service import get_job_source_service
+        svc = get_job_source_service()
+        recent = svc.recent_source_runs(limit=50)
+        # Enrich with source url/host
+        src_map = {s.id: s for s in svc.list_sources()}
+        diags = []
+        for r in recent[:20]:
+            src = src_map.get(r.get("source_id"))
+            diags.append({
+                "run_id": r.get("run_id"),
+                "source_id": r.get("source_id"),
+                "host": src.host if src else r.get("source_id"),
+                "url": src.url if src else "",
+                "adapter": r.get("adapter"),
+                "mode": src.source_type.upper() if src and src.source_type else r.get("adapter","").replace("Adapter","").upper(),
+                "status": r.get("status"),
+                "failure_category": r.get("failure_category"),
+                "error": r.get("error"),
+                "jobs_found": r.get("jobs_found"),
+                "jobs_normalized": r.get("jobs_normalized"),
+                "jobs_new": r.get("jobs_new"),
+                "jobs_duplicate": r.get("jobs_duplicate"),
+                "duration_ms": r.get("duration_ms"),
+                "started_at": r.get("started_at"),
+            })
+        return jsonify({"success": True, "diagnostics": diags})
+    except Exception as e:
+        logger.error("Diagnostics failed: %s", e, exc_info=True)
+        return jsonify({"error": "Internal server error"}), 500
+
 
 
 # ── Jobs ──────────────────────────────────────────────────────────────────────

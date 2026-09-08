@@ -1,4 +1,4 @@
-import { Settings as SettingsIcon, Check, X, ExternalLink, Send, ShieldCheck, Mail, Sliders, CheckCircle2 } from "lucide-react"
+import { Settings as SettingsIcon, Check, X, ExternalLink, Send, ShieldCheck, Mail, Sliders, CheckCircle2, Globe, Plus, Trash2, FlaskConical } from "lucide-react"
 import { motion } from "framer-motion"
 import { Topbar } from "@/components/layout/topbar"
 import { Button } from "@/components/ui/button"
@@ -8,6 +8,8 @@ import { useSendTestEmail } from "@/hooks/use-emails"
 import { fetchGmailAuthUrl } from "@/api/settings"
 import { cn } from "@/lib/utils"
 import { useState } from "react"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
+import { fetchJobSources, createJobSource, updateJobSource, deleteJobSource, testJobSource, fetchJobSourcesHealth } from "@/api/job_sources"
 
 export default function SettingsPage() {
   const { data: config } = useConfig()
@@ -17,6 +19,15 @@ export default function SettingsPage() {
   useGmailStatus()
   const testMutation = useSendTestEmail()
   const [testTo, setTestTo] = useState("")
+  const qc = useQueryClient()
+  const { data: jobSourcesData } = useQuery({ queryKey: ["job-sources"], queryFn: fetchJobSources })
+  const { data: healthData } = useQuery({ queryKey: ["job-sources-health"], queryFn: fetchJobSourcesHealth })
+  const [newUrl, setNewUrl] = useState("")
+  const [newName, setNewName] = useState("")
+  const [testResults, setTestResults] = useState<Record<string, any>>({})
+  const createMut = useMutation({ mutationFn: createJobSource, onSuccess: () => { qc.invalidateQueries({ queryKey: ["job-sources"] }); qc.invalidateQueries({ queryKey: ["job-sources-health"] }); setNewUrl(""); setNewName("") } })
+  const toggleMut = useMutation({ mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => updateJobSource(id, { enabled }), onSuccess: () => { qc.invalidateQueries({ queryKey: ["job-sources"] }); qc.invalidateQueries({ queryKey: ["job-sources-health"] }) } })
+  const deleteMut = useMutation({ mutationFn: deleteJobSource, onSuccess: () => { qc.invalidateQueries({ queryKey: ["job-sources"] }); qc.invalidateQueries({ queryKey: ["job-sources-health"] }) } })
 
   const handleGmailConnect = async () => {
     try {
@@ -192,8 +203,60 @@ export default function SettingsPage() {
                 <p className="text-xs text-text-faint">Loading setup status…</p>
               )}
             </div>
-
           </div>
+
+          {/* Job Sources (Multi-Source Discovery) */}
+          <div className="mt-6 rounded-xl border border-border bg-bg-secondary p-5 space-y-4">
+            <div className="text-[11px] font-medium uppercase tracking-wider text-text-muted flex items-center gap-2">
+              <Globe className="h-3.5 w-3.5 text-accent" /> Job Sources — Independent Discovery
+            </div>
+            <p className="text-[11px] text-text-muted">Configured sources are executed independently per run. Each shows adapter (Search/GenericHTML/RSS/JSON/ATS) and health (SUCCESS/NO_RESULTS/TIMEOUT/HTTP_ERROR/BLOCKED/ROBOTS_DISALLOWED/...). No silent fallback — failures are visible here and on Pipeline Status.</p>
+            <div className="flex gap-2">
+              <input value={newUrl} onChange={(e) => setNewUrl(e.target.value)} placeholder="https://company.com/careers or https://boards.greenhouse.io/company or https://.../feed.xml" className="h-8 flex-1 rounded-lg border border-border bg-white/[0.02] px-3 text-xs text-text-primary outline-none focus:border-accent/60 placeholder:text-text-faint" />
+              <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Name (optional)" className="h-8 w-36 rounded-lg border border-border bg-white/[0.02] px-3 text-xs text-text-primary outline-none focus:border-accent/60 placeholder:text-text-faint" />
+              <Button size="sm" className="h-8 text-xs gap-1.5" disabled={!newUrl.trim() || createMut.isPending} onClick={() => createMut.mutate({ url: newUrl.trim(), name: newName.trim() || undefined })}>
+                <Plus className="h-3.5 w-3.5" /> Add Source
+              </Button>
+            </div>
+            {createMut.isError && <p className="text-[11px] text-coral">Failed to add source.</p>}
+            <div className="space-y-1.5 pt-1 max-h-[420px] overflow-y-auto">
+              {(healthData?.sources || jobSourcesData?.sources || []).map((s:any) => {
+                const perf = s.performance || {}
+                const isBuilt = s.is_builtin ?? s.id?.startsWith("builtin-")
+                return (
+                <div key={s.id} className="flex items-center justify-between rounded-lg px-3 py-2 border border-border/40 bg-white/[0.01] gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-xs font-medium text-text-primary">{s.name} <span className="text-text-faint font-normal">• {s.host}</span> {isBuilt ? <span className="ml-1 rounded bg-accent/10 px-1 py-0.5 text-[9px] text-accent">BUILT-IN</span> : <span className="ml-1 rounded bg-white/5 px-1 py-0.5 text-[9px] text-text-faint">CUSTOM</span>}</div>
+                    <div className="truncate text-[11px] text-text-muted font-mono">{s.url}</div>
+                    <div className="text-[10px] text-text-faint">{s.adapter} • {s.source_type} • {s.enabled ? "enabled" : "disabled"} {s.failure_category ? `• ${s.failure_category}` : ""} {s.last_job_count ? `• ${s.last_job_count} jobs` : ""} {s.last_error ? `• ${s.last_error.slice(0,60)}` : ""} {perf.attempts ? `• ${perf.attempts} attempts ${perf.success_rate}%` : ""} {perf.avg_duration_ms ? `• ${perf.avg_duration_ms}ms avg` : ""} {s.parser_health ? `• ⚠ ${s.parser_health}` : ""}</div>
+                    {testResults[s.id] && (
+                      <div className={cn("mt-1 rounded px-2 py-1 text-[11px] border", testResults[s.id].status==="success" ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-red/10 border-red/20 text-red")}>
+                        Test: {testResults[s.id].failure_category} • {testResults[s.id].jobs_found} jobs • {testResults[s.id].duration_ms}ms {testResults[s.id].error ? `• ${testResults[s.id].error.slice(0,100)}` : ""} {testResults[s.id].sample?.length ? `• sample: ${testResults[s.id].sample[0]?.title?.slice(0,40)}` : ""}
+                      </div>
+                    )}
+                  </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                    <Button size="sm" variant="ghost" className="h-7 text-[11px] px-2" disabled={toggleMut.isPending} onClick={() => toggleMut.mutate({ id: s.id, enabled: !s.enabled })}>
+                      {s.enabled ? "Disable" : "Enable"}
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-7 text-[11px] px-2 gap-1" onClick={async () => {
+                      try { const r = await testJobSource(s.id); setTestResults(prev => ({ ...prev, [s.id]: r })) } catch { setTestResults(prev => ({ ...prev, [s.id]: { status:"failed", failure_category:"UNKNOWN", jobs_found:0, duration_ms:0, error:"Test failed" }})) }
+                    }}>
+                      <FlaskConical className="h-3 w-3" /> Test
+                    </Button>
+                    {!s.id.startsWith("builtin-") && (
+                      <Button size="sm" variant="ghost" className="h-7 text-[11px] px-2 text-coral" disabled={deleteMut.isPending} onClick={() => deleteMut.mutate(s.id)}>
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                )
+              })}
+              {(!jobSourcesData?.sources || jobSourcesData.sources.length===0) && <p className="text-xs text-text-faint">No sources configured — built-ins will be seeded on first pipeline run.</p>}
+            </div>
+          </div>
+
         </motion.div>
       </div>
     </>

@@ -6,6 +6,8 @@ import { Topbar } from "@/components/layout/topbar"
 import { useJobs, useJobDetail } from "@/hooks/use-jobs"
 import { runPipeline, pasteJD } from "@/api/pipeline"
 import { cn, sanitizeCompany, scoreColor, scoreBgColor, scoreLabel, statusLabel, statusColor, truncate } from "@/lib/utils"
+import { useQuery } from "@tanstack/react-query"
+import { fetchJobSourcesForJob } from "@/api/job_sources"
 import { PriorityBadge } from "@/components/ui/priority-badge"
 import { MatchScore } from "@/components/ui/match-score"
 import type { Job, MatchDetails } from "@/types/api"
@@ -249,6 +251,7 @@ function JobDetailPanel({ job, match, onClose }: { job: Job; match: MatchDetails
               </a>
             )}
           </div>
+          <JobAttribution jobId={job.id} />
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5">
@@ -337,6 +340,9 @@ function JobDetailPanel({ job, match, onClose }: { job: Job; match: MatchDetails
             {match?.explanation && <p className="mt-3 text-[12px] text-text-muted leading-relaxed">{match.explanation}</p>}
           </div>
 
+          {/* Source Attribution (33.1-33.3,33.10) */}
+          <JobAttributionDetailed jobId={job.id} />
+
           {/* Proof Pack / Outreach */}
           <div className="rounded-xl border border-border bg-surface p-4">
             <div className="text-[10px] font-medium uppercase tracking-wider text-text-faint">Proof pack</div>
@@ -363,6 +369,42 @@ function JobDetailPanel({ job, match, onClose }: { job: Job; match: MatchDetails
           </div>
         </aside>
       </div>
+    </div>
+  )
+}
+
+function JobAttribution({ jobId }: { jobId: number }) {
+  const { data } = useQuery({ queryKey: ["job-sources", jobId], queryFn: () => fetchJobSourcesForJob(jobId), enabled: !!jobId })
+  if (!data || data.count < 2) return null
+  return <div className="mt-1 text-[10px] text-text-faint">Discovered via {data.count} sources: {data.sources.slice(0,3).map(s=> s.host).join(", ")}</div>
+}
+
+function JobAttributionDetailed({ jobId }: { jobId: number }) {
+  const { data } = useQuery({ queryKey: ["job-sources", jobId], queryFn: () => fetchJobSourcesForJob(jobId), enabled: !!jobId })
+  if (!data) return null
+  const sources = data.sources || []
+  const primary = data.primary
+  return (
+    <div className="rounded-xl border border-border bg-surface p-4">
+      <div className="text-[10px] font-medium uppercase tracking-wider text-text-faint">Discovered via {sources.length || 1} source{sources.length===1?"":"s"} (33.1)</div>
+      {sources.length ? (
+        <div className="mt-2 space-y-1">
+          {sources.map((s:any)=> (
+            <div key={s.source_id} className="flex items-center justify-between rounded bg-white/[0.01] px-2 py-1 border border-border/30 text-[11px]">
+              <span className="truncate">{s.name || s.host} • {s.mode} • {s.host}</span>
+              <a href={s.url} target="_blank" rel="noopener noreferrer" className="shrink-0 text-accent-sub text-[10px]">Open</a>
+            </div>
+          ))}
+        </div>
+      ) : <div className="mt-2 text-[11px] text-text-muted">Primary: {primary?.source || "unknown"} <a href={primary?.url} target="_blank" rel="noopener noreferrer" className="ml-1 text-accent-sub">View</a></div>}
+      {primary?.best_application_url && primary.best_application_url !== primary?.url && (
+        <div className="mt-3 rounded bg-emerald-500/10 border border-emerald-500/20 p-2 text-[11px]">
+          <div className="font-medium text-emerald-400">★ Best Application Source</div>
+          <div className="text-text-muted">Official employer application</div>
+          <a href={primary.best_application_url} target="_blank" rel="noopener noreferrer" className="text-accent-sub">{primary.best_application_url}</a>
+        </div>
+      )}
+      {sources.length>1 && <div className="mt-2 text-[10px] text-text-faint">Found on {sources.length} sources — one canonical opportunity</div>}
     </div>
   )
 }

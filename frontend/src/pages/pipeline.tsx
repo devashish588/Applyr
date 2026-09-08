@@ -8,6 +8,8 @@ import { Button, Badge, Skeleton, EmptyState } from "@/components/ui"
 import { usePipeline } from "@/hooks/use-pipeline"
 import { useJobs } from "@/hooks/use-jobs"
 import { cn, sanitizeCompany } from "@/lib/utils"
+import { useQuery } from "@tanstack/react-query"
+import { fetchDiversity, fetchDiagnostics } from "@/api/job_sources"
 
 const agentIcons: Record<string, React.ElementType> = {
   orchestrator: Rocket, web_research: Search, resume_parser: FileText,
@@ -43,6 +45,11 @@ export default function PipelinePage() {
   const failureCat = results.failure_category || (results.errors?.some((er:string)=> er.includes("TAVILY_API_KEY") || er.includes("All AI providers")) ? "provider_unavailable" : null)
   const isProviderFailure = failureCat === "provider_unavailable" || results.status === "blocked"
   const isFailed = !!errorEvent || results.status === "failed" || (failureCat === "discovery_failed" && jobsFound===0)
+  const perSource = (results.sources || []) as Array<{source_id:string;status:string;adapter:string;jobs_found:number;failure_category:string;error?:string;duration_ms:number;host?:string}>
+  const sourcesConfigured = results.sources_configured ?? perSource.length
+  const sourcesAttempted = results.sources_attempted ?? perSource.length
+  const sourcesSucceeded = results.sources_succeeded ?? perSource.filter(s=> s.status==="success" && s.failure_category==="SUCCESS").length
+  const sourcesFailed = results.sources_failed ?? perSource.filter(s=> s.status==="failed" || !["SUCCESS","NO_RESULTS"].includes(s.failure_category)).length
   const completedEmpty = done && jobsFound === 0 && !isProviderFailure && !isFailed
   const completedWithFallbackEmpty = done && jobsFound===0 && fallbackUsed && !isProviderFailure
   const completedWithFallbackJobs = done && jobsFound>0 && fallbackUsed
@@ -253,6 +260,35 @@ export default function PipelinePage() {
                 )}
               </div>
 
+              {/* Per-Source Health (Configured/Attempted/Succeeded/Failed) */}
+              {done && perSource.length > 0 && (
+                <div className="rounded-xl border border-border bg-bg-secondary p-5 space-y-3">
+                  <div className="text-[11px] font-medium uppercase tracking-wider text-text-muted">Source Health</div>
+                  <div className="grid grid-cols-4 gap-2 text-center">
+                    <div className="rounded-lg bg-white/[0.02] border border-border/40 p-2"><div className="text-[10px] text-text-faint">Configured</div><div className="text-sm font-mono font-semibold text-text-primary">{sourcesConfigured}</div></div>
+                    <div className="rounded-lg bg-white/[0.02] border border-border/40 p-2"><div className="text-[10px] text-text-faint">Attempted</div><div className="text-sm font-mono font-semibold text-text-primary">{sourcesAttempted}</div></div>
+                    <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-2"><div className="text-[10px] text-emerald-400">Succeeded</div><div className="text-sm font-mono font-semibold text-emerald-400">{sourcesSucceeded}</div></div>
+                    <div className="rounded-lg bg-red/10 border border-red/20 p-2"><div className="text-[10px] text-red">Failed</div><div className="text-sm font-mono font-semibold text-red">{sourcesFailed}</div></div>
+                  </div>
+                  <div className="max-h-[220px] overflow-y-auto space-y-1 pt-1">
+                    {perSource.map((s) => (
+                      <div key={s.source_id} className="flex items-center justify-between rounded-lg px-3 py-1.5 border border-border/30 bg-white/[0.01] text-[11px]">
+                        <div className="min-w-0 pr-2">
+                          <div className="truncate font-medium text-text-primary">{(s as any).host || s.source_id}</div>
+                          <div className="truncate text-[10px] text-text-faint">{s.adapter} • {s.failure_category}{s.error ? ` • ${s.error.slice(0,80)}` : ""}</div>
+                        </div>
+                        <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium border", s.status==="success" && s.failure_category==="SUCCESS" ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" : s.failure_category==="NO_RESULTS" ? "bg-amber/10 text-amber border-amber/20" : "bg-red/10 text-red border-red/20")}>
+                          {s.jobs_found} jobs • {s.duration_ms}ms
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Diversity + New Jobs + Diagnostics (33.5/33.6/33.7) */}
+              {done && <DiversityPanel />}
+
               {/* Top Matches Preview */}
               <div className="flex-1 rounded-xl border border-border bg-bg-secondary p-5 space-y-3">
                 <div className="text-[11px] font-medium uppercase tracking-wider text-text-muted">Top Discovered Matches</div>
@@ -298,6 +334,48 @@ function scoreAvg(jobs: { fit_score: number | null }[]): string {
   const scores = jobs.map((j) => j.fit_score || 0)
   if (scores.length === 0) return "0%"
   return `${Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)}%`
+}
+
+function DiversityPanel() {
+  const { data: div } = useQuery({ queryKey: ["diversity"], queryFn: fetchDiversity, enabled: true })
+  const { data: diag } = useQuery({ queryKey: ["diagnostics"], queryFn: fetchDiagnostics, enabled: true })
+  if (!div) return null
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl border border-border bg-bg-secondary p-5 space-y-3">
+        <div className="text-[11px] font-medium uppercase tracking-wider text-text-muted">Today's Discovery (33.5)</div>
+        {div.diversity?.length ? (
+          <div className="space-y-1.5 pt-1">
+            {div.diversity.slice(0,6).map((d:any)=> (
+              <div key={d.source} className="flex items-center justify-between text-xs">
+                <span className="text-text-muted truncate">{d.source}</span>
+                <span className="font-mono text-text-primary">{d.count} • {d.pct}%</span>
+              </div>
+            ))}
+            {div.concentration_warning && <p className="text-[11px] text-amber mt-2">{div.concentration_warning}</p>}
+          </div>
+        ) : <p className="text-xs text-text-faint">No distribution yet.</p>}
+        <div className="pt-2 border-t border-border/40 flex items-center justify-between text-xs">
+          <span className="text-text-muted">New since last run</span>
+          <span className="font-mono font-semibold text-emerald-400">{div.new_jobs_last_run ?? 0} new</span>
+        </div>
+        {div.new_jobs_last_run >0 && <a href="/discover" className="inline-flex mt-2 rounded-md bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 text-xs text-emerald-400">View {div.new_jobs_last_run} New Jobs</a>}
+      </div>
+      {diag?.diagnostics?.length ? (
+        <div className="rounded-xl border border-border bg-bg-secondary p-5 space-y-2">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-text-muted">Source Diagnostics (33.7)</div>
+          <div className="max-h-[180px] overflow-y-auto space-y-1 pt-1">
+            {diag.diagnostics.slice(0,8).map((d:any, i:number)=> (
+              <div key={i} className="rounded px-2 py-1 bg-white/[0.01] border border-border/30 text-[11px] flex justify-between">
+                <span className="truncate">{d.host} • {d.mode || d.adapter} • {d.failure_category} • {d.jobs_found} found/{d.jobs_normalized} norm</span>
+                <span className="shrink-0 font-mono text-text-faint">{d.duration_ms}ms</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 function scoreColorClass(score: number): string {
