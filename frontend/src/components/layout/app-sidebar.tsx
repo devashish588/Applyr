@@ -8,6 +8,7 @@ import { useSystemStatus } from "@/hooks/use-dashboard"
 import { useJobs } from "@/hooks/use-jobs"
 import { useLayoutStore } from "@/store/layout-store"
 import { Tooltip } from "@/components/ui/tooltip"
+import { ApplyrLogo } from "@/components/ui/logo"
 
 const navSections = [
   {
@@ -109,19 +110,11 @@ export function AppSidebar() {
       {/* Logo */}
       <div className={cn(
         "flex items-center border-b border-border",
-        collapsed ? "justify-center px-0 py-4" : "gap-2.5 px-4 py-4"
+        collapsed ? "justify-center px-0 py-3.5" : "px-4 py-3.5"
       )}>
-        <button
-          onClick={goHome}
-          className="grid h-[28px] w-[28px] shrink-0 place-items-center rounded-lg bg-gradient-to-br from-accent to-accent-strong text-[11px] font-bold text-white shadow-[0_0_12px_rgba(91,127,255,0.15)] transition-shadow hover:shadow-[0_0_18px_rgba(91,127,255,0.25)]"
-        >
-          <Zap className="h-3.5 w-3.5" />
+        <button onClick={goHome} className="cursor-pointer focus:outline-none">
+          <ApplyrLogo showWordmark={!collapsed} size="sm" />
         </button>
-        {!collapsed && (
-          <span className="truncate text-[15px] font-semibold tracking-tight text-text-primary">
-            Applyr
-          </span>
-        )}
       </div>
 
       {/* Global search */}
