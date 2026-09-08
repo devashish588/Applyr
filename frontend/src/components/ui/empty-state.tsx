@@ -16,13 +16,13 @@ export function EmptyState({ icon: Icon, title, description, action, className, 
     <div
       className={cn(
         "flex flex-col items-center justify-center gap-2 text-center",
-        compact ? "py-8" : "rounded-lg border border-dashed border-border py-14",
+        compact ? "py-8" : "rounded-xl border border-dashed border-border/60 py-14",
         className
       )}
     >
-      {Icon && <Icon className={cn("text-text-muted opacity-30", compact ? "h-6 w-6" : "h-9 w-9")} />}
-      <p className="text-[13px] font-medium text-text-secondary">{title}</p>
-      {description && <p className="max-w-[300px] text-[12px] text-text-muted">{description}</p>}
+      {Icon && <Icon className={cn("text-text-faint opacity-40", compact ? "h-6 w-6" : "h-8 w-8")} />}
+      <p className="text-xs font-medium text-text-primary">{title}</p>
+      {description && <p className="max-w-[320px] text-xs text-text-muted leading-relaxed">{description}</p>}
       {action && <div className="mt-2">{action}</div>}
     </div>
   )

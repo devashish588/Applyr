@@ -6,7 +6,17 @@ import { Topbar } from "@/components/layout/topbar"
 import { useJobs, useJobDetail } from "@/hooks/use-jobs"
 import { runPipeline, pasteJD } from "@/api/pipeline"
 import { cn, sanitizeCompany, scoreColor, scoreBgColor, scoreLabel, statusLabel, statusColor, truncate } from "@/lib/utils"
+import { PriorityBadge } from "@/components/ui/priority-badge"
+import { MatchScore } from "@/components/ui/match-score"
 import type { Job, MatchDetails } from "@/types/api"
+
+function derivePriority(score: number | null | undefined): string {
+  const s = score ?? 0
+  if (s >= 80) return "HOT"
+  if (s >= 65) return "WARM"
+  if (s >= 45) return "REVIEW"
+  return "COLD"
+}
 
 export default function DiscoverJobsPage() {
   const { data: jobs, isLoading } = useJobs()
@@ -20,26 +30,32 @@ export default function DiscoverJobsPage() {
 
   return (
     <>
-      <Topbar title="Discover Jobs" icon={<Compass className="h-5 w-5" />} />
+      <Topbar title="Discover Jobs" icon={<Compass className="h-4 w-4" />} />
       <div className="flex flex-1 overflow-hidden">
         {/* Job list */}
         <div className="flex-1 overflow-y-auto p-6">
           <div className="mb-4 flex items-center justify-between">
             <div>
-              <h2 className="text-[15px] font-semibold">Opportunity Feed</h2>
+              <h2 className="text-[15px] font-medium tracking-tight">Opportunity Feed</h2>
               <p className="text-[12px] text-text-muted">Best matches based on your profile</p>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-[11px] text-text-muted">{filtered.length} opportunities</span>
+              <span className="text-[11px] text-text-faint">{filtered.length} opportunities</span>
               <button
                 onClick={() => setFilter("best")}
-                className={cn("flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition", filter === "best" ? "border border-border bg-surface text-text-primary" : "text-text-secondary hover:bg-surface")}
+                className={cn(
+                  "flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[12px] font-medium transition-colors",
+                  filter === "best" ? "border border-border bg-white/[0.03] text-text-primary" : "text-text-muted hover:bg-white/[0.02]"
+                )}
               >
-                <Star className="h-3.5 w-3.5" /> Best Matches
+                <Star className="h-3 w-3" /> Best Matches
               </button>
               <button
                 onClick={() => setFilter("all")}
-                className={cn("rounded-md px-2.5 py-1.5 text-[12px] font-medium transition", filter === "all" ? "border border-border bg-surface text-text-primary" : "text-text-secondary hover:bg-surface")}
+                className={cn(
+                  "rounded-lg px-2.5 py-1.5 text-[12px] font-medium transition-colors",
+                  filter === "all" ? "border border-border bg-white/[0.03] text-text-primary" : "text-text-muted hover:bg-white/[0.02]"
+                )}
               >
                 All
               </button>
@@ -48,16 +64,16 @@ export default function DiscoverJobsPage() {
 
           {isLoading ? (
             <div className="space-y-3">
-              {[1, 2, 3, 4].map((i) => <div key={i} className="h-24 animate-shimmer rounded-lg" />)}
+              {[1, 2, 3, 4].map((i) => <div key={i} className="h-24 animate-shimmer rounded-xl" />)}
             </div>
           ) : displayJobs.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-16 text-text-muted">
-              <Compass className="h-8 w-8 opacity-20" />
+              <Compass className="h-8 w-8 opacity-15" />
               <p className="text-[13px]">No opportunities yet</p>
-              <p className="text-[11px]">Click "Run Discovery" to find matching roles</p>
+              <p className="text-[11px] text-text-faint">Click &quot;Run Discovery&quot; to find matching roles</p>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-2">
               <AnimatePresence>
                 {displayJobs.map((job, i) => (
                   <JobCard
@@ -101,58 +117,62 @@ function JobCard({ job, index, isSelected, onSelect }: { job: Job; index: number
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8 }}
+      initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.03, duration: 0.3 }}
+      transition={{ delay: index * 0.015, duration: 0.2 }}
       onClick={onSelect}
       className={cn(
-        "flex cursor-pointer items-start gap-3.5 rounded-lg border p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/15",
-        isSelected ? "border-accent/30 bg-accent/[0.03]" : isBest ? "border-accent/20 bg-accent/[0.02]" : "border-border bg-surface",
-        "hover:border-border-hover"
+        "flex cursor-pointer items-start gap-3.5 rounded-xl border p-4 transition-all duration-150",
+        isSelected
+          ? "border-accent/20 bg-accent/[0.03] ring-1 ring-accent/10"
+          : "border-border bg-surface hover:border-border-hover hover:bg-surface-hover"
       )}
     >
-      {/* Score */}
-      <div className={cn("grid h-11 w-11 shrink-0 place-items-center rounded-lg text-base font-extrabold", scoreBgColor(score), scoreColor(score))}>
-        {score}
+      {/* Score + Priority */}
+      <div className="flex flex-col items-center gap-1 shrink-0">
+        <MatchScore score={job.fit_score} label="" showBar={false} size="sm" />
+        <PriorityBadge tier={derivePriority(job.fit_score)} size="sm" />
       </div>
 
       {/* Body */}
       <div className="min-w-0 flex-1">
-        <div className="text-[12px] font-semibold uppercase tracking-wider text-accent-sub">
+        <div className="text-[11px] font-medium uppercase tracking-wider text-text-muted">
           {sanitizeCompany(job.company)}
         </div>
-        <div className="mt-0.5 text-[15px] font-semibold text-text-primary">{job.title || "Role"}</div>
-        <div className="mt-1 flex items-center gap-2.5 text-[12px] text-text-muted">
-          <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{job.location || "Remote"}</span>
+        <div className="mt-0.5 text-[14px] font-medium text-text-primary">{job.title || "Role"}</div>
+        <div className="mt-1.5 flex items-center gap-2 text-[11px] text-text-faint">
+          <span className="flex items-center gap-1"><MapPin className="h-2.5 w-2.5" />{job.location || "Remote"}</span>
           <span>·</span>
           <span>{job.source || "web"}</span>
           {(job as any).freshness_state && (
-            <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", (job as any).freshness_state === "STALE" ? "bg-surface text-text-muted border border-border" : (job as any).freshness_state === "AGING" ? "bg-amber-bg text-amber" : (job as any).freshness_state === "NEW" ? "bg-accent-bg text-accent-sub" : "bg-surface text-text-muted")}>
+            <span className={cn(
+              "rounded-md px-1.5 py-0.5 text-[9px] font-medium",
+              (job as any).freshness_state === "STALE" ? "bg-white/[0.04] text-text-faint" :
+              (job as any).freshness_state === "AGING" ? "bg-amber/[0.06] text-amber" :
+              (job as any).freshness_state === "NEW" ? "bg-accent/[0.08] text-accent-sub" : "bg-white/[0.04] text-text-faint"
+            )}>
               {(job as any).freshness_state}
             </span>
           )}
-          {(job as any).is_duplicate && <span className="rounded border border-border px-1.5 py-0.5 text-[10px]">duplicate→{(job as any).canonical_job_id}</span>}
-          {job.hr_email && <span className="rounded bg-green-bg px-1.5 py-0.5 text-[10px] font-medium text-green">Contact found</span>}
+          {(job as any).is_duplicate && <span className="rounded-md border border-border px-1.5 py-0.5 text-[9px]">duplicate→{(job as any).canonical_job_id}</span>}
+          {job.hr_email && <span className="rounded-md bg-green/[0.08] px-1.5 py-0.5 text-[9px] font-medium text-green">Contact found</span>}
         </div>
-        <div className="mt-2 flex gap-1">
-          <Link to={`/jobs/${job.id}`} onClick={e=>e.stopPropagation()} className="rounded border border-border px-2 py-0.5 text-[10px] hover:bg-surface">View details →</Link>
-          <Link to={`/studio/${job.id}`} onClick={e=>e.stopPropagation()} className="rounded bg-accent px-2 py-0.5 text-[10px] text-white">Prepare</Link>
+        <div className="mt-2 flex gap-1.5">
+          <Link to={`/jobs/${job.id}`} onClick={e=>e.stopPropagation()} className="rounded-lg border border-border px-2.5 py-1 text-[10px] text-text-secondary transition-colors hover:bg-white/[0.03]">View details →</Link>
+          <Link to={`/studio/${job.id}`} onClick={e=>e.stopPropagation()} className="rounded-lg bg-accent/90 px-2.5 py-1 text-[10px] font-medium text-white transition hover:bg-accent">Prepare</Link>
         </div>
         {isBest && matchedSkills.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1">
             {matchedSkills.slice(0, 4).map((s) => (
-              <span key={s} className="rounded bg-accent-bg px-1.5 py-0.5 text-[10px] font-medium text-accent-sub">✓ {s}</span>
+              <span key={s} className="rounded-md bg-accent/[0.06] px-1.5 py-0.5 text-[9px] font-medium text-accent-sub">✓ {s}</span>
             ))}
           </div>
         )}
         <div className="mt-2 flex items-center gap-2">
-          <span className={cn("rounded px-2 py-0.5 text-[11px] font-medium", score >= 70 ? "bg-green-bg text-green" : score >= 50 ? "bg-amber-bg text-amber" : "bg-surface text-text-muted")}>
-            {scoreLabel(score)}
-          </span>
-          <span className={cn("rounded px-2 py-0.5 text-[11px] font-medium", statusColor(job.status || "found"))}>
+          <span className={cn("rounded-md px-2 py-0.5 text-[10px] font-medium", statusColor(job.status || "found"))}>
             {statusLabel(job.status || "found")}
           </span>
-          <a href={`/studio/${job.id}`} onClick={(e)=>{e.stopPropagation()}} className="ml-auto rounded bg-accent px-2 py-0.5 text-[11px] font-medium text-white">Studio</a>
+          <a href={`/studio/${job.id}`} onClick={(e)=>{e.stopPropagation()}} className="ml-auto rounded-lg bg-accent/90 px-2.5 py-0.5 text-[10px] font-medium text-white transition hover:bg-accent">Studio</a>
         </div>
       </div>
     </motion.div>
@@ -215,46 +235,46 @@ function JobDetailPanel({ job, match, onClose }: { job: Job; match: MatchDetails
 
   return (
     <div className="w-[760px] p-5">
-      <div className="mb-4 flex items-start justify-between gap-4">
+      <div className="mb-5 flex items-start justify-between gap-4">
         <div className="flex-1">
-          <div className="text-[12px] font-semibold uppercase tracking-wider text-accent-sub">{sanitizeCompany(job.company)}</div>
-          <h2 className="mt-1 text-2xl font-semibold">{job.title}</h2>
-          <div className="mt-2 flex items-center gap-3 text-[12px] text-text-muted">
-            <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3" />{job.location || "Remote"}</span>
-            <span className="rounded bg-surface px-2 py-0.5 text-[11px] font-medium">{job.source}</span>
+          <div className="text-[11px] font-medium uppercase tracking-wider text-text-muted">{sanitizeCompany(job.company)}</div>
+          <h2 className="mt-1 text-[20px] font-semibold tracking-tight">{job.title}</h2>
+          <div className="mt-2 flex items-center gap-3 text-[11px] text-text-faint">
+            <span className="inline-flex items-center gap-1"><MapPin className="h-2.5 w-2.5" />{job.location || "Remote"}</span>
+            <span className="rounded-md bg-white/[0.04] px-2 py-0.5 text-[10px] font-medium">{job.source}</span>
             {job.url && (
-              <a href={job.url} target="_blank" rel="noopener noreferrer" className="ml-2 inline-flex items-center gap-1 text-[12px] text-accent-sub hover:underline">
-                <ExternalLink className="h-3 w-3" /> View Posting
+              <a href={job.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-accent-sub/80 transition-colors hover:text-accent-sub">
+                <ExternalLink className="h-2.5 w-2.5" /> View Posting
               </a>
             )}
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
-          <select className="rounded-md border border-border bg-bg px-3 py-1 text-[13px] text-text-primary">
+        <div className="flex shrink-0 items-center gap-1.5">
+          <select className="rounded-lg border border-border bg-white/[0.02] px-3 py-1.5 text-[12px] text-text-primary">
             <option>Devashish_June_July (default)</option>
           </select>
-          <button onClick={startGeneratePackage} disabled={generating} className="rounded-md bg-purple-600 px-3 py-1 text-white text-sm disabled:opacity-60">{generating ? 'Generating…' : 'Generate Package'}</button>
-          <button onClick={startRunFullPipeline} disabled={running} className="rounded-md bg-sky-600 px-3 py-1 text-white text-sm disabled:opacity-60">{running ? 'Starting…' : 'Run full pipeline'}</button>
-          <button onClick={() => window.location.href = '/settings'} className="rounded-md border border-border px-2 py-1 text-[12px]">Edit templates</button>
-          <button onClick={onClose} className="rounded-md p-1 text-text-muted transition hover:bg-surface hover:text-text-primary">✕</button>
+          <button onClick={startGeneratePackage} disabled={generating} className="rounded-lg bg-accent/90 px-3 py-1.5 text-[12px] font-medium text-white transition hover:bg-accent disabled:opacity-40">{generating ? 'Generating…' : 'Generate Package'}</button>
+          <button onClick={startRunFullPipeline} disabled={running} className="rounded-lg border border-border bg-white/[0.02] px-3 py-1.5 text-[12px] font-medium text-text-primary transition hover:bg-white/[0.04] disabled:opacity-40">{running ? 'Starting…' : 'Run pipeline'}</button>
+          <button onClick={() => window.location.href = '/settings'} className="rounded-lg border border-border px-2.5 py-1.5 text-[11px] text-text-muted transition-colors hover:text-text-secondary">Edit templates</button>
+          <button onClick={onClose} className="rounded-lg p-1.5 text-text-faint transition-colors hover:bg-white/[0.03] hover:text-text-muted">✕</button>
         </div>
       </div>
 
       <div className="flex gap-6">
         {/* Left: Resume / Cover Letter */}
         <div className="flex-1">
-          <div className="mb-3 flex gap-3">
-            <button onClick={() => setTab('resume')} className={cn('flex-1 rounded-md px-4 py-2 font-semibold', tab==='resume' ? 'bg-surface/60' : 'border border-border')}>Resume</button>
-            <button onClick={() => setTab('cover')} className={cn('flex-1 rounded-md px-4 py-2 font-semibold', tab==='cover' ? 'bg-surface/60' : 'border border-border')}>Cover Letter</button>
+          <div className="mb-3 flex gap-2">
+            <button onClick={() => setTab('resume')} className={cn('flex-1 rounded-lg px-4 py-2 text-[12px] font-medium transition-colors', tab==='resume' ? 'bg-white/[0.04] text-text-primary' : 'border border-border text-text-muted hover:text-text-secondary')}>Resume</button>
+            <button onClick={() => setTab('cover')} className={cn('flex-1 rounded-lg px-4 py-2 text-[12px] font-medium transition-colors', tab==='cover' ? 'bg-white/[0.04] text-text-primary' : 'border border-border text-text-muted hover:text-text-secondary')}>Cover Letter</button>
           </div>
 
-          <div className="h-[420px] rounded-md border border-border bg-surface p-6 overflow-auto">
+          <div className="h-[420px] rounded-xl border border-border bg-surface p-5 overflow-auto">
             {/* JD highlights */}
             <div className="mb-3">
-              <div className="text-[12px] font-semibold text-text-muted">JD highlights</div>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {highlights.keywords.map(k => <span key={k} className="rounded px-2 py-1 text-sm border border-border">{k}</span>)}
+              <div className="text-[11px] font-medium text-text-faint">JD highlights</div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {highlights.keywords.map(k => <span key={k} className="rounded-md px-2 py-1 text-[11px] border border-border text-text-secondary">{k}</span>)}
               </div>
             </div>
 
@@ -262,14 +282,14 @@ function JobDetailPanel({ job, match, onClose }: { job: Job; match: MatchDetails
               <div>
                 {job.tailored_resume_path ? (
                   <div>
-                    <div className="mb-3">Tailored resume available</div>
-                    <a href={assetHref(`/api/jobs/${job.id}/asset/resume`)} target="_blank" rel="noopener noreferrer" download={filenameFrom(job.tailored_resume_path)} className="rounded-md bg-accent px-3 py-1 text-white">Download</a>
+                    <div className="mb-3 text-[13px] text-text-secondary">Tailored resume available</div>
+                    <a href={assetHref(`/api/jobs/${job.id}/asset/resume`)} target="_blank" rel="noopener noreferrer" download={filenameFrom(job.tailored_resume_path)} className="rounded-lg bg-accent/90 px-3 py-1.5 text-[12px] font-medium text-white transition hover:bg-accent">Download</a>
                   </div>
                 ) : (
                   <div>
-                    <div className="mb-3">No tailored resume yet.</div>
-                    <div className="text-[13px] mb-4">Generate the application package to create tailored PDFs using the job description and your profile.</div>
-                    <button onClick={startGeneratePackage} disabled={generating} className="rounded-md bg-purple-600 px-4 py-2 text-white">{generating ? 'Generating…' : 'Generate Package'}</button>
+                    <div className="mb-3 text-[13px] text-text-secondary">No tailored resume yet.</div>
+                    <div className="text-[12px] text-text-muted mb-4">Generate the application package to create tailored PDFs using the job description and your profile.</div>
+                    <button onClick={startGeneratePackage} disabled={generating} className="rounded-lg bg-accent/90 px-4 py-2 text-[12px] font-medium text-white transition hover:bg-accent disabled:opacity-40">{generating ? 'Generating…' : 'Generate Package'}</button>
                   </div>
                 )}
               </div>
@@ -277,14 +297,14 @@ function JobDetailPanel({ job, match, onClose }: { job: Job; match: MatchDetails
               <div>
                 {job.cover_letter_path ? (
                   <div>
-                    <div className="mb-3">Cover letter available</div>
-                    <a href={assetHref(`/api/jobs/${job.id}/asset/cover`)} target="_blank" rel="noopener noreferrer" download={filenameFrom(job.cover_letter_path)} className="rounded-md bg-accent px-3 py-1 text-white">Download cover letter</a>
+                    <div className="mb-3 text-[13px] text-text-secondary">Cover letter available</div>
+                    <a href={assetHref(`/api/jobs/${job.id}/asset/cover`)} target="_blank" rel="noopener noreferrer" download={filenameFrom(job.cover_letter_path)} className="rounded-lg bg-accent/90 px-3 py-1.5 text-[12px] font-medium text-white transition hover:bg-accent">Download cover letter</a>
                   </div>
                 ) : (
                   <div>
-                    <div className="mb-3">No cover letter generated yet.</div>
-                    <div className="text-[13px] mb-3">Suggested short cover (copy & paste):</div>
-                    <div className="rounded border border-border p-3 text-[13px] text-text-primary bg-surface">
+                    <div className="mb-3 text-[13px] text-text-secondary">No cover letter generated yet.</div>
+                    <div className="text-[12px] text-text-muted mb-3">Suggested short cover (copy & paste):</div>
+                    <div className="rounded-xl border border-border p-4 text-[12px] text-text-secondary bg-white/[0.01]">
                       <div style={{ marginBottom: 8 }}><strong>Dear Hiring Manager,</strong></div>
                       <div style={{ marginBottom: 8 }}>{match?.explanation || 'I am excited to apply for this role.'}</div>
                       <div style={{ marginBottom: 8 }}>Key fit: {(match?.skills_to_highlight || []).slice(0,4).join(', ')}</div>
@@ -292,8 +312,8 @@ function JobDetailPanel({ job, match, onClose }: { job: Job; match: MatchDetails
                       <div>Your name</div>
                     </div>
                     <div className="mt-3 flex gap-2">
-                      <button onClick={() => navigator.clipboard?.writeText((match?.explanation || '') + '\n\n' + ((match?.skills_to_highlight||[]).slice(0,4).join(', ')))} className="rounded-md border border-border px-3 py-2">Copy</button>
-                      <button onClick={startGeneratePackage} disabled={generating} className="rounded-md bg-purple-600 px-3 py-2 text-white">Generate package</button>
+                      <button onClick={() => navigator.clipboard?.writeText((match?.explanation || '') + '\n\n' + ((match?.skills_to_highlight||[]).slice(0,4).join(', ')))} className="rounded-lg border border-border px-3 py-1.5 text-[12px] text-text-secondary transition hover:bg-white/[0.03]">Copy</button>
+                      <button onClick={startGeneratePackage} disabled={generating} className="rounded-lg bg-accent/90 px-3 py-1.5 text-[12px] font-medium text-white transition hover:bg-accent disabled:opacity-40">Generate package</button>
                     </div>
                   </div>
                 )}
@@ -303,41 +323,41 @@ function JobDetailPanel({ job, match, onClose }: { job: Job; match: MatchDetails
         </div>
 
         {/* Right: Match + Outreach */}
-        <aside className="w-80 space-y-4">
+        <aside className="w-80 space-y-3">
           {/* Signal / Score */}
-          <div className="rounded-md border border-border bg-surface p-4">
+          <div className="rounded-xl border border-border bg-surface p-4">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Signal score</div>
-                <div className="mt-1 text-lg font-bold">{match ? Math.round(match.final_score || 0) : (job.fit_score || 0)}/100</div>
+                <div className="text-[10px] font-medium uppercase tracking-wider text-text-faint">Signal score</div>
+                <div className="mt-1 text-[18px] font-semibold">{match ? Math.round(match.final_score || 0) : (job.fit_score || 0)}/100</div>
               </div>
-              <div className="text-[12px] text-text-muted">{match?.recommendation || '—'}</div>
+              <div className="text-[11px] text-text-muted">{match?.recommendation || '—'}</div>
             </div>
-            {match?.explanation && <p className="mt-3 text-[12px] text-text-secondary">{match.explanation}</p>}
+            {match?.explanation && <p className="mt-3 text-[12px] text-text-muted leading-relaxed">{match.explanation}</p>}
           </div>
 
           {/* Proof Pack / Outreach */}
-          <div className="rounded-md border border-border bg-surface p-4">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Proof pack</div>
-            <div className="mt-2 rounded-md bg-green-800/10 p-3 text-[13px]">Why I fit: {match?.skills_to_highlight?.slice(0,3).join(', ') || '—'}</div>
-            <div className="mt-3 text-[12px] text-text-muted">Proof snippet</div>
-            <div className="mt-2 text-[13px] text-text-secondary">{match?.why_this_score || job.title}</div>
+          <div className="rounded-xl border border-border bg-surface p-4">
+            <div className="text-[10px] font-medium uppercase tracking-wider text-text-faint">Proof pack</div>
+            <div className="mt-2 rounded-lg bg-green/[0.04] p-3 text-[12px] text-text-secondary">Why I fit: {match?.skills_to_highlight?.slice(0,3).join(', ') || '—'}</div>
+            <div className="mt-3 text-[11px] text-text-faint">Proof snippet</div>
+            <div className="mt-1 text-[12px] text-text-muted">{match?.why_this_score || job.title}</div>
           </div>
 
-          <div className="rounded-md border border-border bg-surface p-4">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Outreach Messages</div>
-            <div className="mt-2 rounded-md bg-violet-900 p-3 text-white">3-line founder message<br/>{match?.explanation ? truncate(match.explanation, 90) : 'Quick message to start outreach'}</div>
-            <div className="mt-3 text-[12px] text-text-muted">Cold email</div>
-            <div className="mt-2 text-[13px] text-text-secondary">{job.email_subject || 'Subject: Relevant background'}</div>
+          <div className="rounded-xl border border-border bg-surface p-4">
+            <div className="text-[10px] font-medium uppercase tracking-wider text-text-faint">Outreach Messages</div>
+            <div className="mt-2 rounded-lg bg-accent/[0.06] p-3 text-[12px] text-text-secondary">3-line founder message<br/>{match?.explanation ? truncate(match.explanation, 90) : 'Quick message to start outreach'}</div>
+            <div className="mt-3 text-[11px] text-text-faint">Cold email</div>
+            <div className="mt-1 text-[12px] text-text-muted">{job.email_subject || 'Subject: Relevant background'}</div>
           </div>
 
           {/* Follow-up presets */}
-          <div className="rounded-md border border-border bg-surface p-4">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-text-muted">Follow-up</div>
+          <div className="rounded-xl border border-border bg-surface p-4">
+            <div className="text-[10px] font-medium uppercase tracking-wider text-text-faint">Follow-up</div>
             <div className="mt-2 flex gap-2">
-              <button className="rounded-md bg-green-700 px-3 py-1 text-white text-sm">2 days</button>
-              <button className="rounded-md bg-surface border border-border px-3 py-1 text-sm">5 days</button>
-              <button className="rounded-md bg-surface border border-border px-3 py-1 text-sm">10 days</button>
+              <button className="rounded-lg bg-green/[0.08] px-3 py-1.5 text-[11px] font-medium text-green transition hover:bg-green/[0.12]">2 days</button>
+              <button className="rounded-lg border border-border px-3 py-1.5 text-[11px] text-text-secondary transition hover:bg-white/[0.03]">5 days</button>
+              <button className="rounded-lg border border-border px-3 py-1.5 text-[11px] text-text-secondary transition hover:bg-white/[0.03]">10 days</button>
             </div>
           </div>
         </aside>

@@ -18,45 +18,20 @@ from utils.llm_client import chat, chat_json
 logger = logging.getLogger(__name__)
 
 INTERVIEW_PREP_PROMPT = """
-You are an expert technical interviewer and executive talent coach.
-Generate a structured Interview Preparation Kit for the following job opportunity.
-
-Return ONLY a JSON object with this exact structure:
+Generate Interview Preparation Kit. Return JSON only:
 {
-  "behavioral_questions": [
-    {
-      "question": "Describe a time when you resolved a critical production issue under pressure.",
-      "category": "Problem Solving / Resilience",
-      "star_guidance": "S: Mention system outage. T: Restore service. A: Isolated root cause using logs. R: Reduced MTTR by 40%."
-    }
-  ],
-  "technical_questions": [
-    {
-      "question": "How do you optimize a slow database query in PostgreSQL?",
-      "topic": "Databases & Performance",
-      "expected_answer_outline": "Explain EXPLAIN ANALYZE, indexing strategies (B-Tree, GIN), connection pooling, and query restructuring."
-    }
-  ],
-  "talking_points": [
-    "Highlight experience with Python REST APIs and PostgreSQL optimization",
-    "Emphasize experience collaborating in Agile teams and continuous delivery"
-  ],
-  "company_insights": "Focus on high-scale system reliability, clear communication, and ownership mindset."
+  "behavioral_questions": [{"question": "...", "category": "...", "star_guidance": "S:/T:/A:/R:"}],
+  "technical_questions": [{"question": "...", "topic": "...", "expected_answer_outline": "..."}],
+  "talking_points": ["..."],
+  "company_insights": "..."
 }
+Rules: No greeting, no filler, concise, use job title/company/skills directly, UNKNOWN remains UNKNOWN.
 """
 
 EVALUATE_ANSWER_PROMPT = """
-You are a senior tech interviewer evaluating a candidate's practice interview answer.
-Be constructive, encouraging, and specific.
-
-Return ONLY a JSON object:
-{
-  "score": 85, // 0-100 integer
-  "feedback": "Strong structure following the STAR method. Clear metric given for final impact.",
-  "strengths": ["Clear situation context", "Quantified results"],
-  "areas_for_improvement": ["Elaborate more on specific tools used during the action phase"],
-  "sample_improved_answer": "An optimized version of the candidate's answer incorporating missing details."
-}
+Evaluate practice answer. Return JSON only:
+{"score": 85, "feedback": "1-2 sentences, specific.", "strengths": ["..."], "areas_for_improvement": ["..."], "sample_improved_answer": "..."}
+Rules: No greeting, concise, 50-100 words feedback, no motivational filler.
 """
 
 

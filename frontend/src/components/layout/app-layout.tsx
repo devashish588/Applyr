@@ -14,7 +14,7 @@ export function AppLayout() {
       <main
         className={cn(
           "flex min-w-0 flex-1 flex-col overflow-hidden transition-[margin] duration-200",
-          collapsed ? "ml-[56px]" : "ml-[220px]"
+          collapsed ? "ml-[52px]" : "ml-[220px]"
         )}
       >
         <div className="flex min-h-0 flex-1 flex-col">

@@ -14,57 +14,55 @@ export function Topbar({ title, icon }: TopbarProps) {
   const setCommandOpen = useLayoutStore((s) => s.setCommandOpen)
 
   return (
-    <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-bg/85 px-6 py-3 backdrop-blur-xl">
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2 text-base font-semibold">
-          <span className="opacity-60">{icon}</span>
-          <span>{title}</span>
-        </div>
+    <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-bg/80 px-6 py-2.5 backdrop-blur-xl">
+      <div className="flex items-center gap-2.5">
+        <span className="text-text-muted">{icon}</span>
+        <span className="text-[14px] font-medium tracking-tight text-text-primary">{title}</span>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         <button
           onClick={() => setCommandOpen(true)}
-          className="mr-1 flex items-center gap-2 rounded-md border border-border bg-bg-tertiary px-3 py-1.5 text-[12px] text-text-muted transition hover:border-border-hover hover:text-text-primary"
+          className="flex items-center gap-2 rounded-lg border border-border bg-white/[0.02] px-3 py-1.5 text-[11px] text-text-muted transition-colors hover:border-border-hover hover:text-text-secondary"
         >
-          <Command className="h-3.5 w-3.5" />
-          <span>Quick Search</span>
-          <kbd className="ml-1 rounded bg-bg px-1 font-mono text-[9px] text-text-faint">⌘K</kbd>
+          <Search className="h-3 w-3" />
+          <span>Search</span>
+          <kbd className="ml-1 rounded bg-white/[0.04] px-1 py-0.5 font-mono text-[9px] text-text-faint">⌘K</kbd>
         </button>
         <button
           onClick={() => navigate("/pipeline")}
-          className="flex items-center gap-1.5 rounded-md bg-transparent px-2.5 py-1.5 text-[13px] text-text-secondary transition hover:bg-surface hover:text-text-primary"
+          className="rounded-lg p-2 text-text-muted transition-colors hover:bg-white/[0.03] hover:text-text-secondary"
           title="Pipeline"
         >
-          <FileText className="h-4 w-4" />
+          <FileText className="h-3.5 w-3.5" />
         </button>
         <button
           onClick={() => navigate("/network")}
-          className="flex items-center gap-1.5 rounded-md bg-transparent px-2.5 py-1.5 text-[13px] text-text-secondary transition hover:bg-surface hover:text-text-primary"
+          className="rounded-lg p-2 text-text-muted transition-colors hover:bg-white/[0.03] hover:text-text-secondary"
           title="Find Recruiters"
         >
-          <UserPlus className="h-4 w-4" />
+          <UserPlus className="h-3.5 w-3.5" />
         </button>
         <button
           onClick={() => navigate("/settings")}
-          className="flex items-center gap-1.5 rounded-md bg-transparent px-2.5 py-1.5 text-[13px] text-text-secondary transition hover:bg-surface hover:text-text-primary"
+          className="rounded-lg p-2 text-text-muted transition-colors hover:bg-white/[0.03] hover:text-text-secondary"
           title="Connect Gmail"
         >
-          <MailPlus className="h-4 w-4" />
+          <MailPlus className="h-3.5 w-3.5" />
         </button>
-        <div className="mx-1 h-5 w-px bg-border" />
+        <div className="mx-1 h-4 w-px bg-border" />
         <button
           onClick={start}
           disabled={isRunning}
-          className="flex items-center gap-1.5 rounded-md bg-gradient-to-br from-accent to-teal-600 px-4 py-2 text-[13px] font-semibold text-white shadow-[0_3px_12px] shadow-accent-glow transition hover:-translate-y-0.5 hover:shadow-[0_6px_24px] hover:shadow-accent-glow disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"
+          className="flex items-center gap-1.5 rounded-lg bg-accent/90 px-3.5 py-1.5 text-[12px] font-medium text-white shadow-sm shadow-accent/10 transition-all hover:bg-accent hover:shadow-md hover:shadow-accent/15 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
         >
           {isRunning ? (
             <>
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
               Searching…
             </>
           ) : (
             <>
-              <Search className="h-4 w-4" />
+              <Search className="h-3.5 w-3.5" />
               Run Discovery
             </>
           )}

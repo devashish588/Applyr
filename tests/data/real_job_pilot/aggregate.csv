@@ -1,0 +1,2 @@
+job_id,company,title,source,discovered_at,match_score,application_priority,human_match_assessment,human_priority_assessment,decision,discovery_quality,application_started,application_submitted,preparation_time_minutes,interview_received,interview_prep_used,follow_up_used,final_outcome
+123,Acme AI,ML Engineer Intern,greenhouse.io,2026-09-06T12:00:00+00:00,87,HOT,HIGH,HOT,APPLY,RELEVANT,true,true,7,false,false,false,

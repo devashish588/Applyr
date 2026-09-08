@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react"
+import { Link } from "react-router-dom"
 import { Briefcase, GripVertical, MoreHorizontal, ChevronDown, Clock, FileText, User } from "lucide-react"
 import { Spinner } from "@/components/ui"
 import { AnimatePresence } from "framer-motion"
@@ -11,10 +12,10 @@ import { fetchInterviews, fetchFollowUps } from "@/api/interviews"
 import type { Job } from "@/types/api"
 
 const COLUMNS = [
-  { key: "found", label: "Discovered", color: "text-blue", dot: "bg-blue" },
-  { key: "draft", label: "Drafted", color: "text-accent-sub", dot: "bg-accent" },
-  { key: "ready", label: "Ready", color: "text-amber", dot: "bg-amber" },
-  { key: "sent", label: "Applied", color: "text-green", dot: "bg-green" },
+  { key: "found", label: "Discovered", color: "text-blue", dot: "bg-blue/60" },
+  { key: "draft", label: "Drafted", color: "text-accent-sub", dot: "bg-accent/60" },
+  { key: "ready", label: "Ready", color: "text-amber", dot: "bg-amber/60" },
+  { key: "sent", label: "Applied", color: "text-green", dot: "bg-green/60" },
 ] as const
 
 type ColumnKey = (typeof COLUMNS)[number]["key"]
@@ -67,8 +68,8 @@ export default function OpportunitiesPage() {
 
   return (
     <>
-      <Topbar title="Applications" icon={<Briefcase className="h-5 w-5" />} />
-      <div className="flex gap-2 px-4 pt-2">
+      <Topbar title="Applications" icon={<Briefcase className="h-4 w-4" />} />
+      <div className="flex gap-2 px-4 pt-2.5">
         <Button size="sm" variant={sortBy === "priority" ? "primary" : "ghost"} onClick={() => setSortBy("priority")}>Priority</Button>
         <Button size="sm" variant={sortBy === "score" ? "primary" : "ghost"} onClick={() => setSortBy("score")}>Match Score</Button>
         <Button size="sm" variant={sortBy === "freshness" ? "primary" : "ghost"} onClick={() => setSortBy("freshness")}>Freshness</Button>
@@ -128,8 +129,8 @@ function Board({
             onDragLeave={() => setOverColumn((c) => (c === key ? null : c))}
             onDrop={(e) => { e.preventDefault(); onDrop(key) }}
             className={cn(
-              "flex min-w-[240px] max-w-[300px] flex-1 flex-col rounded-lg border transition-colors",
-              overColumn === key ? "border-accent bg-accent/[0.03]" : "border-border bg-bg-secondary"
+              "flex min-w-[240px] max-w-[300px] flex-1 flex-col rounded-xl border transition-colors",
+              overColumn === key ? "border-accent/20 bg-accent/[0.02]" : "border-border bg-bg-secondary"
             )}
           >
             {/* Header */}
@@ -137,9 +138,9 @@ function Board({
               className="flex items-center gap-2 border-b border-border px-3.5 py-3"
               onDrop={(e) => { e.preventDefault(); onDrop(key) }}
             >
-              <span className={cn("h-2 w-2 rounded-full", col.dot)} />
-              <span className={cn("text-[11px] font-semibold uppercase tracking-wider", col.color)}>{col.label}</span>
-              <span className="ml-auto rounded-full bg-bg-tertiary px-2 py-0.5 text-[10px] font-semibold text-text-muted">
+              <span className={cn("h-[6px] w-[6px] rounded-full", col.dot)} />
+              <span className="text-[10px] font-medium uppercase tracking-wider text-text-muted">{col.label}</span>
+              <span className="ml-auto rounded-full bg-white/[0.04] px-2 py-0.5 text-[10px] font-medium text-text-faint tabular-nums">
                 {items.length}
               </span>
             </div>
@@ -148,7 +149,7 @@ function Board({
             <div className="flex flex-1 flex-col gap-1.5 overflow-y-auto p-1.5">
               <AnimatePresence>
                 {items.length === 0 ? (
-                  <div className={cn("rounded-md border border-dashed py-10 text-center text-[11px] text-text-muted", overColumn === key && "border-accent")}>
+                  <div className={cn("rounded-lg border border-dashed py-10 text-center text-[10px] text-text-faint", overColumn === key && "border-accent/30")}>
                     Drop here
                   </div>
                 ) : (
@@ -195,7 +196,7 @@ function Board({
           <div className="space-y-3">
             <div>
               <div className="text-[12px] font-medium text-text-secondary">{editJob.title || "Role"}</div>
-              <div className="text-[11px] text-text-muted">Update the company name for this job.</div>
+              <div className="text-[11px] text-text-faint">Update the company name for this job.</div>
             </div>
             <Input
               value={companyDraft}
@@ -229,45 +230,45 @@ function BoardCard({
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       className={cn(
-        "group cursor-grab rounded-md border bg-bg p-3 transition-all active:cursor-grabbing",
-        isDragging ? "border-accent opacity-40 shadow-lg" : "border-border hover:-translate-y-0.5 hover:border-border-hover hover:shadow-md hover:shadow-black/20"
+        "group cursor-grab rounded-lg border bg-bg p-3 transition-all active:cursor-grabbing",
+        isDragging ? "border-accent/30 opacity-40 shadow-lg" : "border-border hover:border-border-hover hover:shadow-md hover:shadow-black/20"
       )}
     >
       <div className="flex items-start gap-2">
-        <GripVertical className="mt-0.5 h-3.5 w-3.5 shrink-0 text-text-muted opacity-0 transition group-hover:opacity-100" />
+        <GripVertical className="mt-0.5 h-3 w-3 shrink-0 text-text-faint opacity-0 transition group-hover:opacity-100" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span className="truncate text-[12px] font-semibold text-text-primary">{sanitizeCompany(job.company)}</span>
-            {job.needs_review === 1 && <Badge variant="amber" className="px-1 py-0 text-[9px]">?</Badge>}
+            <span className="truncate text-[12px] font-medium text-text-primary">{sanitizeCompany(job.company)}</span>
+            {job.needs_review === 1 && <Badge variant="amber" className="px-1 py-0 text-[8px]">?</Badge>}
             {priority && (
               <Tooltip content={priority.explanation || priority.tier} side="top">
-                <Badge variant={priority.tier === "HOT" ? "accent" : priority.tier === "WARM" ? "amber" : priority.tier === "COLD" ? "neutral" : "outline"} className="px-1 py-0 text-[9px]">{priority.tier}</Badge>
+                <Badge variant={priority.tier === "HOT" ? "accent" : priority.tier === "WARM" ? "amber" : priority.tier === "COLD" ? "neutral" : "outline"} className="px-1 py-0 text-[8px]">{priority.tier}</Badge>
               </Tooltip>
             )}
             {(job as any).freshness_state && (
               <Tooltip content={`Freshness: ${(job as any).freshness_state} — scraped ${job.scraped_at ? new Date(job.scraped_at).toLocaleDateString() : "unknown"}`} side="top">
-                <Badge variant={(job as any).freshness_state === "STALE" ? "neutral" : (job as any).freshness_state === "AGING" ? "amber" : (job as any).freshness_state === "NEW" ? "accent" : "outline"} className="px-1 py-0 text-[9px]">{(job as any).freshness_state}</Badge>
+                <Badge variant={(job as any).freshness_state === "STALE" ? "neutral" : (job as any).freshness_state === "AGING" ? "amber" : (job as any).freshness_state === "NEW" ? "accent" : "outline"} className="px-1 py-0 text-[8px]">{(job as any).freshness_state}</Badge>
               </Tooltip>
             )}
-            {(job as any).is_duplicate && <Badge variant="outline" className="px-1 py-0 text-[9px]">duplicate</Badge>}
+            {(job as any).is_duplicate && <Badge variant="outline" className="px-1 py-0 text-[8px]">duplicate</Badge>}
           </div>
-          <div className="truncate text-[13px] text-text-secondary">{job.title || "Role"}</div>
+          <div className="truncate text-[12px] text-text-muted">{job.title || "Role"}</div>
         </div>
         <Tooltip content="Edit company" side="top">
-          <button onClick={(e) => { e.stopPropagation(); onEditCompany() }} className="rounded p-0.5 text-text-muted opacity-0 transition hover:bg-surface-hover hover:text-text-primary group-hover:opacity-100">
-            <MoreHorizontal className="h-3.5 w-3.5" />
+          <button onClick={(e) => { e.stopPropagation(); onEditCompany() }} className="rounded p-0.5 text-text-faint opacity-0 transition hover:bg-white/[0.04] hover:text-text-muted group-hover:opacity-100">
+            <MoreHorizontal className="h-3 w-3" />
           </button>
         </Tooltip>
       </div>
       <div className="mt-1.5 flex items-center justify-between">
-        <span className={cn("text-[11px] font-bold", scoreColor(score))}>{score}%</span>
+        <span className={cn("text-[11px] font-semibold", scoreColor(score))}>{score}%</span>
         <Badge variant={job.needs_review === 1 ? "amber" : "neutral"}>{statusLabel(job.status || "found")}</Badge>
       </div>
-      <a href={`/studio/${job.id}`} onClick={(e)=>e.stopPropagation()} className="mt-1 block rounded bg-accent py-1 text-center text-[10px] font-medium text-white">Studio</a>
-      <button onClick={() => setShowTimeline(!showTimeline)} className="mt-1 flex w-full items-center justify-center gap-1 rounded bg-bg-secondary py-1 text-[10px] text-text-muted hover:text-text-primary">Timeline</button>
+      <Link to={`/studio/${job.id}`} onClick={(e)=>e.stopPropagation()} className="mt-1.5 block rounded-lg bg-accent/90 py-1 text-center text-[10px] font-medium text-white transition hover:bg-accent">Studio</Link>
+      <button onClick={() => setShowTimeline(!showTimeline)} className="mt-1 flex w-full items-center justify-center gap-1 rounded-lg bg-white/[0.02] py-1 text-[10px] text-text-faint transition-colors hover:bg-white/[0.04] hover:text-text-muted">Timeline</button>
       {showTimeline && <ApplicationDetailPanel jobId={job.id} />}
-      <button onClick={() => setShowEvidence(!showEvidence)} className="mt-2 flex w-full items-center justify-center gap-1 rounded bg-bg-secondary py-1 text-[10px] text-text-muted hover:text-text-primary">
-        <ChevronDown className={cn("h-3 w-3 transition", showEvidence && "rotate-180")} /> {showEvidence ? "Hide" : "Evidence"}
+      <button onClick={() => setShowEvidence(!showEvidence)} className="mt-1.5 flex w-full items-center justify-center gap-1 rounded-lg bg-white/[0.02] py-1 text-[10px] text-text-faint transition-colors hover:bg-white/[0.04] hover:text-text-muted">
+        <ChevronDown className={cn("h-2.5 w-2.5 transition", showEvidence && "rotate-180")} /> {showEvidence ? "Hide" : "Evidence"}
       </button>
       {showEvidence && <MatchEvidencePanel jobId={job.id} />}
     </div>
@@ -282,22 +283,22 @@ function TimelinePanel({ jobId }: { jobId: number }) {
       .then((data) => { setEvents(data); setLoading(false) })
       .catch(() => setLoading(false))
   }, [jobId])
-  if (loading) return <div className="mt-2 text-[10px] text-text-muted">Loading timeline…</div>
-  if (events.length === 0) return <div className="mt-2 text-[10px] text-text-muted">No events yet</div>
+  if (loading) return <div className="mt-2 text-[10px] text-text-faint">Loading timeline…</div>
+  if (events.length === 0) return <div className="mt-2 text-[10px] text-text-faint">No events yet</div>
   const eventIcon = (type: string) => {
-    if (type.includes("submitted") || type.includes("applied")) return <Clock className="h-3 w-3 text-green" />
-    if (type.includes("note")) return <FileText className="h-3 w-3 text-accent" />
-    return <User className="h-3 w-3 text-text-muted" />
+    if (type.includes("submitted") || type.includes("applied")) return <Clock className="h-2.5 w-2.5 text-green" />
+    if (type.includes("note")) return <FileText className="h-2.5 w-2.5 text-accent-sub" />
+    return <User className="h-2.5 w-2.5 text-text-faint" />
   }
   return (
-    <div className="mt-2 space-y-1 rounded border border-border bg-bg-secondary p-2">
+    <div className="mt-2 space-y-1 rounded-lg border border-border bg-white/[0.01] p-2">
       {events.map((ev, i) => (
         <div key={ev.id || i} className="flex items-start gap-2 text-[10px]">
           {eventIcon(ev.event_type)}
           <div className="min-w-0 flex-1">
             <span className="font-medium text-text-secondary">{ev.event_type}</span>
-            <span className="ml-1 text-text-muted">by {ev.actor || "user"}</span>
-            {ev.timestamp && <div className="text-[9px] text-text-muted">{new Date(ev.timestamp).toLocaleString()}</div>}
+            <span className="ml-1 text-text-faint">by {ev.actor || "user"}</span>
+            {ev.timestamp && <div className="text-[9px] text-text-faint">{new Date(ev.timestamp).toLocaleString()}</div>}
           </div>
         </div>
       ))}
@@ -327,7 +328,7 @@ function ApplicationDetailPanel({ jobId }: { jobId: number }) {
       setLoading(false)
     })
   }, [jobId])
-  if (loading) return <div className="mt-2 text-[10px] text-text-muted">Loading application…</div>
+  if (loading) return <div className="mt-2 text-[10px] text-text-faint">Loading application…</div>
   if (!app) return <TimelinePanel jobId={jobId} />
   const nextAction: Record<string,string> = {
     PREPARING: "Complete preparation",
@@ -340,23 +341,23 @@ function ApplicationDetailPanel({ jobId }: { jobId: number }) {
     CLOSED: `Closed — ${app.current_state} ${timeline.find((e:any)=>e.event_type==="closed")?.payload || ""}`,
   }
   return (
-    <div className="mt-2 space-y-2 rounded border border-border bg-bg-secondary p-2">
+    <div className="mt-2 space-y-2 rounded-lg border border-border bg-white/[0.01] p-2">
       <div className="flex items-center justify-between text-[10px]">
-        <span className="font-semibold text-text-primary">{app.current_state}</span>
-        <span className="text-text-muted">Next: {nextAction[app.current_state] || "—"}</span>
+        <span className="font-medium text-text-primary">{app.current_state}</span>
+        <span className="text-text-faint">Next: {nextAction[app.current_state] || "—"}</span>
       </div>
       <div className="space-y-1">
         {timeline.slice(-5).map((ev:any,i:number)=>(
-          <div key={ev.id||i} className="flex items-center gap-2 text-[10px] text-text-muted">
-            <Clock className="h-3 w-3" /> {ev.event_type} <span className="text-[9px]">{ev.timestamp ? new Date(ev.timestamp).toLocaleDateString() : ""}</span>
+          <div key={ev.id||i} className="flex items-center gap-2 text-[10px] text-text-faint">
+            <Clock className="h-2.5 w-2.5" /> {ev.event_type} <span className="text-[9px]">{ev.timestamp ? new Date(ev.timestamp).toLocaleDateString() : ""}</span>
           </div>
         ))}
       </div>
-      {interviews.length>0 && <div className="text-[10px]">Interviews: {interviews.map((iv:any)=>`${iv.stage} ${iv.status}`).join(", ")}</div>}
-      {followUps.length>0 && <div className="text-[10px]">Follow-ups: {followUps.map((f:any)=>`${f.follow_up_type} ${f.status}`).join(", ")}</div>}
+      {interviews.length>0 && <div className="text-[10px] text-text-muted">Interviews: {interviews.map((iv:any)=>`${iv.stage} ${iv.status}`).join(", ")}</div>}
+      {followUps.length>0 && <div className="text-[10px] text-text-muted">Follow-ups: {followUps.map((f:any)=>`${f.follow_up_type} ${f.status}`).join(", ")}</div>}
       <div className="flex gap-1">
-        <a href={`/studio/${jobId}`} className="rounded bg-accent px-2 py-1 text-[10px] text-white">Interview Prep</a>
-        <button onClick={()=> fetch(`/api/applications/${app.id}/interview-prep`).then(r=>r.json()).then(j=> alert(JSON.stringify(j.prep?.kit?.behavioral_questions?.[0] || j.prep || "No prep")))} className="rounded border border-border px-2 py-1 text-[10px]">Prep</button>
+        <Link to={`/interview?appId=${app.id}`} className="rounded-lg bg-accent/90 px-2 py-1 text-[10px] font-medium text-white transition hover:bg-accent">Interview Prep</Link>
+        <button onClick={()=> fetch(`/api/applications/${app.id}/interview-prep`).then(r=>r.json()).then(j=> alert(JSON.stringify(j.prep?.kit?.behavioral_questions?.[0] || j.prep || "No prep")))} className="rounded-lg border border-border px-2 py-1 text-[10px] text-text-secondary transition hover:bg-white/[0.03]">Prep</button>
       </div>
     </div>
   )
@@ -374,8 +375,8 @@ function MatchEvidencePanel({ jobId }: { jobId: number }) {
       })
       .catch(() => setLoading(false))
   }, [jobId])
-  if (loading) return <div className="mt-2 text-[10px] text-text-muted">Loading evidence…</div>
-  if (!data) return <div className="mt-2 text-[10px] text-text-muted">No evidence</div>
+  if (loading) return <div className="mt-2 text-[10px] text-text-faint">Loading evidence…</div>
+  if (!data) return <div className="mt-2 text-[10px] text-text-faint">No evidence</div>
   const rows: Array<{ label: string; evals: any[] }> = [
     { label: "Skills", evals: data.requirement_evaluations || [] },
     { label: "Experience", evals: data.experience_evaluations || [] },
@@ -384,18 +385,18 @@ function MatchEvidencePanel({ jobId }: { jobId: number }) {
     { label: "Seniority", evals: data.seniority_evaluations || [] },
   ]
   return (
-    <div className="mt-2 space-y-1 rounded border border-border bg-bg-secondary p-2">
+    <div className="mt-2 space-y-1 rounded-lg border border-border bg-white/[0.01] p-2">
       {rows.map((row) => {
         const status = row.evals.length === 0 ? "NO_REQUIREMENT" : row.evals[0]?.status || "UNKNOWN"
-        const color = status === "satisfied" || status === "SATISFIED" ? "text-green" : status === "missing" || status === "MISSING" ? "text-amber" : "text-text-muted"
+        const color = status === "satisfied" || status === "SATISFIED" ? "text-green" : status === "missing" || status === "MISSING" ? "text-amber" : "text-text-faint"
         return (
           <div key={row.label} className="flex items-center justify-between text-[10px]">
             <span className="font-medium text-text-secondary">{row.label}</span>
-            <span className={cn("rounded px-1.5 py-0.5 text-[9px] font-semibold", color, status === "UNKNOWN" ? "bg-bg-tertiary" : "bg-bg")}>{status}</span>
+            <span className={cn("rounded-md px-1.5 py-0.5 text-[9px] font-medium", color, status === "UNKNOWN" ? "bg-white/[0.04]" : "bg-white/[0.02]")}>{status}</span>
           </div>
         )
       })}
-      <div className="pt-1 text-[9px] text-text-muted">Evidence: {data.requirement_evaluations?.[0]?.relationship_type || data.experience_evaluations?.[0]?.evidence_source || "provenance preserved"}</div>
+      <div className="pt-1 text-[9px] text-text-faint">Evidence: {data.requirement_evaluations?.[0]?.relationship_type || data.experience_evaluations?.[0]?.evidence_source || "provenance preserved"}</div>
     </div>
   )
 }

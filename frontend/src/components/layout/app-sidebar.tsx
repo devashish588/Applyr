@@ -61,25 +61,28 @@ export function AppSidebar() {
         to={item.path}
         className={({ isActive }) =>
           cn(
-            "group relative flex items-center rounded-md text-[13px] font-medium transition-all duration-150",
-            collapsed ? "justify-center px-0 py-2" : "gap-2.5 px-3 py-2",
+            "group relative flex items-center rounded-lg text-[13px] font-medium transition-all duration-150",
+            collapsed ? "justify-center px-0 py-2.5" : "gap-2.5 px-3 py-[7px]",
             isActive
-              ? "bg-accent-bg text-accent-sub"
-              : "text-text-secondary hover:bg-surface hover:text-text-primary"
+              ? "bg-white/[0.04] text-text-primary"
+              : "text-text-muted hover:bg-white/[0.03] hover:text-text-secondary"
           )
         }
       >
         {({ isActive }) => (
           <>
             {isActive && (
-              <span className="absolute left-0 top-1/2 h-[18px] w-[3px] -translate-y-1/2 rounded-r-sm bg-accent" />
+              <span className="absolute left-0 top-1/2 h-4 w-[2px] -translate-y-1/2 rounded-r bg-accent opacity-80" />
             )}
-            <item.icon className={cn("h-[18px] w-[18px] shrink-0", isActive ? "text-accent" : "opacity-50")} />
+            <item.icon className={cn(
+              "h-[16px] w-[16px] shrink-0 transition-colors",
+              isActive ? "text-text-primary" : "text-text-muted group-hover:text-text-secondary"
+            )} />
             {!collapsed && (
               <>
-                <span>{item.label}</span>
+                <span className="truncate">{item.label}</span>
                 {item.badge && jobCount > 0 && (
-                  <span className="ml-auto rounded-full bg-accent-bg px-[7px] py-[1px] text-[10px] font-semibold text-accent-sub">
+                  <span className="ml-auto rounded-full bg-white/[0.06] px-[6px] py-[1px] text-[10px] font-medium text-text-secondary tabular-nums">
                     {jobCount}
                   </span>
                 )}
@@ -100,69 +103,75 @@ export function AppSidebar() {
     <aside
       className={cn(
         "fixed top-0 left-0 z-40 flex h-screen flex-col border-r border-border bg-bg-secondary transition-[width] duration-200",
-        collapsed ? "w-[56px]" : "w-[220px]"
+        collapsed ? "w-[52px]" : "w-[220px]"
       )}
     >
       {/* Logo */}
-      <div className={cn("flex items-center border-b border-border", collapsed ? "justify-center px-0 py-4" : "gap-2.5 px-[18px] py-4")}>
-        <button onClick={goHome} className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-lg bg-gradient-to-br from-accent to-teal-600 text-sm font-extrabold text-white">
-          <Zap className="h-4 w-4" />
+      <div className={cn(
+        "flex items-center border-b border-border",
+        collapsed ? "justify-center px-0 py-4" : "gap-2.5 px-4 py-4"
+      )}>
+        <button
+          onClick={goHome}
+          className="grid h-[28px] w-[28px] shrink-0 place-items-center rounded-lg bg-gradient-to-br from-accent to-accent-strong text-[11px] font-bold text-white shadow-[0_0_12px_rgba(91,127,255,0.15)] transition-shadow hover:shadow-[0_0_18px_rgba(91,127,255,0.25)]"
+        >
+          <Zap className="h-3.5 w-3.5" />
         </button>
         {!collapsed && (
-          <span className="truncate bg-gradient-to-r from-accent-sub to-teal-400 bg-clip-text text-base font-bold text-transparent">
+          <span className="truncate text-[15px] font-semibold tracking-tight text-text-primary">
             Applyr
           </span>
         )}
       </div>
 
       {/* Global search */}
-      <div className={cn("border-b border-border py-2", collapsed ? "flex justify-center" : "px-2")}>
+      <div className={cn("border-b border-border py-2", collapsed ? "flex justify-center" : "px-2.5")}>
         <button
           onClick={() => useLayoutStore.getState().setCommandOpen(true)}
           title="Search (Ctrl K)"
           className={cn(
-            "flex items-center rounded-md text-[12px] text-text-muted transition hover:bg-surface hover:text-text-primary",
-            collapsed ? "justify-center py-2" : "w-full gap-2 px-2.5 py-1.5"
+            "flex items-center rounded-lg text-[12px] text-text-muted transition-colors hover:bg-white/[0.03] hover:text-text-secondary",
+            collapsed ? "justify-center py-2" : "w-full gap-2 px-2.5 py-[6px]"
           )}
         >
-          <Search className="h-4 w-4 shrink-0" />
+          <Search className="h-3.5 w-3.5 shrink-0" />
           {!collapsed && (
             <>
               <span className="flex-1 text-left">Search…</span>
-              <kbd className="rounded bg-bg-tertiary px-1 font-mono text-[10px] text-text-faint">⌘K</kbd>
+              <kbd className="rounded bg-white/[0.04] px-1.5 py-0.5 font-mono text-[9px] text-text-faint">⌘K</kbd>
             </>
           )}
         </button>
       </div>
 
       {/* Navigation */}
-      <nav className={cn("flex flex-1 flex-col gap-0.5 overflow-y-auto py-2", collapsed ? "px-1.5" : "px-2")}>
+      <nav className={cn("flex flex-1 flex-col gap-0.5 overflow-y-auto py-2.5", collapsed ? "px-1.5" : "px-2")}>
         <div className="space-y-0.5">
           <NavLink
             to="/"
             className={({ isActive }) =>
               cn(
-                "group relative flex items-center rounded-md text-[13px] font-medium transition-all duration-150",
-                collapsed ? "justify-center px-0 py-2" : "gap-2.5 px-3 py-2",
+                "group relative flex items-center rounded-lg text-[13px] font-medium transition-all duration-150",
+                collapsed ? "justify-center px-0 py-2.5" : "gap-2.5 px-3 py-[7px]",
                 isActive
-                  ? "bg-accent-bg text-accent-sub"
-                  : "text-text-secondary hover:bg-surface hover:text-text-primary"
+                  ? "bg-white/[0.04] text-text-primary"
+                  : "text-text-muted hover:bg-white/[0.03] hover:text-text-secondary"
               )
             }
           >
             {({ isActive }) => (
               <>
-                {isActive && <span className="absolute left-0 top-1/2 h-[18px] w-[3px] -translate-y-1/2 rounded-r-sm bg-accent" />}
-                <Home className={cn("h-[18px] w-[18px] shrink-0", isActive ? "text-accent" : "opacity-50")} />
+                {isActive && <span className="absolute left-0 top-1/2 h-4 w-[2px] -translate-y-1/2 rounded-r bg-accent opacity-80" />}
+                <Home className={cn("h-[16px] w-[16px] shrink-0", isActive ? "text-text-primary" : "text-text-muted")} />
                 {!collapsed && <span>Home</span>}
               </>
             )}
           </NavLink>
 
           {navSections.map((section) => (
-            <div key={section.label} className="mt-3">
+            <div key={section.label} className="mt-4">
               {!collapsed && (
-                <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.6px] text-text-muted">
+                <div className="px-3 pb-1.5 text-[10px] font-medium uppercase tracking-[0.06em] text-text-faint">
                   {section.label}
                 </div>
               )}
@@ -175,22 +184,25 @@ export function AppSidebar() {
       </nav>
 
       {/* Footer */}
-      <div className={cn("border-t border-border py-3", collapsed ? "flex flex-col items-center gap-3" : "flex items-center justify-between px-3.5")}>
-        <div className={cn("flex items-center gap-[7px] text-[11px] text-text-muted", collapsed && "flex-col gap-2")}>
+      <div className={cn(
+        "border-t border-border py-3",
+        collapsed ? "flex flex-col items-center gap-3" : "flex items-center justify-between px-3.5"
+      )}>
+        <div className={cn("flex items-center gap-2 text-[11px] text-text-muted", collapsed && "flex-col gap-2")}>
           <div
             className={cn(
-              "h-1.5 w-1.5 rounded-full",
-              isOnline ? "bg-green shadow-[0_0_8px] shadow-green animate-blink" : "bg-red shadow-[0_0_8px] shadow-red"
+              "h-[6px] w-[6px] rounded-full",
+              isOnline ? "bg-green/70 shadow-[0_0_6px] shadow-green/30" : "bg-red/70 shadow-[0_0_6px] shadow-red/30"
             )}
           />
-          {!collapsed && <span>{isOnline ? "Connected" : "Offline"}</span>}
+          {!collapsed && <span className="text-text-faint">{isOnline ? "Connected" : "Offline"}</span>}
         </div>
         <button
           onClick={toggleSidebar}
-          className="rounded-md p-1.5 text-text-muted transition hover:bg-surface hover:text-text-primary"
+          className="rounded-md p-1.5 text-text-faint transition-colors hover:bg-white/[0.03] hover:text-text-muted"
           title={collapsed ? "Expand" : "Collapse"}
         >
-          {collapsed ? <PanelLeft className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+          {collapsed ? <PanelLeft className="h-3.5 w-3.5" /> : <PanelLeftClose className="h-3.5 w-3.5" />}
         </button>
       </div>
     </aside>

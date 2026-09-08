@@ -1,93 +1,219 @@
 {
-  "name": "Alice Example",
-  "email": null,
-  "phone": null,
+  "name": "Devashish Bose",
+  "email": "bosedevashish7@gmail.com",
+  "phone": "910264397",
   "location": "",
   "linkedin": null,
-  "github": "https://github.com/example",
+  "github": null,
   "portfolio": "",
   "skills": [
+    "Python",
+    "Java",
+    "JavaScript",
     "R",
+    "SQL",
+    "Bash",
+    "C++",
+    "React",
+    "Vite",
+    "Node.js",
+    "FastAPI",
+    "Flask",
+    "Express",
+    "Django",
+    "Go",
+    "REST",
+    "REST API",
+    "PostgreSQL",
+    "MongoDB",
+    "MySQL",
+    "LLM",
+    "LangChain",
+    "HuggingFace",
+    "Pandas",
+    "NumPy",
+    "Scikit-learn",
+    "DevOps",
     "Git",
-    "GitHub"
+    "Jupyter"
   ],
   "skills_categorized": {
     "languages": [
-      "R"
+      "Python",
+      "Java",
+      "JavaScript",
+      "R",
+      "SQL",
+      "Bash",
+      "Go"
     ],
-    "cloud": [
-      "GitHub"
+    "frameworks": [
+      "React",
+      "Node.js",
+      "FastAPI",
+      "Flask",
+      "Express",
+      "Django"
+    ],
+    "databases": [
+      "PostgreSQL",
+      "MongoDB",
+      "MySQL"
+    ],
+    "ml_ai": [
+      "LLM",
+      "LangChain",
+      "HuggingFace",
+      "Scikit-learn"
     ],
     "tools": [
+      "REST",
+      "REST API",
       "Git"
     ]
   },
   "projects": [
     {
-      "name": "Project X - github.com/example/project",
-      "description": "Project X - github.com/example/project",
-      "tech_stack": [
-        "Git",
-        "GitHub",
-        "R"
-      ],
+      "name": "Taskerzz",
+      "description": "Built a full-stack role-based collaboration platform with Admin/Tasker separation, JWT authentication, and CRUD APIs for project/task management, deadline tracking, and overdue monitoring. Designed a normalized PostgreSQL schema using Prisma ORM for users, projects, and tasks with real-time productivity visibility across teams via a centralized dashboard.",
       "technologies": [
-        "Git",
-        "GitHub",
-        "R"
-      ],
-      "github": "github.com/example/project",
-      "deployment": ""
+        "React",
+        "Vite",
+        "Tailwind CSS",
+        "Node.js",
+        "Express.js",
+        "PostgreSQL",
+        "Prisma",
+        "JWT"
+      ]
+    },
+    {
+      "name": "RAG Document Search Engine",
+      "description": "Engineered a modular RAG pipeline with async ingestion, ChromaDB vector storage, HuggingFace Transformers for semantic retrieval, and Pydantic validation \u2014 achieving 50+ docs/min throughput with <200ms retrieval latency.",
+      "technologies": [
+        "FastAPI",
+        "LangChain",
+        "HuggingFace",
+        "ChromaDB",
+        "Streamlit"
+      ]
+    },
+    {
+      "name": "Applyr - AI Job Application Agent",
+      "description": "Built a 5-agent autonomous LangGraph pipeline using Groq/Llama-4 for end-to-end job automation \u2014 web search via Tavily, 6-level resume parsing, JD fit scoring, cover letter generation, and cold email drafting with a hard confidence gate (<70% blocked). Shipped a real-time Flask dashboard with Server-Sent Events (SSE), drag-and-drop JD upload, dual email provider (Resend + Gmail OAuth), and live pipeline health diagnostics.",
+      "technologies": [
+        "LangGraph",
+        "Groq",
+        "Llama-4",
+        "Flask",
+        "PostgreSQL"
+      ]
     }
   ],
-  "experience": [],
-  "education": [],
+  "experience": [
+    {
+      "company": "Ethara AI",
+      "title": "LLM Post-Training Intern",
+      "start_date": "Mar 2026",
+      "end_date": "May 2026",
+      "description": "Worked on RLHF and SFT workflows to improve LLM response quality and alignment. Annotated and evaluated 100+ prompts daily to identify failure modes and dataset gaps.",
+      "technologies_used": [
+        "RLHF",
+        "SFT"
+      ]
+    },
+    {
+      "company": "Bluestock Fintech",
+      "title": "Full Stack Developer Intern",
+      "start_date": "Jan 2026",
+      "end_date": "Mar 2026",
+      "description": "Built role-based features for Taskerzz, a full-stack project and task management app. Implemented JWT authentication, RBAC, task assignment, status tracking, and deadline workflows and dashboards.",
+      "technologies_used": [
+        "JWT",
+        "RBAC"
+      ]
+    }
+  ],
+  "education": [
+    {
+      "institution": "Madhav Institute of Technology and Science, Gwalior",
+      "degree": "B.Tech",
+      "field": "Internet of Things",
+      "start_year": "2022",
+      "end_year": "2026"
+    }
+  ],
   "certifications": [],
-  "target_roles": [],
-  "scored_roles": [],
-  "quality_score": 18.0,
+  "target_roles": [
+    "backend engineer",
+    "full stack engineer",
+    "software engineer",
+    "frontend engineer",
+    "data scientist"
+  ],
+  "scored_roles": [
+    {
+      "role": "backend engineer",
+      "score": 98.6
+    },
+    {
+      "role": "full stack engineer",
+      "score": 90.0
+    },
+    {
+      "role": "software engineer",
+      "score": 64.3
+    },
+    {
+      "role": "frontend engineer",
+      "score": 53.3
+    },
+    {
+      "role": "data scientist",
+      "score": 44.6
+    }
+  ],
+  "quality_score": 84.0,
   "quality_breakdown": {
     "name": 10,
-    "email": 0,
-    "phone": 0,
-    "links": 2,
-    "skills": 3,
-    "experience": 0,
-    "education": 0,
-    "projects": 3,
+    "email": 10,
+    "phone": 5,
+    "links": 0,
+    "skills": 20,
+    "experience": 20,
+    "education": 10,
+    "projects": 9,
     "certifications": 0
   },
-  "confidence": 47.0,
-  "parsed_at": "2026-09-04T15:41:33.900809",
-  "source_path": "C:\\Users\\hp\\AppData\\Local\\Temp\\tmp4i4tx9vh\\test_multi.pdf",
-  "total_pages": 2,
+  "confidence": 100.0,
+  "parsed_at": "2026-09-07T21:19:40.946238",
+  "source_path": "resume\\master_resume.pdf",
+  "total_pages": 1,
   "sections_detected": [
     "preamble",
-    "experience",
-    "projects"
-  ],
-  "sections_missing": [
     "summary",
+    "experience",
+    "projects",
     "skills",
     "education"
   ],
+  "sections_missing": [],
   "extraction_stats": {
     "engine_used": null,
-    "chars_extracted": 144,
-    "pages": 2,
-    "confidence": 47
+    "chars_extracted": 2912,
+    "pages": 1,
+    "confidence": 100
   },
   "parse_log": [
-    "Starting parse: C:\\Users\\hp\\AppData\\Local\\Temp\\tmp4i4tx9vh\\test_multi.pdf",
-    "File size: 1333 bytes",
-    "PDF extraction: PyMuPDF succeeded (145 chars)",
-    "Level 1: Extracted 144 chars, 2 page(s)",
-    "Level 2: Detected sections: ['preamble', 'experience', 'projects']",
-    "Level 2: Missing sections: ['summary', 'skills', 'education']",
-    "Level 3: Extracted name=Alice Example, skills=3, experience=0",
-    "Confidence breakdown: 47 -> 47% (skills=3, exp=0, edu=0, proj=1)",
-    "Level 4: Confidence=47%",
-    "Level 5: Roles=[]",
-    "Parse complete in 1.2s -- confidence 47%"
+    "Starting parse: ./resume/master_resume.pdf",
+    "File size: 107758 bytes",
+    "PDF extraction: PyMuPDF succeeded (2913 chars)",
+    "Level 1: Extracted 2912 chars, 1 page(s)",
+    "Level 2: Detected sections: ['preamble', 'summary', 'experience', 'projects', 'skills', 'education']",
+    "Level 3: Extracted name=Devashish Bose, skills=29, experience=2",
+    "Confidence breakdown: 100 -> 100% (skills=29, exp=2, edu=1, proj=3)",
+    "Level 4: Confidence=100%",
+    "Level 5: Roles=['backend engineer', 'full stack engineer', 'software engineer', 'frontend engineer', 'data scientist']",
+    "Parse complete in 2.5s -- confidence 100%"
   ]
 }

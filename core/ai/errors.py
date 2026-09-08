@@ -60,3 +60,24 @@ class TimeoutError(AIGatewayError):
 class MalformedResponseError(AIGatewayError):
     """Raised when provider returns unparseable JSON or empty content."""
     pass
+
+
+# Provider error taxonomy — single source for retry/fallback decisions
+ERROR_TAXONOMY = {
+    RateLimitError: {"category": "RATE_LIMITED", "retryable": True, "fallback_allowed": True, "user_action_required": False},
+    AuthenticationError: {"category": "AUTH_FAILED", "retryable": False, "fallback_allowed": True, "user_action_required": False},
+    TimeoutError: {"category": "TIMEOUT", "retryable": True, "fallback_allowed": True, "user_action_required": False},
+    ProviderUnavailableError: {"category": "PROVIDER_UNAVAILABLE", "retryable": True, "fallback_allowed": True, "user_action_required": False},
+    MalformedResponseError: {"category": "INVALID_RESPONSE", "retryable": True, "fallback_allowed": True, "user_action_required": False},
+    AIGatewayError: {"category": "UNKNOWN", "retryable": False, "fallback_allowed": False, "user_action_required": False},
+}
+
+def classify_error(exc: Exception) -> dict:
+    for cls, meta in ERROR_TAXONOMY.items():
+        if isinstance(exc, cls):
+            return meta
+    # Fallback for generic Exception containing config hints
+    msg = str(exc)
+    if "TAVILY_API_KEY" in msg or "All AI providers unavailable" in msg:
+        return {"category": "CONFIGURATION_MISSING", "retryable": False, "fallback_allowed": False, "user_action_required": True}
+    return {"category": "UNKNOWN", "retryable": False, "fallback_allowed": False, "user_action_required": False}

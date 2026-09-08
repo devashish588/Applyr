@@ -1,70 +1,183 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300..700&family=JetBrains+Mono:wght@400..600&display=swap");
 @import "tailwindcss";
 
-/* ── Design System Tokens ──────────────────────────────────── */
+/* ── Design System — Applyr 2.0: Blueprint-Aligned SaaS ──────── */
 @theme {
-  --color-bg: #09090b;
-  --color-bg-secondary: #111318;
-  --color-bg-tertiary: #171a22;
-  --color-bg-quaternary: #1e212b;
+  /* ── Backgrounds: exact blueprint spec ── */
+  --color-bg: #0B0D10;
+  --color-bg-primary: #0B0D10;
+  --color-bg-secondary: #11151A;
+  --color-bg-tertiary: #171C22;
+  --color-bg-quaternary: #1D2229;
+  --color-elevated: #171C22;
 
-  --color-surface: rgba(255, 255, 255, 0.04);
-  --color-surface-hover: rgba(255, 255, 255, 0.07);
+  /* ── Surfaces ── */
+  --color-surface: #11151A;
+  --color-surface-hover: #171C22;
+  --color-surface-raised: #1D2229;
 
-  --color-border: rgba(255, 255, 255, 0.07);
-  --color-border-hover: rgba(255, 255, 255, 0.13);
+  /* ── Borders: blueprint #242A32 base ── */
+  --color-border: #242A32;
+  --color-border-hover: #2E3640;
+  --color-border-strong: #3A424E;
 
-  --color-text-primary: #eef0f4;
-  --color-text-secondary: #9ca3b4;
-  --color-text-muted: #5c6378;
+  /* ── Text: precise hierarchy ── */
+  --color-text-primary: #EDEEF0;
+  --color-text-secondary: #8B919A;
+  --color-text-muted: #5C6370;
+  --color-text-faint: #3D4450;
 
-  --color-accent: #10b981;
-  --color-accent-glow: rgba(16, 185, 129, 0.25);
-  --color-accent-sub: #34d399;
-  --color-accent-bg: rgba(16, 185, 129, 0.08);
+  /* ── Accent: blueprint brand #5B8CFF ── */
+  --color-accent: #5B8CFF;
+  --color-accent-hover: #4B7CF0;
+  --color-accent-glow: rgba(91, 140, 255, 0.12);
+  --color-accent-sub: #8BA8FF;
+  --color-accent-bg: rgba(91, 140, 255, 0.10);
+  --color-accent-strong: #3D6AE0;
 
-  --color-green: #22c55e;
+  /* ── Semantic: blueprint spec ── */
+  --color-green: #22C55E;
   --color-green-bg: rgba(34, 197, 94, 0.08);
 
-  --color-amber: #f59e0b;
-  --color-amber-bg: rgba(245, 158, 11, 0.08);
+  --color-amber: #F59E0B;
+  --color-amber-bg: rgba(245, 158, 11, 0.06);
 
-  --color-red: #ef4444;
-  --color-red-bg: rgba(239, 68, 68, 0.08);
+  --color-red: #EF4444;
+  --color-red-bg: rgba(239, 68, 68, 0.06);
 
-  --color-blue: #3b82f6;
-  --color-blue-bg: rgba(59, 130, 246, 0.08);
+  --color-blue: #60A5FA;
+  --color-blue-bg: rgba(96, 165, 250, 0.06);
+  --color-info: #60A5FA;
+  --color-info-bg: rgba(96, 165, 250, 0.06);
 
+  /* ── Semantic accents for badges ── */
+  --color-coral: #F87171;
+  --color-emerald: #34D399;
+
+  /* ── Radii: blueprint 10-12px standard ── */
   --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 10px;
-  --radius-xl: 12px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
 
+  /* ── Type ── */
   --font-sans: "Inter", system-ui, -apple-system, sans-serif;
-  --font-mono: "JetBrains Mono", "Fira Code", monospace;
+  --font-mono: "JetBrains Mono", monospace;
 }
 
 /* ── Base Styles ───────────────────────────────────────────── */
 @layer base {
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
-  body { font-family: var(--font-sans); background: var(--color-bg); color: var(--color-text-primary); min-height: 100vh; overflow: hidden; }
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    font-family: var(--font-sans);
+    background: var(--color-bg);
+    color: var(--color-text-primary);
+    min-height: 100vh;
+    overflow: hidden;
+    letter-spacing: -0.011em;
+    font-size: 14px;
+    line-height: 1.5;
+  }
   ::selection { background: var(--color-accent); color: #fff; }
-  ::-webkit-scrollbar { width: 4px; height: 4px; }
+
+  /* Sleek scrollbars */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 4px; }
-  ::-webkit-scrollbar-thumb:hover { background: var(--color-border-hover); }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.06); border-radius: 6px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.12); }
+
+  /* Focus ring */
+  :focus-visible {
+    outline: 1.5px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
 }
 
 /* ── Animations ────────────────────────────────────────────── */
-@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
 
 .animate-shimmer {
   background: linear-gradient(90deg, var(--color-bg-tertiary) 25%, var(--color-bg-quaternary) 50%, var(--color-bg-tertiary) 75%);
   background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
+  animation: shimmer 1.5s ease-in-out infinite;
 }
-.animate-blink { animation: blink 2.2s ease infinite; }
-.animate-spin { animation: spin 0.6s linear infinite; }
+.animate-blink { animation: blink 2.4s ease infinite; }
+.animate-spin { animation: spin 0.7s linear infinite; }
+.animate-fade-in { animation: fade-in 0.3s ease-out; }
+.animate-slide-in { animation: slide-in-right 0.25s ease-out; }
+.animate-scale-in { animation: scale-in 0.2s ease-out; }
+
+/* ── Utilities ────────────────────────────────────────────── */
+@layer utilities {
+  .section-label {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  .page-title {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--color-text-primary);
+  }
+
+  .page-subtitle {
+    font-size: 13px;
+    color: var(--color-text-secondary);
+  }
+
+  .mono-value {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--color-text-secondary);
+  }
+
+  .panel {
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-surface);
+  }
+
+  .panel-header {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--color-border);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .panel-body {
+    padding: 18px;
+  }
+}

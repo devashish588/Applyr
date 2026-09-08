@@ -9,6 +9,7 @@ import { useApplications } from "@/hooks/use-applications"
 import { useJobs } from "@/hooks/use-jobs"
 import { cn } from "@/lib/utils"
 import { getNextActionForApplication } from "@/lib/next-action"
+import { PriorityBadge } from "@/components/ui/priority-badge"
 import { Link } from "react-router-dom"
 
 export default function DashboardPage() {
@@ -34,11 +35,11 @@ export default function DashboardPage() {
   if (isLoading) {
     return (
       <>
-        <Topbar title="Home" icon={<Home className="h-5 w-5" />} />
+        <Topbar title="Home" icon={<Home className="h-4 w-4" />} />
         <div className="flex-1 overflow-y-auto p-6">
           <div className="space-y-3">
             {[1, 2, 3].map((i) => (
-              <div key={i} className="h-20 w-full animate-shimmer rounded-lg" />
+              <div key={i} className="h-20 w-full animate-shimmer rounded-xl" />
             ))}
           </div>
         </div>
@@ -60,22 +61,22 @@ export default function DashboardPage() {
 
     return (
       <>
-        <Topbar title="Home" icon={<Home className="h-5 w-5" />} />
+        <Topbar title="Home" icon={<Home className="h-4 w-4" />} />
         <div className="flex-1 overflow-y-auto p-6">
-          <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
-            <h1 className="text-lg font-semibold">
-              {greet}, {name} 👋
+          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
+            <h1 className="text-[18px] font-semibold tracking-tight">
+              {greet}, {name}
             </h1>
             <p className="mb-6 text-[13px] text-text-muted">Let's get your job search set up in 5 steps.</p>
 
-            <div className="max-w-[600px] rounded-lg border border-border bg-surface p-5">
+            <div className="max-w-[560px] rounded-xl border border-border bg-surface p-5">
               <div className="mb-4 flex items-center justify-between">
-                <span className="text-[13px] font-semibold">Setup Progress</span>
-                <span className="font-mono text-[11px] text-text-muted">{doneCount}/5</span>
+                <span className="text-[13px] font-medium">Setup Progress</span>
+                <span className="font-mono text-[11px] text-text-faint">{doneCount}/5</span>
               </div>
-              <div className="mb-3 h-1 overflow-hidden rounded-full bg-bg-tertiary">
+              <div className="mb-4 h-[3px] overflow-hidden rounded-full bg-white/[0.04]">
                 <motion.div
-                  className="h-full rounded-full bg-gradient-to-r from-accent to-accent-sub"
+                  className="h-full rounded-full bg-accent/70"
                   initial={{ width: 0 }}
                   animate={{ width: `${Math.round((doneCount / 5) * 100)}%` }}
                   transition={{ duration: 0.6 }}
@@ -89,25 +90,25 @@ export default function DashboardPage() {
                     <div
                       key={step.key}
                       className={cn(
-                        "flex items-center gap-3.5 py-2.5",
+                        "flex items-center gap-3.5 py-3",
                         i < steps.length - 1 && "border-b border-border",
-                        isNext ? "opacity-100" : step.done ? "opacity-50" : "opacity-30"
+                        isNext ? "opacity-100" : step.done ? "opacity-40" : "opacity-20"
                       )}
                     >
                       <div
                         className={cn(
-                          "grid h-9 w-9 shrink-0 place-items-center rounded-full text-sm font-bold",
+                          "grid h-8 w-8 shrink-0 place-items-center rounded-full text-[12px] font-semibold",
                           step.done
-                            ? "bg-green-bg text-green"
+                            ? "bg-green/[0.08] text-green"
                             : isNext
-                              ? "bg-accent-bg text-accent-sub"
-                              : "bg-bg-tertiary text-text-muted"
+                              ? "bg-accent/[0.08] text-accent-sub"
+                              : "bg-white/[0.04] text-text-faint"
                         )}
                       >
-                        {step.done ? <Check className="h-4 w-4" /> : i + 1}
+                        {step.done ? <Check className="h-3.5 w-3.5" /> : i + 1}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className={cn("text-[13px] font-semibold", step.done ? "text-green" : isNext ? "text-text-primary" : "text-text-muted")}>
+                        <div className={cn("text-[13px] font-medium", step.done ? "text-green" : isNext ? "text-text-primary" : "text-text-faint")}>
                           {step.label}
                         </div>
                         <div className="text-[11px] text-text-muted">{step.done ? "Completed" : step.desc}</div>
@@ -115,14 +116,14 @@ export default function DashboardPage() {
                       {!step.done && isNext ? (
                         <button
                           onClick={step.action}
-                          className="shrink-0 rounded-md bg-gradient-to-br from-accent to-teal-600 px-3.5 py-1.5 text-[12px] font-semibold text-white shadow-[0_3px_12px] shadow-accent-glow transition hover:-translate-y-0.5"
+                          className="shrink-0 rounded-lg bg-accent/90 px-3.5 py-1.5 text-[12px] font-medium text-white shadow-sm shadow-accent/10 transition-all hover:bg-accent hover:shadow-md hover:shadow-accent/15"
                         >
                           {step.btn}
                         </button>
                       ) : step.done ? (
-                        <span className="text-[11px] text-green">Done</span>
+                        <span className="text-[11px] text-green/60">Done</span>
                       ) : (
-                        <span className="text-[11px] text-text-muted">Pending</span>
+                        <span className="text-[11px] text-text-faint">Pending</span>
                       )}
                     </div>
                   )
@@ -153,25 +154,25 @@ export default function DashboardPage() {
 
   return (
     <>
-      <Topbar title="Home" icon={<Home className="h-5 w-5" />} />
+      <Topbar title="Home" icon={<Home className="h-4 w-4" />} />
       <div className="flex-1 overflow-y-auto p-6">
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
           {/* Header */}
-          <div className="mb-5 flex items-start justify-between">
+          <div className="mb-6 flex items-start justify-between">
             <div>
-              <h1 className="text-lg font-semibold">{greet}, {name} 👋</h1>
-              <p className="text-[13px] text-text-muted">
-                Your search is active — {totalJobs} jobs found, {drafted} ready to send.
+              <h1 className="text-[18px] font-semibold tracking-tight">{greet}, {name}</h1>
+              <p className="mt-0.5 text-[13px] text-text-muted">
+                {totalJobs} jobs found · {drafted} ready to send
               </p>
             </div>
-            <div className="flex items-center gap-2 text-[11px] text-text-muted">
-              <div className="h-1.5 w-1.5 rounded-full bg-green" />
+            <div className="flex items-center gap-2 text-[11px] text-text-faint">
+              <div className="h-[5px] w-[5px] rounded-full bg-green/60" />
               Pipeline {status?.resume_parsed ? "Active" : "Needs Setup"}
             </div>
           </div>
 
           {/* KPIs */}
-          <div className="mb-5 grid grid-cols-4 gap-4">
+          <div className="mb-6 grid grid-cols-4 gap-3">
             <StatCard label="Jobs Found" value={totalJobs} sub="Across all sources" icon={Briefcase} />
             <StatCard label="Applied" value={emailed} sub="Applications sent" icon={Send} />
             <StatCard label="This Week" value={analytics?.applications_by_source ? Object.values(analytics.applications_by_source).reduce((a: number, b: number) => a + b, 0) : 0} sub="New applications" icon={Calendar} />
@@ -179,52 +180,55 @@ export default function DashboardPage() {
           </div>
 
           {/* Action + Progress */}
-          <div className="mb-5 grid grid-cols-2 gap-4">
+          <div className="mb-6 grid grid-cols-2 gap-3">
             {/* Next Action */}
-            <div className="rounded-lg border border-accent/20 bg-accent/[0.02] p-5">
+            <div className="rounded-xl border border-accent/[0.08] bg-accent/[0.02] p-5">
               <div className="mb-3 flex items-center gap-2">
-                <Target className="h-4 w-4 text-accent-sub" />
-                <span className="text-[12px] font-semibold text-accent-sub">Next Action</span>
+                <Target className="h-3.5 w-3.5 text-accent-sub/70" />
+                <span className="text-[11px] font-medium uppercase tracking-wider text-accent-sub/70">Next Action</span>
               </div>
-              <p className="text-sm font-medium text-text-primary">{action}</p>
-              <div className="mt-3 flex gap-2">
+              <p className="text-[14px] font-medium text-text-primary">{action}</p>
+              <div className="mt-4 flex gap-2">
                 <button
                   onClick={() => navigate("/discover")}
-                  className="flex items-center gap-1.5 rounded-md bg-gradient-to-br from-accent to-teal-600 px-3.5 py-1.5 text-[12px] font-semibold text-white shadow-[0_3px_12px] shadow-accent-glow"
+                  className="flex items-center gap-1.5 rounded-lg bg-accent/90 px-3.5 py-1.5 text-[12px] font-medium text-white shadow-sm shadow-accent/10 transition hover:bg-accent"
                 >
-                  <Search className="h-3.5 w-3.5" />
+                  <Search className="h-3 w-3" />
                   View Jobs
                 </button>
                 <button
                   onClick={start}
-                  className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-3.5 py-1.5 text-[12px] font-semibold text-text-primary transition hover:bg-surface-hover"
+                  className="flex items-center gap-1.5 rounded-lg border border-border bg-white/[0.02] px-3.5 py-1.5 text-[12px] font-medium text-text-primary transition hover:bg-white/[0.04]"
                 >
-                  <RefreshCw className="h-3.5 w-3.5" />
+                  <RefreshCw className="h-3 w-3" />
                   Refresh
                 </button>
               </div>
             </div>
 
             {/* Progress */}
-            <div className="rounded-lg border border-border bg-surface p-5">
+            <div className="rounded-xl border border-border bg-surface p-5">
               <div className="mb-3 flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-text-muted" />
-                <span className="text-[12px] font-semibold uppercase tracking-wider text-text-muted">Progress</span>
+                <TrendingUp className="h-3.5 w-3.5 text-text-faint" />
+                <span className="text-[11px] font-medium uppercase tracking-wider text-text-faint">Progress</span>
               </div>
-              <div className="mb-2.5 flex items-center gap-2">
-                <div className="h-1 flex-1 overflow-hidden rounded-full bg-bg-tertiary">
-                  <div className="h-full rounded-full bg-gradient-to-r from-accent to-accent-sub" style={{ width: `${pct}%` }} />
+              <div className="mb-3 flex items-center gap-2">
+                <div className="h-[3px] flex-1 overflow-hidden rounded-full bg-white/[0.04]">
+                  <div className="h-full rounded-full bg-accent/60" style={{ width: `${pct}%` }} />
                 </div>
-                <span className="font-mono text-[10px] text-text-muted">{doneSteps}/{pipelineSteps.length}</span>
+                <span className="font-mono text-[10px] text-text-faint">{doneSteps}/{pipelineSteps.length}</span>
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1.5">
                 {pipelineSteps.map((step) => (
                   <div key={step.label} className="flex items-center gap-2.5">
-                    <div className={cn("grid h-5 w-5 place-items-center rounded-full text-[9px] font-bold", step.ok ? "bg-green-bg text-green" : "bg-bg-tertiary text-text-muted")}>
+                    <div className={cn(
+                      "grid h-[18px] w-[18px] place-items-center rounded-full text-[8px] font-semibold",
+                      step.ok ? "bg-green/[0.08] text-green" : "bg-white/[0.04] text-text-faint"
+                    )}>
                       {step.ok ? "✓" : "·"}
                     </div>
                     <span className="flex-1 text-[12px] text-text-secondary">{step.label}</span>
-                    {step.val !== undefined && <span className="font-mono text-[10px] text-text-muted">{step.val}</span>}
+                    {step.val !== undefined && <span className="font-mono text-[10px] text-text-faint">{step.val}</span>}
                   </div>
                 ))}
               </div>
@@ -238,38 +242,38 @@ export default function DashboardPage() {
           <ActiveWorkSection />
 
           {/* Recent Activity */}
-          <div className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-text-muted">Recent Activity</div>
-          <div className="rounded-lg border border-border bg-surface p-4">
+          <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-text-faint">Recent Activity</div>
+          <div className="rounded-xl border border-border bg-surface p-5">
             {totalJobs === 0 ? (
               <p className="text-center text-[13px] text-text-muted">No activity yet — run a discovery to get started</p>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 {resume?.parsed && (
                   <div className="flex items-center gap-2.5">
-                    <div className="grid h-5 w-5 place-items-center rounded-full bg-green-bg text-[9px] font-bold text-green">✓</div>
+                    <div className="grid h-[18px] w-[18px] place-items-center rounded-full bg-green/[0.08] text-[8px] font-semibold text-green">✓</div>
                     <span className="flex-1 text-[12px] text-text-secondary">Resume parsed with {analytics?.avg_score || 0}% quality score</span>
-                    <span className="text-[10px] text-text-muted">Today</span>
+                    <span className="text-[10px] text-text-faint">Today</span>
                   </div>
                 )}
                 {totalJobs > 0 && (
                   <div className="flex items-center gap-2.5">
-                    <div className="grid h-5 w-5 place-items-center rounded-full bg-green-bg text-[9px] font-bold text-green">✓</div>
+                    <div className="grid h-[18px] w-[18px] place-items-center rounded-full bg-green/[0.08] text-[8px] font-semibold text-green">✓</div>
                     <span className="flex-1 text-[12px] text-text-secondary">Discovered {totalJobs} matching opportunities</span>
-                    <span className="text-[10px] text-text-muted">Today</span>
+                    <span className="text-[10px] text-text-faint">Today</span>
                   </div>
                 )}
                 {recruiters > 0 && (
                   <div className="flex items-center gap-2.5">
-                    <div className="grid h-5 w-5 place-items-center rounded-full bg-green-bg text-[9px] font-bold text-green">✓</div>
+                    <div className="grid h-[18px] w-[18px] place-items-center rounded-full bg-green/[0.08] text-[8px] font-semibold text-green">✓</div>
                     <span className="flex-1 text-[12px] text-text-secondary">Found {recruiters} recruiters</span>
-                    <span className="text-[10px] text-text-muted">Today</span>
+                    <span className="text-[10px] text-text-faint">Today</span>
                   </div>
                 )}
                 {drafted > 0 && (
                   <div className="flex items-center gap-2.5">
-                    <div className="grid h-5 w-5 place-items-center rounded-full bg-green-bg text-[9px] font-bold text-green">✓</div>
+                    <div className="grid h-[18px] w-[18px] place-items-center rounded-full bg-green/[0.08] text-[8px] font-semibold text-green">✓</div>
                     <span className="flex-1 text-[12px] text-text-secondary">{drafted} applications ready</span>
-                    <span className="text-[10px] text-text-muted">Today</span>
+                    <span className="text-[10px] text-text-faint">Today</span>
                   </div>
                 )}
               </div>
@@ -282,7 +286,7 @@ export default function DashboardPage() {
 }
 
 function Rate({ num, den }: { num: number | null | undefined; den: number | null | undefined }) {
-  if (!den || den === 0 || num == null) return <span className="text-text-muted">Not enough data yet</span>
+  if (!den || den === 0 || num == null) return <span className="text-text-faint">Not enough data yet</span>
   const pct = Math.round((num / den) * 100)
   return <span className="font-mono text-text-primary">{pct}%</span>
 }
@@ -300,18 +304,18 @@ function OutcomeSection({
 
   if (loading) {
     return (
-      <div className="mb-5">
-        <div className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-text-muted">Outcome</div>
-        <div className="h-24 w-full animate-shimmer rounded-lg" />
+      <div className="mb-6">
+        <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-text-faint">Outcome</div>
+        <div className="h-24 w-full animate-shimmer rounded-xl" />
       </div>
     )
   }
 
   if (!funnel || funnel.applications_started === 0) {
     return (
-      <div className="mb-5">
-        <div className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-text-muted">Outcome</div>
-        <div className="rounded-lg border border-border bg-surface p-4">
+      <div className="mb-6">
+        <div className="mb-2 text-[11px] font-medium uppercase tracking-wider text-text-faint">Outcome</div>
+        <div className="rounded-xl border border-border bg-surface p-5">
           <p className="text-center text-[13px] text-text-muted">Not enough data yet</p>
         </div>
       </div>
@@ -328,15 +332,15 @@ function OutcomeSection({
   const topInsights = (ins?.insights || []).filter((i) => i.confidence === "OBSERVED").slice(0, 2)
 
   return (
-    <div className="mb-5">
-      <div className="mb-2 flex items-center gap-1.5 text-[12px] font-semibold uppercase tracking-wider text-text-muted">
-        <BarChart3 className="h-3.5 w-3.5" />
+    <div className="mb-6">
+      <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-text-faint">
+        <BarChart3 className="h-3 w-3" />
         Outcome
       </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="rounded-lg border border-border bg-surface p-4">
-          <div className="mb-3 text-[12px] font-semibold text-text-secondary">Funnel</div>
-          <div className="space-y-1.5">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-xl border border-border bg-surface p-5">
+          <div className="mb-3 text-[12px] font-medium text-text-secondary">Funnel</div>
+          <div className="space-y-2">
             {[
               { label: "Applications Started", val: funnel.applications_started },
               { label: "Applications Submitted", val: funnel.applications_submitted },
@@ -351,9 +355,9 @@ function OutcomeSection({
               </div>
             ))}
           </div>
-          <div className="my-2 border-t border-border" />
-          <div className="mb-2 text-[11px] font-semibold text-text-muted">Conversion Rates</div>
-          <div className="space-y-1.5">
+          <div className="my-3 border-t border-border" />
+          <div className="mb-2 text-[11px] font-medium text-text-faint">Conversion Rates</div>
+          <div className="space-y-2">
             {rateRows.map((r) => (
               <div key={r.label} className="flex items-center justify-between text-[12px]">
                 <span className="text-text-muted">{r.label}</span>
@@ -363,9 +367,9 @@ function OutcomeSection({
           </div>
         </div>
 
-        <div className="rounded-lg border border-border bg-surface p-4">
-          <div className="mb-3 flex items-center gap-1.5 text-[12px] font-semibold text-text-secondary">
-            <Lightbulb className="h-3.5 w-3.5" />
+        <div className="rounded-xl border border-border bg-surface p-5">
+          <div className="mb-3 flex items-center gap-1.5 text-[12px] font-medium text-text-secondary">
+            <Lightbulb className="h-3.5 w-3.5 opacity-50" />
             Insights
           </div>
           {ins?.status === "INSUFFICIENT_DATA" || topInsights.length === 0 ? (
@@ -373,11 +377,11 @@ function OutcomeSection({
           ) : (
             <div className="space-y-3">
               {topInsights.map((i, idx) => (
-                <div key={idx} className="rounded-md bg-bg-secondary p-3">
-                  <div className="mb-1 text-[11px] font-semibold uppercase text-text-muted">
+                <div key={idx} className="rounded-lg bg-white/[0.02] p-3">
+                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-text-faint">
                     {i.dimension === "application_priority" ? `Priority: ${i.segment}` : `Source: ${i.segment}`}
                   </div>
-                  <div className="space-y-0.5 text-[12px]">
+                  <div className="space-y-1 text-[12px]">
                     <div className="flex justify-between">
                       <span className="text-text-muted">Applications</span>
                       <span className="font-mono text-text-primary">{i.applications}</span>
@@ -414,28 +418,44 @@ function ActiveWorkSection() {
   if (needingReview.length === 0 && needingAction.length === 0 && recentOutcomes.length === 0) return null
 
   return (
-    <div className="mb-5">
-      <div className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-text-muted">Active Work</div>
-      <div className="grid grid-cols-3 gap-4">
-        <div className="rounded-lg border border-border bg-surface p-4">
-          <div className="mb-2 text-[12px] font-semibold">Jobs needing review</div>
-          {needingReview.length === 0 ? <p className="text-sm text-text-muted">No jobs needing review</p> : needingReview.map((j: any) => (
-            <Link key={j.id} to={`/jobs/${j.id}`} className="block py-1 text-sm text-accent hover:underline">{j.title} · {j.company}</Link>
+    <div className="mb-6">
+      <div className="mb-3 flex items-center gap-2">
+        <h2 className="text-[11px] font-medium uppercase tracking-wider text-text-faint">Today&apos;s priorities</h2>
+        <span className="h-px flex-1 bg-border" />
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <div className="rounded-xl border border-border bg-surface p-5">
+          <div className="mb-3 text-[13px] font-medium text-text-primary">Jobs to review</div>
+          {needingReview.length === 0 ? <p className="text-[12px] text-text-muted">No jobs needing review — run discovery</p> : needingReview.map((j: any, i:number) => (
+            <Link key={j.id} to={`/jobs/${j.id}`} className="flex items-center justify-between gap-2 py-2 text-[12px] hover:bg-white/[0.02] -mx-2 px-2 rounded-lg transition">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-accent/[0.08] text-[10px] font-semibold text-accent-sub">{i+1}</span>
+                <span className="truncate text-accent-sub">{j.title}</span>
+                <span className="text-text-faint truncate">· {j.company}</span>
+              </div>
+              <PriorityBadge tier={j.priority_tier || (j.fit_score >= 80 ? "HOT" : j.fit_score >= 65 ? "WARM" : "REVIEW")} size="sm" className="shrink-0" />
+            </Link>
           ))}
         </div>
-        <div className="rounded-lg border border-border bg-surface p-4">
-          <div className="mb-2 text-[12px] font-semibold">Applications needing action</div>
-          {needingAction.length === 0 ? <p className="text-sm text-text-muted">No applications needing action</p> : needingAction.map((a: any) => {
+        <div className="rounded-xl border border-border bg-surface p-5">
+          <div className="mb-3 text-[13px] font-medium text-text-primary">Next actions</div>
+          {needingAction.length === 0 ? <p className="text-[12px] text-text-muted">No action needed — check back after discovery</p> : needingAction.map((a: any) => {
             const next = getNextActionForApplication(a)
-            return <Link key={a.id} to={next.to} className="block py-1 text-sm text-accent hover:underline">{a.job_title_snapshot || `App #${a.id}`} — {next.label}</Link>
+            return <Link key={a.id} to={next.to} className="flex items-center justify-between py-2 -mx-2 px-2 rounded-lg hover:bg-white/[0.02] transition">
+              <span className="text-[12px] text-text-primary">{a.job_title_snapshot || `App #${a.id}`}</span>
+              <span className="rounded-md bg-accent/[0.08] px-2 py-0.5 text-[10px] font-medium text-accent-sub">{next.label}</span>
+            </Link>
           })}
         </div>
-        <div className="rounded-lg border border-border bg-surface p-4">
-          <div className="mb-2 text-[12px] font-semibold">Recent outcomes</div>
-          {recentOutcomes.length === 0 ? <p className="text-sm text-text-muted">No outcomes yet</p> : recentOutcomes.map((a: any) => (
-            <div key={a.id} className="py-1 text-sm">{a.job_title_snapshot} — {a.final_outcome || "CLOSED"}</div>
+        <div className="rounded-xl border border-border bg-surface p-5">
+          <div className="mb-3 text-[13px] font-medium text-text-primary">Learning</div>
+          {recentOutcomes.length === 0 ? <p className="text-[12px] text-text-muted">Complete an application to see learning</p> : recentOutcomes.map((a: any) => (
+            <div key={a.id} className="py-2 text-[12px] border-b border-border last:border-0 -mx-2 px-2">
+              <div className="font-medium text-text-primary">{a.job_title_snapshot}</div>
+              <div className="text-[11px] text-text-faint">{a.final_outcome || "CLOSED"} · {new Date(a.last_state_change_at || a.created_at).toLocaleDateString()}</div>
+            </div>
           ))}
-          <Link to="/analytics" className="text-xs text-accent hover:underline">View Analytics → Learning</Link>
+          <Link to="/analytics" className="mt-3 inline-flex text-[11px] font-medium text-accent-sub/80 hover:text-accent-sub transition-colors">View Outcome Analytics →</Link>
         </div>
       </div>
     </div>

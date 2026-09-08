@@ -143,13 +143,17 @@ class Orchestrator:
             self.email_agent = EmailDraftingAgent()
             self.recruiter_agent = RecruiterDiscoveryAgent()
 
-        # Runtime counters
+        # Runtime counters — authoritative run contract
         self.results = {
             "run_id":               self.run_id,
             "triggered_by":         None,
             "started_at":           None,
-            "finished_at":          None,
+            "completed_at":         None,
+            "finished_at":          None,  # alias for backward compat
             "jobs_found":           0,
+            "jobs_inserted":        0,
+            "jobs_duplicate":       0,
+            "jobs_rejected":        0,
             "jobs_filtered":        0,
             "applications_drafted": 0,
             "jobs_applied":         0,
@@ -158,8 +162,11 @@ class Orchestrator:
             "emails_sent":          0,
             "skipped":              0,
             "errors":               [],
-            "status":               "pending",
+            "status":               "pending",  # SUCCESS/SUCCESS_EMPTY/SUCCESS_WITH_FALLBACK/FAILED_*
             "applications":         [],
+            "fallback_used":        False,
+            "failure_category":     None,
+            "retryable":            False,
         }
 
     def _emit(self, step: str, msg: str, agent="orchestrator", status="running", **extra):
@@ -198,17 +205,23 @@ class Orchestrator:
                 logger.warning("[orchestrator] No jobs found -- pipeline ending early")
                 self._emit("done", "No jobs found", status="done")
                 self.results["status"] = "completed_empty"
+                self.results["jobs_inserted"] = 0
+                self.results["jobs_duplicate"] = 0
+                self.results["jobs_rejected"] = len(job_listings)
                 return self._finalise()
 
             # STEP 2: deduplicate against DB
             self._emit("dedup", "Deduplicating jobs", agent="orchestrator")
             new_listings = self._deduplicate(job_listings)
             self.results["jobs_filtered"] = len(new_listings)
+            self.results["jobs_inserted"] = len(new_listings)
+            self.results["jobs_duplicate"] = len(job_listings) - len(new_listings)
             logger.info(f"[orchestrator] {len(new_listings)} new jobs after dedup "
                         f"({len(job_listings) - len(new_listings)} already seen)")
 
             # STEP 3: process each job
             applied_count = 0
+            rejected = 0
             for job in new_listings:
                 if applied_count >= self.max_per_run:
                     logger.info(f"[orchestrator] Hit MAX_EMAILS_PER_RUN={self.max_per_run}")
@@ -220,9 +233,19 @@ class Orchestrator:
                 result = self._step_process_job(job)
                 if result:
                     applied_count += 1
+                else:
+                    rejected += 1
 
             self.results["jobs_applied"] = applied_count
-            self.results["status"]       = "completed"
+            self.results["jobs_rejected"] = rejected
+            # Determine final status with fallback distinction
+            if self.results["fallback_used"]:
+                self.results["status"] = "completed_with_fallback" if applied_count>0 or len(new_listings)>0 else "completed_empty"
+                # Keep empty distinction for UI
+                if len(new_listings)==0:
+                    self.results["status"] = "completed_empty"
+            else:
+                self.results["status"] = "completed" if len(new_listings)>0 else "completed_empty"
 
         except Exception as e:
             logger.error(f"[orchestrator] Pipeline error: {e}", exc_info=True)
@@ -283,10 +306,23 @@ class Orchestrator:
             })
             listings = result.get("job_listings", [])
             logger.info(f"[orchestrator] Web research found {len(listings)} jobs")
+            # Explicit fallback detection: web_research_agent retry without site: filter sets fallback
+            if result.get("fallback_used"):
+                self.results["fallback_used"] = True
+            try:
+                if "site:" in state.get("query","") and len(listings)==0 and not self.results["fallback_used"]:
+                    # Heuristic fallback for older agent without explicit flag
+                    self.results["fallback_used"] = True
+            except: pass
             return listings
         except Exception as e:
-            logger.error(f"[orchestrator] Web research failed: {e}")
-            self.results["errors"].append(f"Web research: {e}")
+            from core.ai.errors import sanitize_exception_message, classify_error
+            safe = sanitize_exception_message(str(e))
+            logger.error(f"[orchestrator] Web research failed: {safe}")
+            meta = classify_error(e)
+            self.results["failure_category"] = meta["category"]
+            self.results["retryable"] = meta["retryable"]
+            self.results["errors"].append(f"Web research: {safe}")
             return []
 
     def _sanitize_company(self, company) -> str:
@@ -402,6 +438,13 @@ class Orchestrator:
         except Exception as e:
             logger.warning(f"[orchestrator] Email send failed: {e}")
             return False
+
+    # Persistence Model: Model B — incremental per-job transactions
+    # Each job is persisted via _save_to_db() in its own transaction (db.insert_job).
+    # If process dies after N jobs, first N are committed, rest not. Replay is safe
+    # via canonical_id/URL idempotency (db.url_exists + ON CONFLICT) and
+    # last_seen_at update, not duplicate insertion. Counters (jobs_inserted etc.)
+    # are recomputed from authoritative DB state on replay, not double-incremented.
 
     # DB helpers — all use get_db() (PostgreSQL via DBClient)
     def _deduplicate(self, jobs):

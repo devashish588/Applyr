@@ -53,6 +53,7 @@ class ResearchState(TypedDict):
     search_results: list[dict]   # raw Tavily results
     job_listings:   list[dict]   # parsed, structured job objects
     report:         str          # human-readable summary
+    fallback_used:  bool         # explicit provider/site fallback flag
 
 
 # ── Company-name fallback helpers (Bug 2) ────────────────────────────────────
@@ -223,6 +224,81 @@ def search_web(state: ResearchState) -> ResearchState:
     return {"search_results": results}
 
 
+def _parse_json_safely(raw_text: str) -> list[dict]:
+    """Robustly parse JSON array from LLM response, even if wrapped in markdown or partially truncated."""
+    if not raw_text:
+        return []
+    
+    text = raw_text.strip()
+    
+    # Strip markdown code blocks
+    if "```" in text:
+        match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
+        if match:
+            text = match.group(1).strip()
+        else:
+            parts = text.split("```")
+            if len(parts) > 1:
+                text = parts[1].strip()
+                if text.startswith("json"):
+                    text = text[4:].strip()
+
+    # 1. Direct json load
+    try:
+        data = json.loads(text)
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            for v in data.values():
+                if isinstance(v, list):
+                    return v
+            return [data]
+    except Exception:
+        pass
+
+    # 2. Extract array string [...]
+    array_match = re.search(r"\[\s*\{[\s\S]*\}\s*\]", text)
+    if array_match:
+        try:
+            data = json.loads(array_match.group(0))
+            if isinstance(data, list):
+                return data
+        except Exception:
+            pass
+
+    # 3. Truncated JSON repair: find all completed job objects {...}
+    objects = []
+    obj_matches = re.findall(r"\{\s*\"title\"[\s\S]*?\n\s*\}", text)
+    for obj_str in obj_matches:
+        try:
+            obj = json.loads(obj_str)
+            if isinstance(obj, dict) and "title" in obj:
+                objects.append(obj)
+        except Exception:
+            continue
+            
+    if objects:
+        return objects
+
+    # 4. Truncated array repair: truncate at last complete object
+    last_brace = text.rfind("}")
+    if last_brace != -1:
+        repaired = text[:last_brace+1] + "]"
+        first_bracket = repaired.find("[")
+        if first_bracket != -1:
+            repaired = repaired[first_bracket:]
+        else:
+            repaired = "[" + repaired[repaired.find("{"):]
+        try:
+            data = json.loads(repaired)
+            if isinstance(data, list):
+                return data
+        except Exception:
+            pass
+
+    return []
+
+
 # ── LLM extraction (shared helper) ────────────────────────────────────────────
 def _extract_job_listings(results: list[dict], llm) -> list[dict]:
     """LLM-extract structured job listings from raw Tavily results."""
@@ -232,8 +308,8 @@ def _extract_job_listings(results: list[dict], llm) -> list[dict]:
     results_text = "\n\n".join(
         f"[{i+1}] URL: {r.get('url', 'N/A')}\n"
         f"Title: {r.get('title', 'N/A')}\n"
-        f"Snippet: {r.get('content', r.get('snippet', ''))[:600]}"
-        for i, r in enumerate(results)
+        f"Snippet: {r.get('content', r.get('snippet', ''))[:400]}"
+        for i, r in enumerate(results[:8])
     )
 
     system_prompt = """You are a job listing extractor.
@@ -246,8 +322,8 @@ Return a JSON array. Each object must have these exact keys:
   "url": "Direct job URL",
   "source": "linkedin|internshala|naukri|wellfound|other",
   "type": "fulltime|internship|contract",
-  "hr_email": "HR email if found, else null",
-  "description_snippet": "2-3 sentence summary of the role",
+  "hr_email": null,
+  "description_snippet": "1-2 sentence summary of the role",
   "required_skills": ["skill1", "skill2"]
 }
 If you cannot extract a real job listing from a result, skip it.
@@ -258,29 +334,16 @@ Return ONLY the JSON array, no other text."""
         HumanMessage(content=f"Extract job listings from these results:\n\n{results_text}"),
     ]
 
-    # Use structured output for reliable JSON parsing
     try:
-        response = llm.invoke(messages, response_format={"type": "json_object"})
+        response = llm.invoke(messages, max_tokens=4000)
     except Exception:
-        # Fallback for models that don't support response_format
         response = llm.invoke(messages)
 
     raw_json = response.content.strip()
-
-    # Strip markdown fences if LLM wraps in ```json
-    if raw_json.startswith("```"):
-        raw_json = raw_json.split("```")[1]
-        if raw_json.startswith("json"):
-            raw_json = raw_json[4:]
-    raw_json = raw_json.strip()
-
-    try:
-        job_listings = json.loads(raw_json)
-        if not isinstance(job_listings, list):
-            job_listings = []
-    except json.JSONDecodeError as e:
-        print(f"[web_research] JSON parse error: {e}")
-        job_listings = []
+    job_listings = _parse_json_safely(raw_json)
+    
+    if not job_listings:
+        print(f"[web_research] Could not parse JSON array, raw text preview: {raw_json[:200]!r}")
 
     return job_listings
 
@@ -294,6 +357,7 @@ def parse_jobs(state: ResearchState) -> ResearchState:
     llm = get_llm()
     query = state.get("query", "")
     job_listings = _extract_job_listings(state.get("search_results", []), llm)
+    fallback_used = False
 
     # Bug 2 hardening: if a site-filtered query produced nothing extractable
     # (e.g. the sampled sites only returned category/search pages), retry ONCE
@@ -309,6 +373,7 @@ def parse_jobs(state: ResearchState) -> ResearchState:
         broad_results = _run_tavily(broad_query)
         print(f"[web_research] Found {len(broad_results)} raw results (retry)")
         job_listings = _extract_job_listings(broad_results, llm)
+        fallback_used = True
 
     # Post-process (Bug 5): never insert a literal "Unknown Company".
     # 3-step fallback when the LLM didn't return a usable company name:
@@ -330,9 +395,10 @@ def parse_jobs(state: ResearchState) -> ResearchState:
 
         job["company"] = company
 
-    print(f"[web_research] Extracted {len(job_listings)} structured job listings")
+    print(f"[web_research] Extracted {len(job_listings)} structured job listings (fallback={fallback_used})")
     return {
         "job_listings": job_listings,
+        "fallback_used": fallback_used,
         "messages": [AIMessage(content=f"Extracted {len(job_listings)} job listings")],
     }
 

@@ -256,6 +256,9 @@ def _run_pipeline_thread(run_id: str, job_text: str = None, job_file: str = None
                     summary={"status": "blocked", "reason": orch.resume_block_reason},
                 )
                 logger.warning(f"[app] Pipeline BLOCKED: {orch.resume_block_reason}")
+                try:
+                    _release_pipeline_lock()
+                except: pass
                 return  # <-- STOP. Do not run pipeline.
 
             _emit_event(run_id, "init", "Initializing pipeline...", 5, "orchestrator")
@@ -306,6 +309,10 @@ def _run_pipeline_thread(run_id: str, job_text: str = None, job_file: str = None
             logger.error(f"[app] Pipeline thread error: {e}", exc_info=True)
             _emit_event(run_id, "error", str(e), 0, "orchestrator", "error",
                        error=str(e))
+        finally:
+            try:
+                _release_pipeline_lock()
+            except: pass
 
     threading.Thread(target=_run, daemon=True).start()
 
@@ -763,11 +770,56 @@ def api_search_strategy():
     return jsonify({"success": False, "error": "No strategy available"}), 404
 
 
+# ── Pipeline concurrency (manual + scheduler share same lock) ───────
+PIPELINE_LOCK_KEY = 43  # same as scheduler RUN_LOCK_KEY — manual and scheduler share
+
+def _try_acquire_pipeline_lock(run_id: str) -> bool:
+    """Non-blocking try to acquire pipeline run lock. Returns True if acquired, False if busy."""
+    import psycopg2
+    from core.services.application_service import _resolve_database_url
+    conn = psycopg2.connect(_resolve_database_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM run_log WHERE status = 'RUNNING' AND run_id != %s LIMIT 1", (run_id,))
+            if cur.fetchone():
+                return False
+            cur.execute("SELECT pg_try_advisory_lock(%s)", (PIPELINE_LOCK_KEY,))
+            row = cur.fetchone()
+            if row and row[0]:
+                return True
+            return False
+    except Exception:
+        try:
+            conn.rollback()
+        except: pass
+        return False
+    finally:
+        try:
+            conn.close()
+        except: pass
+
+def _release_pipeline_lock():
+    import psycopg2
+    from core.services.application_service import _resolve_database_url
+    conn = psycopg2.connect(_resolve_database_url())
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_unlock(%s)", (PIPELINE_LOCK_KEY,))
+        conn.commit()
+    except: 
+        try: conn.rollback()
+        except: pass
+    finally:
+        try: conn.close()
+        except: pass
+
 # ── Pipeline ──────────────────────────────────────────────────────────────────
 
 @app.route("/api/run-now", methods=["POST"])
 def api_run_now():
     run_id = str(uuid.uuid4())[:8]
+    if not _try_acquire_pipeline_lock(run_id):
+        return jsonify({"success": False, "error": "Discovery is already running."}), 409
     get_db().start_run_log(run_id, "scheduled")
     _run_pipeline_thread(run_id)
     return jsonify({"success": True, "run_id": run_id})
@@ -787,6 +839,8 @@ def api_upload_jd():
     file.save(filepath)
 
     run_id = str(uuid.uuid4())[:8]
+    if not _try_acquire_pipeline_lock(run_id):
+        return jsonify({"success": False, "error": "Discovery is already running."}), 409
     get_db().start_run_log(run_id, "upload")
     _run_pipeline_thread(run_id, job_file=filepath)
     return jsonify({"success": True, "run_id": run_id, "filename": filename})
@@ -800,6 +854,8 @@ def api_paste_jd():
         return jsonify({"error": "JD text too short (min 30 chars)"}), 400
 
     run_id = str(uuid.uuid4())[:8]
+    if not _try_acquire_pipeline_lock(run_id):
+        return jsonify({"success": False, "error": "Discovery is already running."}), 409
     get_db().start_run_log(run_id, "paste")
     _run_pipeline_thread(run_id, job_text=jd_text)
     return jsonify({"success": True, "run_id": run_id})

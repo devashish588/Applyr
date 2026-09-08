@@ -48,39 +48,22 @@ load_dotenv()
 
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
-TAILOR_PROMPT = """You are an expert resume writer and career coach.
-Given a candidate profile and a job description, produce tailored application materials.
-Return ONLY a valid JSON object — no markdown, no extra text.
-
-{{
+TAILOR_PROMPT = """Analyze candidate vs job. Return JSON only, no markdown:
+{
   "fit_score": 0-100,
   "fit_label": "Excellent|Good|Fair|Poor",
   "apply_recommendation": "Apply|Consider|Skip",
-  "tailored_bullets": [
-    "Rewritten bullet 1 — quantified, uses JD keywords",
-    "Rewritten bullet 2",
-    "Rewritten bullet 3",
-    "Rewritten bullet 4",
-    "Rewritten bullet 5"
-  ],
-  "skills_to_highlight": ["skill1", "skill2", "skill3"],
-  "keywords_matched": ["keyword from JD that appears in profile"],
-  "keywords_missing": ["keyword from JD not in profile"],
-  "cover_letter": "Full cover letter text — 3 paragraphs, under 220 words",
-  "interview_questions": [
-    {{"q": "Behavioral question", "framework": "Use STAR — talk about X"}},
-    {{"q": "Technical question", "framework": "Mention Y and Z"}}
-  ],
-  "salary_estimate": "Range estimate or null"
-}}
-
-Cover letter rules:
-- Paragraph 1: Specific hook about the company (not 'I am excited to apply')
-- Paragraph 2: 2-3 achievements from the profile that directly match JD requirements
-- Paragraph 3: Why this company specifically + brief call to action
-- Sign with candidate's actual name
-- Under 220 words total
-- No generic phrases like 'I am thrilled', 'I eagerly await', 'Please feel free to contact me'"""
+  "tailored_bullets": ["Rewritten bullet - quantified, JD keywords"],
+  "skills_to_highlight": ["skill"],
+  "keywords_matched": ["JD keyword in profile"],
+  "keywords_missing": ["JD keyword not in profile"],
+  "cover_letter": "3 paragraphs, <220 words, company+role specific",
+  "interview_questions": [{"q": "Question", "framework": "STAR: ..."}],
+  "salary_estimate": "range or null"
+}
+Rules: No greeting/filler ("Great question!"), direct, concise, use profile/JD evidence, UNKNOWN remains UNKNOWN.
+Cover letter: Paragraph1 hook, Paragraph2 2-3 achievements matching JD, Paragraph3 company why + CTA, sign name, <220 words, no generic phrases.
+"""
 
 
 # ── Agent class ───────────────────────────────────────────────────────────────

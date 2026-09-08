@@ -783,6 +783,7 @@ class DBClient:
             self._put_conn(conn)
 
     def get_recent_run_logs(self, limit: int = 20, conn=None) -> list[dict]:
+        # Authoritative runtime is run_log (singular) — run_logs (plural) is legacy SQLite per db/schema.sql:53
         cached = self._disk_get("recent_run_logs", ttl=300) if limit <= 50 else None
         if cached is not None:
             return cached[:limit]

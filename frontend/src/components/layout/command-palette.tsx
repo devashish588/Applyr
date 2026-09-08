@@ -120,16 +120,16 @@ export function CommandPalette() {
                     onClick={() => onSelect(cmd)}
                     onMouseDown={(e) => { e.preventDefault(); onSelect(cmd) }}
                     className={cn(
-                      "flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-[13px] transition",
-                      i === activeIdx ? "bg-accent-bg text-text-primary" : "text-text-secondary"
+                      "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-xs transition",
+                      i === activeIdx ? "bg-white/[0.04] text-text-primary font-medium" : "text-text-secondary hover:bg-white/[0.02]"
                     )}
                   >
-                    <span className={cn("shrink-0", i === activeIdx ? "text-accent-sub" : "text-text-muted")}>
+                    <span className={cn("shrink-0", i === activeIdx ? "text-accent" : "text-text-muted")}>
                       {cmd.icon ? icons[cmd.icon] : null}
                     </span>
                     <span className="flex-1">{cmd.label}</span>
                     {i === activeIdx ? (
-                      <CornerDownLeft className="h-3.5 w-3.5 opacity-60" />
+                      <CornerDownLeft className="h-3.5 w-3.5 text-accent opacity-80" />
                     ) : (
                       <ArrowRight className="h-3 w-3 opacity-0" />
                     )}

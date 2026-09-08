@@ -24,32 +24,17 @@ from utils.llm_client import get_llm
 
 logger = logging.getLogger(__name__)
 
-TAILOR_RESUME_PROMPT = """You are an expert resume writer and ATS optimization specialist.
+TAILOR_RESUME_PROMPT = """Tailor resume to job. Return formatted text only:
+Name, Contact, Summary, Experience (tailored bullets), Skills, Education.
+Rules: Reorder relevant bullets first, add ATS keywords naturally, quantify only with verified evidence, concise, no greeting/filler, no "Here is...".
+"""
 
-Given a master resume and a job description, rewrite the resume to maximize fit:
-1. Reorder bullet points to put most relevant first
-2. Add ATS keywords from the job description naturally
-3. Quantify achievements where possible
-4. Keep it concise and impactful
-
-Return the tailored resume as clean, formatted text (not JSON).
-Include: Name, Contact, Summary, Experience (with tailored bullets), Skills, Education."""
-
-COVER_LETTER_PROMPT = """You are a career coach who writes compelling cover letters.
-
-Write a 250-300 word cover letter with:
-1. Opening paragraph: Hook mentioning the specific role and company
-2. Middle paragraph: 2-3 specific achievements that match requirements
-3. Closing paragraph: Call to action and enthusiasm
-
-Rules:
-- Reference the company by name
-- Reference the specific job title
-- Connect candidate experience to job requirements
-- Sound authentic, not generic
-- No clichés or generic phrases
-
-Return ONLY the cover letter text (no JSON, no markdown fences)."""
+COVER_LETTER_PROMPT = """Write cover letter. Return text only, no JSON/markdown:
+Dear Hiring Manager,
+...
+Sincerely, [Name]
+Rules: 250-300 words, mention company+role, 2-3 achievements matching requirements, authentic, no clichés, no greeting/filler like "Here is...".
+"""
 
 
 class DocWriterAgent:

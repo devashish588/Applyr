@@ -24,25 +24,45 @@ def _safe_conn():
     url = _resolve_database_url()
     return psycopg2.connect(url)
 
-def _detect_unsupported_claims(text: str, unsupported_skills: List[str]) -> List[str]:
-    """Return list of unsupported skills that appear in text as factual claims."""
-    if not text or not unsupported_skills:
-        return []
-    lower = text.lower()
+def _detect_unsupported_claims(text: str, unsupported_skills: List[str], resume_text: str = "") -> List[str]:
+    """Return list of unsupported claims (skills + hallucinated metrics) in text."""
     flagged = []
-    for skill in unsupported_skills:
-        if not skill:
-            continue
-        s_low = skill.lower().strip()
-        # Simple claim detection: skill appears near "expert", "experience", "years", "proficient" or alone as bullet
-        # For now, flag if skill appears at all (conservative) — deterministic proposal never inserts unsupported, so this catches LLM hallucination
-        if s_low in lower:
-            flagged.append(skill)
+    lower = text.lower() if text else ""
+    resume_lower = (resume_text or "").lower()
+    # Skills
+    if text and unsupported_skills:
+        for skill in unsupported_skills:
+            if not skill:
+                continue
+            s_low = skill.lower().strip()
+            if s_low and s_low in lower:
+                flagged.append(skill)
+    # Hallucinated metrics: numbers that imply scale/accuracy not in resume
+    # e.g., "1M users", "500,000 users", "99.9% accuracy", "37% improvement"
+    if text:
+        import re
+        # Find metric patterns: e.g., "1M users", "500K", "99.9%", "37%"
+        metric_patterns = [
+            r"\b\d+(?:\.\d+)?\s*%",  # 99.9% , 37%
+            r"\b\d+(?:,\d{3})*(?:\.\d+)?\s*[kKmM]\s*users\b",  # 1M users, 500K users
+            r"\b\d+(?:,\d{3})+\s*users\b",  # 500,000 users
+        ]
+        for pat in metric_patterns:
+            for m in re.finditer(pat, text, flags=re.IGNORECASE):
+                metric = m.group(0).strip()
+                # If metric not in resume, flag as hallucinated
+                if metric.lower() not in resume_lower:
+                    # Avoid flagging if resume already contains same metric (supported)
+                    # e.g., resume has "30%" and LLM also has "30%" → not hallucinated
+                    flagged.append(f"hallucinated_metric:{metric}")
+                    break  # one flag is enough to trigger REQUIRES_REVIEW
+            if flagged and any("hallucinated_metric" in f for f in flagged):
+                break
     return flagged
 
 class StudioService:
-    def _detect_unsupported_claims(self, text: str, unsupported: List[str]) -> List[str]:
-        return _detect_unsupported_claims(text, unsupported)
+    def _detect_unsupported_claims(self, text: str, unsupported: List[str], resume_text: str = "") -> List[str]:
+        return _detect_unsupported_claims(text, unsupported, resume_text)
     def build(self, job_id: int) -> Dict[str, Any]:
         from core.services.candidate_intelligence_service import get_candidate_intelligence_service
         from core.services.job_intelligence_service import get_job_intelligence_service
@@ -298,9 +318,8 @@ class StudioService:
                         # LLM tailoring attempt — prompt constrained to not hallucinate
                         llm_text = agent.generate_tailored_resume(job.get("jd_text","") or "", {"personal": {}, "skills": {}}, master_resume_path="")
                         if llm_text and llm_text.strip():
-                            # Validate LLM output for unsupported claims before accepting
                             unsupported = [g["skill"] for g in skill_gaps if g["gap_type"]=="UNSUPPORTED"]
-                            flagged = self._detect_unsupported_claims(llm_text, unsupported)
+                            flagged = self._detect_unsupported_claims(llm_text, unsupported, resume_source_text)
                             if flagged:
                                 unsupported_claims_detected = flagged
                                 tailored_status = "REQUIRES_REVIEW"
@@ -311,9 +330,8 @@ class StudioService:
                                 tailored_status = "READY"
                     except Exception as e:
                         warnings.append(f"LLM tailoring fallback: {e}")
-                # Hallucination safety: check deterministic proposal too (defensive)
                 unsupported = [g["skill"] for g in skill_gaps if g["gap_type"]=="UNSUPPORTED"]
-                flagged_det = self._detect_unsupported_claims(tailored_text, unsupported)
+                flagged_det = self._detect_unsupported_claims(tailored_text, unsupported, resume_source_text)
                 if flagged_det:
                     unsupported_claims_detected = list(set(unsupported_claims_detected + flagged_det))
                     if tailored_status == "READY":
