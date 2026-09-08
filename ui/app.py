@@ -898,10 +898,11 @@ def api_job_sources_create():
     name = (data.get("name") or "").strip() or None
     enabled = bool(data.get("enabled", True))
     source_type = data.get("source_type")
+    source_role = data.get("source_role")
     try:
         from core.services.job_source_service import get_job_source_service
         svc = get_job_source_service()
-        js = svc.upsert(url=url, name=name, enabled=enabled, source_type=source_type)
+        js = svc.upsert(url=url, name=name, enabled=enabled, source_type=source_type, source_role=source_role)
         return jsonify({"success": True, "source": js.to_dict()})
     except ValueError as ve:
         return jsonify({"success": False, "error": str(ve)}), 400
@@ -915,7 +916,7 @@ def api_job_sources_update(source_id):
     try:
         from core.services.job_source_service import get_job_source_service
         svc = get_job_source_service()
-        js = svc.update(source_id, **{k: v for k, v in data.items() if k in ("name","url","enabled","source_type","adapter")})
+        js = svc.update(source_id, **{k: v for k, v in data.items() if k in ("name","url","enabled","source_type","adapter","source_role","primary_mode","direct_fetch_allowed","search_discovery_allowed","priority")})
         if not js:
             return jsonify({"success": False, "error": "Source not found"}), 404
         return jsonify({"success": True, "source": js.to_dict()})
@@ -938,15 +939,14 @@ def api_job_sources_delete(source_id):
 
 @app.route("/api/job-sources/<source_id>/test", methods=["POST"])
 def api_job_sources_test(source_id):
-    """Test a single source without inserting jobs (dry-run). Returns common contract."""
+    """Test a single source without inserting jobs (dry-run). Tests PRIMARY allowed mode first (010)."""
     try:
         from core.services.job_source_service import get_job_source_service
-        from core.services.job_source_adapters import dispatch
+        from core.services.job_source_adapters import dispatch_with_policy
         svc = get_job_source_service()
         src = svc.get(source_id)
         if not src:
             return jsonify({"success": False, "error": "Source not found"}), 404
-        # Load profile/resume for SearchAdapter context without DB writes
         profile = {}
         resume_data = None
         try:
@@ -958,13 +958,19 @@ def api_job_sources_test(source_id):
         except Exception:
             pass
         t0 = time.time()
-        jobs, cat, err = dispatch(src, profile, resume_data)
+        jobs, cat, err, actual_mode, fallback_used, primary_failure = dispatch_with_policy(src, profile, resume_data)
         duration = int((time.time() - t0) * 1000)
         status = "success" if cat in ("SUCCESS", "NO_RESULTS") else "failed"
+        # Truthful terminology mapping
+        mode_label = {"SEARCH":"Search discovery","HTML":"Direct source","RSS":"RSS feed","JSON":"JSON/API","ATS":"ATS/API"}.get(actual_mode, actual_mode)
         result = {
             "source_id": src.id,
+            "source_role": getattr(src, "source_role", "UNKNOWN"),
+            "primary_mode": getattr(src, "primary_mode", actual_mode),
+            "mode": actual_mode,
+            "mode_label": mode_label,
+            "adapter": src.adapter if not fallback_used else __import__("core.services.job_source_adapters", fromlist=["_mode_to_adapter"])._mode_to_adapter(actual_mode),
             "status": status,
-            "adapter": src.adapter,
             "jobs_found": len(jobs),
             "jobs_normalized": len(jobs),
             "jobs_new": 0,
@@ -973,8 +979,11 @@ def api_job_sources_test(source_id):
             "error": err,
             "duration_ms": duration,
             "sample": jobs[:3],
+            "fallback_used": fallback_used,
+            "primary_failure": primary_failure,
+            "direct_fetch_allowed": bool(getattr(src, "direct_fetch_allowed", True)),
+            "search_discovery_allowed": bool(getattr(src, "search_discovery_allowed", True)),
         }
-        # Do NOT update last_run health on test (or mark as test)
         return jsonify({"success": True, "result": result})
     except Exception as e:
         logger.error("Test job source failed: %s", e, exc_info=True)
@@ -1050,6 +1059,12 @@ def api_job_sources_health():
             health.append({
                 "id": s.id, "name": s.name, "host": s.host, "url": s.url,
                 "enabled": s.enabled, "adapter": s.adapter, "source_type": s.source_type,
+                "source_role": getattr(s, "source_role", "UNKNOWN"),
+                "primary_mode": getattr(s, "primary_mode", "AUTO"),
+                "direct_fetch_allowed": bool(getattr(s, "direct_fetch_allowed", True)),
+                "search_discovery_allowed": bool(getattr(s, "search_discovery_allowed", True)),
+                "observed_mode": getattr(s, "observed_mode", None),
+                "observed_success_count": int(getattr(s, "observed_success_count", 0) or 0),
                 "is_builtin": d.get("is_builtin", s.id.startswith("builtin-")),
                 "priority": getattr(s, "priority", 100) if hasattr(s, "priority") else 100,
                 "last_run_at": s.last_run_at, "last_success_at": s.last_success_at,

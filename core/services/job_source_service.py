@@ -49,6 +49,70 @@ VALID_FAILURE_CATEGORIES = {
     "RATE_LIMITED", "UNSUPPORTED", "UNSUPPORTED_SOURCE", "NETWORK", "NETWORK_ERROR", "UNKNOWN",
 }
 
+# Source policy vocabulary (single enum)
+SOURCE_ROLES = {"EMPLOYER","JOB_BOARD","AGGREGATOR","ATS","FEED","SEARCH","CUSTOM","UNKNOWN"}
+SOURCE_MODES = {"HTML","RSS","JSON","ATS","SEARCH","PLAYWRIGHT","UNSUPPORTED","AUTO"}
+
+# Minimal built-in host → policy (source_role, primary_mode, direct_fetch_allowed, search_discovery_allowed)
+# Wellfound and boards → JOB_BOARD SEARCH direct false (must not direct crawl)
+# Aggregators → AGGREGATOR SEARCH direct false
+# ATS → ATS ATS direct true
+# Company careers (custom) → EMPLOYER HTML direct true (inferred when not in map)
+_BUILTIN_POLICY = {
+    "wellfound.com": ("JOB_BOARD","SEARCH", False, True),
+    "linkedin.com": ("JOB_BOARD","SEARCH", False, True),
+    "indeed.com": ("JOB_BOARD","SEARCH", False, True),
+    "glassdoor.com": ("JOB_BOARD","SEARCH", False, True),
+    "dice.com": ("JOB_BOARD","SEARCH", False, True),
+    "naukri.com": ("JOB_BOARD","SEARCH", False, True),
+    "ycombinator.com": ("JOB_BOARD","SEARCH", False, True),
+    "builtin.com": ("JOB_BOARD","SEARCH", False, True),
+    "arc.dev": ("JOB_BOARD","SEARCH", False, True),
+    "weworkremotely.com": ("AGGREGATOR","SEARCH", False, True),
+    "remoteok.com": ("AGGREGATOR","SEARCH", False, True),
+    "remotive.com": ("FEED","RSS", True, True),  # FEED but also supports RSS/JSON
+    "greenhouse.io": ("ATS","ATS", True, True),
+    "boards.greenhouse.io": ("ATS","ATS", True, True),
+    "lever.co": ("ATS","ATS", True, True),
+    "jobs.lever.co": ("ATS","ATS", True, True),
+    "ashbyhq.com": ("ATS","ATS", True, True),
+    "myworkdayjobs.com": ("ATS","ATS", True, True),
+    "workable.com": ("ATS","ATS", True, True),
+    "bamboohr.com": ("ATS","ATS", True, True),
+}
+
+def _policy_for_host(host: str, source_type: str, explicit_role: str | None = None) -> tuple[str, str, bool, bool]:
+    h = (host or "").lower()
+    # Explicit role overrides
+    if explicit_role and explicit_role.upper() in SOURCE_ROLES:
+        r = explicit_role.upper()
+        # Map role to sensible defaults if not in built-in map
+        if r == "EMPLOYER":
+            return ("EMPLOYER","HTML", True, True)
+        if r == "JOB_BOARD":
+            return ("JOB_BOARD","SEARCH", False, True)
+        if r == "ATS":
+            return ("ATS","ATS", True, True)
+        if r == "FEED":
+            # FEED could be RSS or JSON, keep original source_type if rss/json else RSS
+            mode = "RSS" if source_type == "rss" else ("JSON" if source_type=="json" else "RSS")
+            return ("FEED", mode, True, True)
+        return (r, "AUTO", True, True)
+    for k, v in _BUILTIN_POLICY.items():
+        if h == k or h.endswith("."+k) or k in h:
+            return v
+    # Custom / unknown → infer from source_type
+    if source_type == "ats":
+        return ("ATS","ATS", True, True)
+    if source_type == "rss":
+        return ("FEED","RSS", True, True)
+    if source_type == "json":
+        return ("FEED","JSON", True, True)
+    if source_type == "search":
+        return ("JOB_BOARD","SEARCH", False, True)
+    # Default for company careers and custom
+    return ("EMPLOYER","HTML", True, True) if source_type=="html" else ("CUSTOM","AUTO", True, True)
+
 def _now() -> str:
     return datetime.now().isoformat()
 
@@ -113,20 +177,33 @@ class JobSource:
     last_duration_ms: int = 0
     failure_category: Optional[str] = None
     last_error: Optional[str] = None
-    # 33.11 priority (future) + derived contract fields
     priority: int = 100
-    is_builtin: Optional[bool] = None  # computed if not stored, see to_dict
-    last_failure_category: Optional[str] = None  # alias
+    is_builtin: Optional[bool] = None
+    last_failure_category: Optional[str] = None
+    # Source policy (010)
+    source_role: str = "UNKNOWN"
+    primary_mode: str = "AUTO"
+    direct_fetch_allowed: bool = True
+    search_discovery_allowed: bool = True
+    observed_mode: Optional[str] = None
+    observed_success_count: int = 0
 
     def to_dict(self) -> dict:
         d = asdict(self)
-        # is_builtin: prefer stored boolean if present, else derived from id
-        stored = self.is_builtin
-        if isinstance(stored, bool):
-            d["is_builtin"] = stored
+        # is_builtin: authoritative is id prefix for built-ins, but allow DB override for custom
+        if isinstance(self.is_builtin, bool):
+            # If DB has explicit true, honor it; if false but id is builtin, correct to true
+            if self.id.startswith("builtin-"):
+                d["is_builtin"] = True
+            else:
+                d["is_builtin"] = self.is_builtin
         else:
             d["is_builtin"] = bool(self.id.startswith("builtin-"))
         d["last_failure_category"] = self.failure_category if self.last_failure_at else None
+        if d.get("source_role") not in SOURCE_ROLES:
+            d["source_role"] = "UNKNOWN"
+        if d.get("primary_mode") not in SOURCE_MODES:
+            d["primary_mode"] = "AUTO"
         return d
 
 class JobSourceService:
@@ -189,9 +266,25 @@ class JobSourceService:
                         out = {}
                         for r in rows:
                             d = dict(r)
-                            # normalize booleans
                             d["enabled"] = bool(d.get("enabled"))
-                            out[d["id"]] = JobSource(**{k: d.get(k) for k in JobSource.__dataclass_fields__})
+                            # Normalize policy defaults if columns missing (pre-010)
+                            if d.get("source_role") is None:
+                                role, mode, direct, search = _policy_for_host(d.get("host",""), d.get("source_type",""))
+                                d.setdefault("source_role", role)
+                                d.setdefault("primary_mode", mode)
+                                d.setdefault("direct_fetch_allowed", direct)
+                                d.setdefault("search_discovery_allowed", search)
+                            else:
+                                # ensure booleans
+                                d["direct_fetch_allowed"] = bool(d.get("direct_fetch_allowed")) if d.get("direct_fetch_allowed") is not None else True
+                                d["search_discovery_allowed"] = bool(d.get("search_discovery_allowed")) if d.get("search_discovery_allowed") is not None else True
+                            # handle missing priority/is_builtin
+                            if d.get("priority") is None:
+                                d["priority"] = 100
+                            # Build JobSource, only include known fields
+                            filtered = {k: d.get(k) for k in JobSource.__dataclass_fields__ if k in d}
+                            # Fill missing with defaults via dataclass defaults
+                            out[d["id"]] = JobSource(**filtered)
                         self._mem = out
                         self._seeded = True
                         return out
@@ -213,10 +306,12 @@ class JobSourceService:
             if sid in self._mem:
                 continue
             st, ad = _classify_url(url)
+            role, mode, direct, search = _policy_for_host(host, st)
             self._mem[sid] = JobSource(
                 id=sid, name=host.title(), url=url, host=host,
                 enabled=True, source_type=st, adapter=ad,
                 created_at=now, updated_at=now,
+                source_role=role, primary_mode=mode, direct_fetch_allowed=direct, search_discovery_allowed=search,
             )
         self._seeded = True
         # persist seeds if DB available
@@ -252,7 +347,7 @@ class JobSourceService:
         return self._load_all().get(source_id)
 
     def upsert(self, url: str, name: str | None = None, enabled: bool = True,
-               source_type: str | None = None, sid: str | None = None) -> JobSource:
+               source_type: str | None = None, sid: str | None = None, source_role: str | None = None) -> JobSource:
         url = url.strip()
         if not url:
             raise ValueError("url required")
@@ -260,6 +355,8 @@ class JobSourceService:
             url = f"https://{url}"
         host = _host_from_url(url)
         st, ad = _classify_url(url, source_type)
+        role, mode, direct, search = _policy_for_host(host, st, explicit_role=source_role)
+        # Allow explicit overrides for legacy callers that pass source_type as role
         now = _now()
         # dedup by host+url
         existing = None
@@ -275,6 +372,10 @@ class JobSourceService:
             existing.url = url
             existing.updated_at = now
             existing.host = host
+            existing.source_role = role
+            existing.primary_mode = mode
+            existing.direct_fetch_allowed = direct
+            existing.search_discovery_allowed = search
             self._persist(existing)
             return existing
         nid = sid or _id_from_url(url)
@@ -286,7 +387,8 @@ class JobSourceService:
             i += 1
         js = JobSource(id=nid, name=name or host.title(), url=url, host=host,
                        enabled=enabled, source_type=st, adapter=ad,
-                       created_at=now, updated_at=now)
+                       created_at=now, updated_at=now,
+                       source_role=role, primary_mode=mode, direct_fetch_allowed=direct, search_discovery_allowed=search)
         self._mem[nid] = js
         self._persist(js)
         return js
@@ -295,16 +397,26 @@ class JobSourceService:
         s = self.get(source_id)
         if not s:
             return None
-        for k in ("name", "url", "enabled", "source_type", "adapter", "priority"):
+        for k in ("name", "url", "enabled", "source_type", "adapter", "priority", "source_role", "primary_mode", "direct_fetch_allowed", "search_discovery_allowed"):
             if k in patch and patch[k] is not None:
                 setattr(s, k, patch[k])
         if "url" in patch and patch["url"]:
             s.host = _host_from_url(patch["url"])
-            # reclassify if type not explicitly set
             if "source_type" not in patch:
                 st, ad = _classify_url(s.url)
                 s.source_type = st
                 s.adapter = ad
+            # Recompute policy if role/mode not explicitly patched
+            if "source_role" not in patch or "primary_mode" not in patch:
+                role, mode, direct, search = _policy_for_host(s.host, s.source_type, explicit_role=patch.get("source_role") or s.source_role)
+                if "source_role" not in patch:
+                    s.source_role = role
+                if "primary_mode" not in patch:
+                    s.primary_mode = mode
+                if "direct_fetch_allowed" not in patch:
+                    s.direct_fetch_allowed = direct
+                if "search_discovery_allowed" not in patch:
+                    s.search_discovery_allowed = search
         s.updated_at = _now()
         self._persist(s)
         return s
@@ -335,33 +447,59 @@ class JobSourceService:
         db = self._db()
         if not db or not self._ensure_table():
             return
-        try:
-            conn = db._conn()
+        # Try with policy columns (010), fallback to legacy if columns missing (pre-migration)
+        for attempt in (0,1):
             try:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        INSERT INTO job_sources (id,name,url,host,enabled,source_type,adapter,created_at,updated_at,
-                                                 last_run_at,last_success_at,last_failure_at,last_job_count,last_duration_ms,failure_category,last_error)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                        ON CONFLICT (id) DO UPDATE SET
-                            name=EXCLUDED.name, url=EXCLUDED.url, host=EXCLUDED.host, enabled=EXCLUDED.enabled,
-                            source_type=EXCLUDED.source_type, adapter=EXCLUDED.adapter, updated_at=EXCLUDED.updated_at,
-                            last_run_at=EXCLUDED.last_run_at, last_success_at=EXCLUDED.last_success_at,
-                            last_failure_at=EXCLUDED.last_failure_at, last_job_count=EXCLUDED.last_job_count,
-                            last_duration_ms=EXCLUDED.last_duration_ms, failure_category=EXCLUDED.failure_category,
-                            last_error=EXCLUDED.last_error
-                    """, (s.id, s.name, s.url, s.host, s.enabled, s.source_type, s.adapter, s.created_at, s.updated_at,
-                           s.last_run_at, s.last_success_at, s.last_failure_at, s.last_job_count, s.last_duration_ms,
-                           s.failure_category, s.last_error))
-                conn.commit()
-            finally:
-                db._put_conn(conn)
-        except Exception as e:
-            logger.warning("[job_source] persist failed: %s", e)
-            try:
-                conn.rollback()
-            except Exception:
-                pass
+                conn = db._conn()
+                try:
+                    with conn.cursor() as cur:
+                        if attempt == 0:
+                            cur.execute("""
+                                INSERT INTO job_sources (id,name,url,host,enabled,source_type,adapter,created_at,updated_at,
+                                                         last_run_at,last_success_at,last_failure_at,last_job_count,last_duration_ms,failure_category,last_error,
+                                                         source_role,primary_mode,direct_fetch_allowed,search_discovery_allowed,priority,is_builtin,observed_mode,observed_success_count)
+                                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                ON CONFLICT (id) DO UPDATE SET
+                                    name=EXCLUDED.name, url=EXCLUDED.url, host=EXCLUDED.host, enabled=EXCLUDED.enabled,
+                                    source_type=EXCLUDED.source_type, adapter=EXCLUDED.adapter, updated_at=EXCLUDED.updated_at,
+                                    last_run_at=EXCLUDED.last_run_at, last_success_at=EXCLUDED.last_success_at,
+                                    last_failure_at=EXCLUDED.last_failure_at, last_job_count=EXCLUDED.last_job_count,
+                                    last_duration_ms=EXCLUDED.last_duration_ms, failure_category=EXCLUDED.failure_category,
+                                    last_error=EXCLUDED.last_error, source_role=EXCLUDED.source_role, primary_mode=EXCLUDED.primary_mode,
+                                    direct_fetch_allowed=EXCLUDED.direct_fetch_allowed, search_discovery_allowed=EXCLUDED.search_discovery_allowed,
+                                    priority=EXCLUDED.priority, is_builtin=EXCLUDED.is_builtin, observed_mode=EXCLUDED.observed_mode, observed_success_count=EXCLUDED.observed_success_count
+                            """, (s.id, s.name, s.url, s.host, s.enabled, s.source_type, s.adapter, s.created_at, s.updated_at,
+                                   s.last_run_at, s.last_success_at, s.last_failure_at, s.last_job_count, s.last_duration_ms,
+                                   s.failure_category, s.last_error, s.source_role, s.primary_mode, s.direct_fetch_allowed, s.search_discovery_allowed, s.priority, s.is_builtin, s.observed_mode, s.observed_success_count))
+                        else:
+                            cur.execute("""
+                                INSERT INTO job_sources (id,name,url,host,enabled,source_type,adapter,created_at,updated_at,
+                                                         last_run_at,last_success_at,last_failure_at,last_job_count,last_duration_ms,failure_category,last_error)
+                                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                ON CONFLICT (id) DO UPDATE SET
+                                    name=EXCLUDED.name, url=EXCLUDED.url, host=EXCLUDED.host, enabled=EXCLUDED.enabled,
+                                    source_type=EXCLUDED.source_type, adapter=EXCLUDED.adapter, updated_at=EXCLUDED.updated_at,
+                                    last_run_at=EXCLUDED.last_run_at, last_success_at=EXCLUDED.last_success_at,
+                                    last_failure_at=EXCLUDED.last_failure_at, last_job_count=EXCLUDED.last_job_count,
+                                    last_duration_ms=EXCLUDED.last_duration_ms, failure_category=EXCLUDED.failure_category,
+                                    last_error=EXCLUDED.last_error
+                            """, (s.id, s.name, s.url, s.host, s.enabled, s.source_type, s.adapter, s.created_at, s.updated_at,
+                                   s.last_run_at, s.last_success_at, s.last_failure_at, s.last_job_count, s.last_duration_ms,
+                                   s.failure_category, s.last_error))
+                    conn.commit()
+                finally:
+                    db._put_conn(conn)
+                break
+            except Exception as e:
+                try:
+                    conn.rollback()
+                    db._put_conn(conn)
+                except Exception:
+                    pass
+                if attempt == 0 and ("column" in str(e).lower() or "does not exist" in str(e)):
+                    continue
+                logger.warning("[job_source] persist failed: %s", e)
+                break
 
     def record_run(self, source_id: str, result: dict):
         """Update last_* fields from per-source result contract."""

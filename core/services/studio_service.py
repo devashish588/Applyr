@@ -474,10 +474,17 @@ class StudioService:
                 r = sorted(cand, key=lambda x: x.get("confidence",0), reverse=True)[0]
                 recruiter_details = r
                 recruiter_status = "FOUND"
-                # Outreach preview via deterministic template
+                # Outreach preview via deterministic template — build_cold_email returns dict {subject, body}
                 try:
                     from email_module.email_templates import build_cold_email
-                    outreach_text = build_cold_email(job, profile if 'profile' in locals() else {}, {})
+                    _out = build_cold_email(job, profile if 'profile' in locals() else {}, {})
+                    # Normalize to string preview (body) for Studio response; keep dict shape for internal but expose text
+                    if isinstance(_out, dict):
+                        outreach_text = _out.get("body") or _out.get("subject") or ""
+                    elif isinstance(_out, str):
+                        outreach_text = _out
+                    else:
+                        outreach_text = str(_out) if _out is not None else ""
                     outreach_status = "READY"
                 except Exception as e:
                     outreach_status = "NOT_AVAILABLE"

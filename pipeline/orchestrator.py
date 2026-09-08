@@ -357,11 +357,11 @@ class Orchestrator:
             logger.info("[orchestrator] Manual trigger -- pasted JD text")
             return [self._text_to_job_dict(job_text)]
 
-        # Scheduled: multi-source independent discovery (reuses Quality→Dedup→Intelligence→Match→Priority)
-        logger.info("[orchestrator] Scheduled trigger -- independent per-source discovery")
+        # Scheduled: multi-source independent discovery (source-aware policy + truthful mode)
+        logger.info("[orchestrator] Scheduled trigger -- independent per-source discovery (policy-aware)")
         try:
             from core.services.job_source_service import get_job_source_service
-            from core.services.job_source_adapters import dispatch
+            from core.services.job_source_adapters import dispatch_with_policy
             from db.db_client import get_db as _get_db
             resume_data = None
             try:
@@ -388,55 +388,81 @@ class Orchestrator:
             run_id = self.run_id
             for src in sources:
                 t0 = time.time()
+                # Determine policy actual adapter for run log (fallback to source.adapter if policy not yet loaded)
+                _policy_adapter = getattr(src, "adapter", "SearchAdapter")
+                try:
+                    # Use primary_mode to choose adapter for logging
+                    _pm = getattr(src, "primary_mode", None)
+                    if _pm:
+                        from core.services.job_source_adapters import _mode_to_adapter
+                        _policy_adapter = _mode_to_adapter(_pm)
+                except Exception:
+                    pass
                 rid = None
                 try:
-                    rid = svc.start_source_run(run_id, src.id, src.adapter)
+                    rid = svc.start_source_run(run_id, src.id, _policy_adapter)
                 except Exception:
                     rid = None
                 try:
-                    jobs, cat, err = dispatch(src, self.profile, resume_data)
+                    jobs, cat, err, actual_mode, fallback_used, primary_failure = dispatch_with_policy(src, self.profile, resume_data)
                     duration = int((time.time() - t0) * 1000)
                     # Normalize cat
                     if cat not in ("SUCCESS", "NO_RESULTS", "TIMEOUT", "HTTP_ERROR", "BLOCKED",
                                    "ROBOTS_DISALLOWED", "AUTH_REQUIRED", "PARSER_ERROR",
-                                   "SCHEMA_CHANGED", "RATE_LIMITED", "UNSUPPORTED", "NETWORK", "UNKNOWN"):
+                                   "SCHEMA_CHANGED", "RATE_LIMITED", "UNSUPPORTED", "UNSUPPORTED_SOURCE", "NETWORK", "NETWORK_ERROR", "UNKNOWN"):
                         cat = "UNKNOWN" if err else ("SUCCESS" if jobs else "NO_RESULTS")
                     status = "success" if cat in ("SUCCESS", "NO_RESULTS") else "failed"
-                    # Never fabricate jobs; empty is NO_RESULTS
                     if not jobs and cat == "SUCCESS":
                         cat = "NO_RESULTS"
+                    # Map actual_mode to adapter truthfully
+                    from core.services.job_source_adapters import _mode_to_adapter as _m2a
+                    actual_adapter = _m2a(actual_mode)
                     res = {
                         "source_id": src.id,
                         "status": status,
-                        "adapter": src.adapter,
+                        "adapter": actual_adapter,
+                        "mode": actual_mode,
+                        "primary_mode": getattr(src, "primary_mode", actual_mode),
+                        "source_role": getattr(src, "source_role", "UNKNOWN"),
                         "jobs_found": len(jobs),
                         "jobs_normalized": len(jobs),
-                        "jobs_new": 0,  # filled after dedup
+                        "jobs_new": 0,
                         "jobs_duplicate": 0,
                         "failure_category": cat,
                         "error": err,
                         "duration_ms": duration,
+                        "fallback_used": fallback_used,
+                        "primary_failure": primary_failure,
                     }
-                    # Record health (Configured/Attempted/Succeeded/Failed) without masking
+                    # Record health + observed mode
                     try:
+                        # Update observed success tracking
+                        if cat == "SUCCESS" and jobs:
+                            try:
+                                src.observed_mode = actual_mode
+                                src.observed_success_count = int(getattr(src, "observed_success_count", 0) or 0) + 1
+                            except Exception:
+                                pass
                         svc.record_run(src.id, res)
                         svc.finish_source_run(rid, res)
                     except Exception:
                         pass
-                    self._emit("source_done", f"Source {src.host}: {len(jobs)} jobs ({cat})",
+                    self._emit("source_done", f"Source {src.host}: {len(jobs)} jobs ({cat}) via {actual_mode}{' (fallback)' if fallback_used else ''}",
                                agent="web_research", status="done" if status == "success" else "error",
-                               source_id=src.id, host=src.host, adapter=src.adapter,
+                               source_id=src.id, host=src.host, adapter=actual_adapter, mode=actual_mode, fallback_used=fallback_used,
                                jobs_found=len(jobs), failure_category=cat, duration_ms=duration)
-                    logger.info(f"[orchestrator] source {src.host} adapter={src.adapter} found={len(jobs)} cat={cat} ms={duration} err={err!r}")
+                    logger.info(f"[orchestrator] source {src.host} role={getattr(src,'source_role','?')} primary={getattr(src,'primary_mode','?')} actual={actual_mode} fallback={fallback_used} found={len(jobs)} cat={cat} ms={duration} err={err!r}")
                     per_source.append(res)
-                    # Tag jobs with truthful source attribution (33.1) before normalization
+                    # Tag jobs with truthful source attribution (host not primary, mode truthful)
                     for j in jobs:
                         j["_source_id"] = src.id
                         j["_source_name"] = src.name
                         j["_source_host"] = src.host
-                        j["_source_mode"] = src.source_type.upper()
-                        j["_source_adapter"] = src.adapter
+                        j["_source_mode"] = actual_mode
+                        j["_source_adapter"] = actual_adapter
                         j["_source_url"] = j.get("url")
+                        j["_fallback_used"] = fallback_used
+                        j["_primary_failure"] = primary_failure
                     # Only extend successes; failures contribute 0 jobs but are tracked
                     if jobs:
                         all_listings.extend(jobs)
@@ -446,9 +472,18 @@ class Orchestrator:
                     duration = int((time.time() - t0) * 1000)
                     from core.ai.errors import sanitize_exception_message
                     safe = sanitize_exception_message(str(e))
-                    res = {"source_id": src.id, "status": "failed", "adapter": src.adapter,
+                    # Use policy adapter for exception case as well
+                    try:
+                        _pm = getattr(src, "primary_mode", "AUTO")
+                        from core.services.job_source_adapters import _mode_to_adapter
+                        _actual_adapter = _mode_to_adapter(_pm) if _pm and _pm!="AUTO" else getattr(src, "adapter", "SearchAdapter")
+                        _actual_mode = _pm if _pm and _pm!="AUTO" else "SEARCH"
+                    except Exception:
+                        _actual_adapter = getattr(src, "adapter", "SearchAdapter")
+                        _actual_mode = "UNKNOWN"
+                    res = {"source_id": src.id, "status": "failed", "adapter": _actual_adapter, "mode": _actual_mode,
                            "jobs_found": 0, "jobs_normalized": 0, "jobs_new": 0, "jobs_duplicate": 0,
-                           "failure_category": "UNKNOWN", "error": safe, "duration_ms": duration}
+                           "failure_category": "UNKNOWN", "error": safe, "duration_ms": duration, "fallback_used": False}
                     try:
                         svc.record_run(src.id, res)
                         svc.finish_source_run(rid, res)
@@ -458,17 +493,18 @@ class Orchestrator:
                     self.results["errors"].append(f"{src.host}: {safe}")
                     logger.error(f"[orchestrator] source {src.host} failed: {safe}")
 
-            # Attach per-source telemetry to results for UI (Pipeline Status)
+            # Attach per-source telemetry to results for UI (Pipeline Status) — truthful, no hidden fallback
             self.results["sources"] = per_source
             self.results["sources_configured"] = len(sources)
             self.results["sources_attempted"] = len(per_source)
             self.results["sources_succeeded"] = sum(1 for r in per_source if r["status"] == "success" and r["failure_category"] == "SUCCESS")
             self.results["sources_failed"] = sum(1 for r in per_source if r["status"] == "failed" or r["failure_category"] not in ("SUCCESS", "NO_RESULTS"))
-            # Do NOT fallback built-in on configured failure — per-source results are final
-            # Persist summary for existing run_log consumers
-            self.results["fallback_used"] = False
+            # Explicit fallback: true if any source used fallback (primary HTML failed → SEARCH succeeded)
+            self.results["fallback_used"] = any(r.get("fallback_used") for r in per_source)
+            # Also expose per-source fallback details for UI diagnostics
+            self.results["fallback_details"] = [r for r in per_source if r.get("fallback_used")]
             logger.info(f"[orchestrator] Multi-source found {len(all_listings)} jobs across {len(sources)} sources "
-                        f"({self.results['sources_succeeded']} succeeded, {self.results['sources_failed']} failed)")
+                        f"({self.results['sources_succeeded']} succeeded, {self.results['sources_failed']} failed) fallback_used={self.results['fallback_used']}")
             return all_listings
         except Exception as e:
             from core.ai.errors import sanitize_exception_message, classify_error

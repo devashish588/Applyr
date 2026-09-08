@@ -223,15 +223,20 @@ export default function SettingsPage() {
               {(healthData?.sources || jobSourcesData?.sources || []).map((s:any) => {
                 const perf = s.performance || {}
                 const isBuilt = s.is_builtin ?? s.id?.startsWith("builtin-")
+                const role = s.source_role || "UNKNOWN"
+                const primary = s.primary_mode || s.source_type?.toUpperCase() || "AUTO"
+                const modeLabel = ({SEARCH:"Search discovery",HTML:"Direct source",RSS:"RSS feed",JSON:"JSON/API",ATS:"ATS/API"} as any)[primary] || primary
+                const directLabel = s.direct_fetch_allowed ? "Direct: Allowed" : "Direct: Disabled"
+                const searchLabel = s.search_discovery_allowed ? "Search: Allowed" : "Search: Disabled"
                 return (
                 <div key={s.id} className="flex items-center justify-between rounded-lg px-3 py-2 border border-border/40 bg-white/[0.01] gap-2">
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-xs font-medium text-text-primary">{s.name} <span className="text-text-faint font-normal">• {s.host}</span> {isBuilt ? <span className="ml-1 rounded bg-accent/10 px-1 py-0.5 text-[9px] text-accent">BUILT-IN</span> : <span className="ml-1 rounded bg-white/5 px-1 py-0.5 text-[9px] text-text-faint">CUSTOM</span>}</div>
+                    <div className="truncate text-xs font-medium text-text-primary">{s.name} <span className="text-text-faint font-normal">• {s.host}</span> {isBuilt ? <span className="ml-1 rounded bg-accent/10 px-1 py-0.5 text-[9px] text-accent">BUILT-IN</span> : <span className="ml-1 rounded bg-white/5 px-1 py-0.5 text-[9px] text-text-faint">CUSTOM</span>} <span className="ml-1 rounded bg-white/[0.03] px-1 py-0.5 text-[9px] text-text-faint">{role}</span></div>
                     <div className="truncate text-[11px] text-text-muted font-mono">{s.url}</div>
-                    <div className="text-[10px] text-text-faint">{s.adapter} • {s.source_type} • {s.enabled ? "enabled" : "disabled"} {s.failure_category ? `• ${s.failure_category}` : ""} {s.last_job_count ? `• ${s.last_job_count} jobs` : ""} {s.last_error ? `• ${s.last_error.slice(0,60)}` : ""} {perf.attempts ? `• ${perf.attempts} attempts ${perf.success_rate}%` : ""} {perf.avg_duration_ms ? `• ${perf.avg_duration_ms}ms avg` : ""} {s.parser_health ? `• ⚠ ${s.parser_health}` : ""}</div>
+                    <div className="text-[10px] text-text-faint">{modeLabel} • {role} • {s.enabled ? "✓ Enabled" : "disabled"} • {directLabel} • {searchLabel} {s.failure_category ? `• ${s.failure_category}` : ""} {s.last_job_count ? `• ${s.last_job_count} jobs` : ""} {s.last_error ? `• ${s.last_error.slice(0,60)}` : ""} {perf.attempts ? `• ${perf.attempts} attempts ${perf.success_rate}%` : ""} {perf.avg_duration_ms ? `• ${perf.avg_duration_ms}ms avg` : ""} {s.parser_health ? `• ⚠ ${s.parser_health}` : ""} {s.observed_mode ? `• Observed: ${s.observed_mode}` : ""}</div>
                     {testResults[s.id] && (
                       <div className={cn("mt-1 rounded px-2 py-1 text-[11px] border", testResults[s.id].status==="success" ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-red/10 border-red/20 text-red")}>
-                        Test: {testResults[s.id].failure_category} • {testResults[s.id].jobs_found} jobs • {testResults[s.id].duration_ms}ms {testResults[s.id].error ? `• ${testResults[s.id].error.slice(0,100)}` : ""} {testResults[s.id].sample?.length ? `• sample: ${testResults[s.id].sample[0]?.title?.slice(0,40)}` : ""}
+                        Test: {testResults[s.id].mode || testResults[s.id].adapter} {testResults[s.id].mode_label ? `(${testResults[s.id].mode_label})` : ""} • {testResults[s.id].failure_category} • {testResults[s.id].jobs_found} jobs • {testResults[s.id].duration_ms}ms {testResults[s.id].fallback_used ? "• fallback" : ""} {testResults[s.id].error ? `• ${testResults[s.id].error.slice(0,100)}` : ""} {testResults[s.id].sample?.length ? `• sample: ${testResults[s.id].sample[0]?.title?.slice(0,40)}` : ""}
                       </div>
                     )}
                   </div>

@@ -379,3 +379,113 @@ def dispatch(source, profile: dict | None = None, resume_data: dict | None = Non
     if st == "search":
         return search_adapter(source, profile or {}, resume_data)
     return generic_html_adapter(source)
+
+def _mode_to_adapter(mode: str) -> str:
+    m = (mode or "AUTO").upper()
+    if m == "HTML":
+        return "GenericHTMLAdapter"
+    if m == "RSS":
+        return "RSSAdapter"
+    if m == "JSON":
+        return "JSONAdapter"
+    if m == "ATS":
+        return "ATSAdapter"
+    if m == "SEARCH":
+        return "SearchAdapter"
+    if m == "PLAYWRIGHT":
+        return "PlaywrightAdapter"
+    return "GenericHTMLAdapter"
+
+def dispatch_with_policy(source, profile: dict | None = None, resume_data: dict | None = None) -> tuple[list[dict], str, str | None, str, bool, str | None]:
+    """
+    Source-aware dispatch (010): uses source_role/primary_mode/direct_fetch_allowed/search_discovery_allowed.
+    Returns (jobs, failure_category, error, actual_mode, fallback_used, primary_failure)
+    Truthful mode, no hidden fallback.
+    """
+    # Determine policy (fallback to derived if DB columns missing)
+    try:
+        role = getattr(source, "source_role", "UNKNOWN") or "UNKNOWN"
+        primary = getattr(source, "primary_mode", "AUTO") or "AUTO"
+        direct_allowed = bool(getattr(source, "direct_fetch_allowed", True))
+        search_allowed = bool(getattr(source, "search_discovery_allowed", True))
+    except Exception:
+        role, primary, direct_allowed, search_allowed = "UNKNOWN", "AUTO", True, True
+
+    # Normalize primary
+    primary = primary.upper() if isinstance(primary, str) else "AUTO"
+    if primary == "AUTO":
+        # Auto: infer from role/source_type
+        if role == "JOB_BOARD":
+            primary = "SEARCH"
+        elif role == "ATS":
+            primary = "ATS"
+        elif role == "FEED":
+            # FEED could be RSS or JSON, keep original adapter's mode
+            primary = (getattr(source, "source_type", "") or "RSS").upper()
+            if primary not in ("RSS","JSON"):
+                primary = "RSS"
+        elif role == "EMPLOYER":
+            primary = "HTML"
+        else:
+            # CUSTOM/UNKNOWN: try HTML if direct allowed, else SEARCH
+            primary = "HTML" if direct_allowed else "SEARCH"
+
+    # If direct disallowed and primary is direct mode, switch to SEARCH if allowed
+    if not direct_allowed and primary in ("HTML","PLAYWRIGHT"):
+        if search_allowed:
+            primary = "SEARCH"
+        else:
+            return [], "ROBOTS_DISALLOWED", "Direct fetch disabled by policy", primary, False, None
+
+    # If search disallowed and primary is SEARCH, and direct not allowed -> UNSUPPORTED
+    if not search_allowed and primary == "SEARCH" and not direct_allowed:
+        return [], "UNSUPPORTED", "Search discovery disabled by policy", primary, False, None
+
+    # Choose adapter for primary
+    primary_adapter = _mode_to_adapter(primary)
+    # Build a temporary source-like object with overridden adapter for dispatch
+    class _Tmp:
+        pass
+    tmp = _Tmp()
+    tmp.url = source.url
+    tmp.host = getattr(source, "host", "")
+    tmp.name = getattr(source, "name", "")
+    tmp.adapter = primary_adapter
+    tmp.source_type = primary.lower()
+    # Execute primary
+    jobs, cat, err = dispatch(tmp, profile, resume_data)  # type: ignore
+    actual_mode = primary
+    fallback_used = False
+    primary_failure = None
+
+    # Fallback only if primary failed and search fallback explicitly allowed and primary was direct/structured
+    if cat not in ("SUCCESS","NO_RESULTS") or not jobs:
+        # Consider fallback only for meaningful failures, not for NO_RESULTS (which is not failure)
+        should_fallback = False
+        if cat in ("PARSER_ERROR","HTTP_ERROR","BLOCKED","ROBOTS_DISALLOWED","TIMEOUT","NETWORK","UNKNOWN","UNSUPPORTED"):
+            should_fallback = True
+        # Also fallback if SUCCESS but 0 jobs and primary was HTML with search allowed? But NO_RESULTS is not failure, don't fallback
+        if should_fallback and search_allowed and primary in ("HTML","RSS","JSON","ATS","PLAYWRIGHT") and cat != "NO_RESULTS":
+            # Wellfound direct false already handled, so here direct was allowed but failed
+            # Try SEARCH as fallback
+            primary_failure = cat
+            fallback_mode = "SEARCH"
+            fallback_adapter = "SearchAdapter"
+            tmp2 = _Tmp()
+            tmp2.url = source.url
+            tmp2.host = getattr(source, "host", "")
+            tmp2.name = getattr(source, "name", "")
+            tmp2.adapter = fallback_adapter
+            tmp2.source_type = "search"
+            jobs2, cat2, err2 = dispatch(tmp2, profile, resume_data)  # type: ignore
+            # Record fallback truthfully
+            actual_mode = fallback_mode
+            fallback_used = True
+            # If fallback succeeded, return its result with fallback flag
+            if cat2 in ("SUCCESS","NO_RESULTS"):
+                return jobs2, cat2, err2, actual_mode, fallback_used, primary_failure
+            # If fallback also failed, return fallback result but preserve primary_failure
+            return jobs2, cat2, err2, actual_mode, fallback_used, primary_failure
+
+    # No fallback, return primary result
+    return jobs, cat, err, actual_mode, fallback_used, primary_failure

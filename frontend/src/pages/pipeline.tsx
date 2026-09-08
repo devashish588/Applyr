@@ -45,7 +45,7 @@ export default function PipelinePage() {
   const failureCat = results.failure_category || (results.errors?.some((er:string)=> er.includes("TAVILY_API_KEY") || er.includes("All AI providers")) ? "provider_unavailable" : null)
   const isProviderFailure = failureCat === "provider_unavailable" || results.status === "blocked"
   const isFailed = !!errorEvent || results.status === "failed" || (failureCat === "discovery_failed" && jobsFound===0)
-  const perSource = (results.sources || []) as Array<{source_id:string;status:string;adapter:string;jobs_found:number;failure_category:string;error?:string;duration_ms:number;host?:string}>
+  const perSource = (results.sources || []) as Array<{source_id:string;status:string;adapter:string;mode?:string;jobs_found:number;failure_category:string;error?:string;duration_ms:number;host?:string;fallback_used?:boolean}>
   const sourcesConfigured = results.sources_configured ?? perSource.length
   const sourcesAttempted = results.sources_attempted ?? perSource.length
   const sourcesSucceeded = results.sources_succeeded ?? perSource.filter(s=> s.status==="success" && s.failure_category==="SUCCESS").length
@@ -271,17 +271,19 @@ export default function PipelinePage() {
                     <div className="rounded-lg bg-red/10 border border-red/20 p-2"><div className="text-[10px] text-red">Failed</div><div className="text-sm font-mono font-semibold text-red">{sourcesFailed}</div></div>
                   </div>
                   <div className="max-h-[220px] overflow-y-auto space-y-1 pt-1">
-                    {perSource.map((s) => (
+                    {perSource.map((s) => {
+                      const modeLabel = ({SEARCH:"Search discovery",HTML:"Direct source",RSS:"RSS feed",JSON:"JSON/API",ATS:"ATS/API"} as any)[(s as any).mode] || s.adapter
+                      return (
                       <div key={s.source_id} className="flex items-center justify-between rounded-lg px-3 py-1.5 border border-border/30 bg-white/[0.01] text-[11px]">
                         <div className="min-w-0 pr-2">
-                          <div className="truncate font-medium text-text-primary">{(s as any).host || s.source_id}</div>
-                          <div className="truncate text-[10px] text-text-faint">{s.adapter} • {s.failure_category}{s.error ? ` • ${s.error.slice(0,80)}` : ""}</div>
+                          <div className="truncate font-medium text-text-primary">{(s as any).host || s.source_id} <span className="text-text-faint font-normal">• {modeLabel}</span>{(s as any).fallback_used ? <span className="ml-1 rounded bg-amber/10 px-1 py-0.5 text-[9px] text-amber">fallback</span> : null}</div>
+                          <div className="truncate text-[10px] text-text-faint">{(s as any).mode || s.adapter} • {s.failure_category}{s.error ? ` • ${s.error.slice(0,80)}` : ""}</div>
                         </div>
                         <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium border", s.status==="success" && s.failure_category==="SUCCESS" ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" : s.failure_category==="NO_RESULTS" ? "bg-amber/10 text-amber border-amber/20" : "bg-red/10 text-red border-red/20")}>
                           {s.jobs_found} jobs • {s.duration_ms}ms
                         </span>
                       </div>
-                    ))}
+                    )})}
                   </div>
                 </div>
               )}
