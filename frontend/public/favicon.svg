@@ -1,10 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <rect width="32" height="32" rx="8" fill="url(#g)"/>
-  <text x="50%" y="55%" text-anchor="middle" dominant-baseline="central" font-family="Inter, sans-serif" font-weight="800" font-size="16" fill="white">A</text>
-  <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#10b981"/>
-      <stop offset="1" stop-color="#0d9488"/>
-    </linearGradient>
-  </defs>
+  <!-- Dark squircle background (#11151A + #242A32 border) -->
+  <rect width="32" height="32" rx="8" fill="#11151A" stroke="#242A32" stroke-width="1"/>
+  
+  <!-- Minimal geometric chevron 'A' delta mark in electric blue #5B8CFF -->
+  <path d="M16 6.5L24.5 23H20.2L16 14.2L11.8 23H7.5L16 6.5Z" fill="#5B8CFF"/>
+  <rect x="12" y="18" width="8" height="2" rx="1" fill="#0B0D10"/>
+  
+  <!-- Status pulse dot in emerald #22C55E -->
+  <circle cx="23" cy="8" r="1.75" fill="#22C55E"/>
 </svg>
