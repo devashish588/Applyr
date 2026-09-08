@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react"
 import { Bot, Send, Sparkles, User, RefreshCw, Lightbulb, ChevronRight } from "lucide-react"
 import { Topbar } from "@/components/layout/topbar"
 import { Button } from "@/components/ui/button"
+import { FormattedText } from "@/components/ui/formatted-text"
 import { askCopilot } from "@/api/copilot"
 
 interface Message {
@@ -106,13 +107,13 @@ export default function CopilotPage() {
                 )}
                 <div className={`flex flex-col space-y-2 max-w-[80%] ${msg.role === "user" ? "items-end" : "items-start"}`}>
                   <div
-                    className={`rounded-xl px-4 py-3 text-xs leading-relaxed whitespace-pre-wrap ${
+                    className={`rounded-xl px-4 py-3 text-xs leading-relaxed ${
                       msg.role === "user"
-                        ? "bg-accent text-white rounded-tr-none font-medium"
+                        ? "bg-accent text-white rounded-tr-none font-medium whitespace-pre-wrap"
                         : "bg-white/[0.02] text-text-primary border border-border/60 rounded-tl-none"
                     }`}
                   >
-                    {msg.content}
+                    {msg.role === "user" ? msg.content : <FormattedText content={msg.content} />}
                   </div>
 
                   {/* Suggestion Pills */}

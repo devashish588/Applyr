@@ -5,6 +5,7 @@ import DashboardPage from "@/pages/dashboard"
 import DiscoverJobsPage from "@/pages/discover-jobs"
 import OpportunitiesPage from "@/pages/opportunities"
 import PipelinePage from "@/pages/pipeline"
+import PipelineRunPage from "@/pages/pipeline-run"
 import ResumeStudioPage from "@/pages/resume-studio"
 import NetworkingPage from "@/pages/networking"
 import InboxPage from "@/pages/inbox"
@@ -36,6 +37,7 @@ export default function App() {
             <Route path="/discover" element={<DiscoverJobsPage />} />
             <Route path="/opportunities" element={<OpportunitiesPage />} />
             <Route path="/pipeline" element={<PipelinePage />} />
+            <Route path="/pipeline/:runId" element={<PipelineRunPage />} />
             <Route path="/resume" element={<ResumeStudioPage />} />
             <Route path="/copilot" element={<CopilotPage />} />
             <Route path="/interview" element={<InterviewPage />} />

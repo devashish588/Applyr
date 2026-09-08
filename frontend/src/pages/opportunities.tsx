@@ -25,7 +25,8 @@ export default function OpportunitiesPage() {
   const { data: jobs, isLoading } = useJobs()
   const { data: prioritized } = usePrioritizedJobs(sortBy === "priority")
   const updateCompany = useUpdateJobCompany()
-  const displayJobs = sortBy === "priority" && prioritized ? prioritized.map((p: any) => ({ ...p.job, priority: p.priority, baseline_analysis: p.baseline_analysis })) : jobs
+  const filteredJobs = (jobs || []).filter((j: any) => j.source !== "test" && !j.is_duplicate && !j.is_duplicate_of)
+  const displayJobs = sortBy === "priority" && prioritized ? prioritized.map((p: any) => ({ ...p.job, priority: p.priority, baseline_analysis: p.baseline_analysis })) : filteredJobs
 
   // Local status override map (client-side kanban movement)
   const [statusOverrides, setStatusOverrides] = useState<Record<number, ColumnKey>>({})

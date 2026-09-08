@@ -77,12 +77,15 @@ export default function NetworkingPage() {
                       <span className="text-text-faint">—</span>
                     )}
                   </div>
-                  <span className="text-text-muted font-mono text-[11px]">{r.source || "web_search"}</span>
-                  <div className="flex items-center gap-1.5 font-mono text-[11px]">
-                    <Award className="h-3.5 w-3.5 text-text-faint" />
+                  <span className="text-text-muted font-mono text-[11px] flex items-center gap-1">
+                    {(r as any).source ? <span className="text-text-muted">{(r as any).source}</span> : <span className="text-amber flex items-center gap-1">⚠ Unverified</span>}
+                    {(r as any).source_url && <a href={(r as any).source_url} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline text-[10px]">Source</a>}
+                  </span>
+                  <div className="flex flex-col items-end gap-0.5 font-mono text-[11px]">
                     <span className={cn("font-semibold", r.confidence >= 70 ? "text-emerald-400" : r.confidence >= 40 ? "text-amber" : "text-text-muted")}>
                       {r.confidence || 0}%
                     </span>
+                    <span className="text-[9px] text-text-faint">{(r as any).verified_at ? `Verified ${new Date((r as any).verified_at).toLocaleDateString()}` : r.discovered_at ? `Seen ${new Date(r.discovered_at).toLocaleDateString()}` : "Source unavailable"}</span>
                   </div>
                 </motion.div>
               ))}

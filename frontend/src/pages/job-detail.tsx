@@ -9,7 +9,9 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { PriorityBadge } from "@/components/ui/priority-badge"
 import { MatchScore } from "@/components/ui/match-score"
 import { EvidenceList } from "@/components/ui/evidence-list"
+import { FormattedText } from "@/components/ui/formatted-text"
 import { getNextActionForJob } from "@/lib/next-action"
+import { sanitizeCompany } from "@/lib/utils"
 import { ArrowLeft, ExternalLink, Sparkles, Target, AlertTriangle, Building, MapPin } from "lucide-react"
 
 function derivePriority(score: number | null | undefined): string {
@@ -76,7 +78,7 @@ export default function JobDetailPage() {
                 <h1 className="text-lg font-semibold text-text-primary tracking-tight mb-1">{job.title}</h1>
                 <div className="flex flex-wrap items-center gap-2 text-xs text-text-muted">
                   <span className="font-medium text-text-secondary flex items-center gap-1">
-                    <Building className="h-3 w-3" /> {job.company}
+                    <Building className="h-3 w-3" /> {sanitizeCompany(job.company)}
                   </span>
                   {job.location && (
                     <>
@@ -137,9 +139,9 @@ export default function JobDetailPage() {
             <div className="text-[11px] font-medium uppercase tracking-wider text-text-muted">Compatibility Audit</div>
             <MatchScore score={match?.final_score ?? job.fit_score} label="Overall Fit" showBar={true} size="lg" />
             {match?.explanation && (
-              <p className="text-xs text-text-secondary leading-relaxed bg-white/[0.01] p-3 rounded-lg border border-border/40">
-                {match.explanation}
-              </p>
+              <div className="text-xs text-text-secondary leading-relaxed bg-white/[0.01] p-3 rounded-lg border border-border/40">
+                <FormattedText content={match.explanation} />
+              </div>
             )}
           </div>
 

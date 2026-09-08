@@ -5,6 +5,7 @@ No hallucinated candidate facts. Deterministic gaps, evidence-based diff.
 """
 from __future__ import annotations
 
+import concurrent.futures
 import difflib
 import json
 import os
@@ -93,7 +94,6 @@ class StudioService:
             cand_svc = get_candidate_intelligence_service()
             cand_profile = cand_svc.build_candidate_intelligence()
             candidate_dict = cand_profile.model_dump() if hasattr(cand_profile, "model_dump") else cand_profile.dict() if hasattr(cand_profile, "dict") else dict(cand_profile)
-            # Provenance
             cand_prov = str(getattr(cand_profile, "experience_provenance", "") or getattr(cand_profile, "provenance", "") or "DETERMINED")
             resume_status = "READY"
             resume_detail = "Candidate intelligence DETERMINED"
@@ -310,13 +310,21 @@ class StudioService:
                     # No supported gaps, keep source
                     tailored_text = resume_source_text + "\n\n<!-- No supported gaps to emphasize; resume already aligned where evidence exists -->"
                     tailored_status = "READY"
-                # Production LLM path (if not in test, try LLM and then validate)
+                # Production LLM path (if not in test, try LLM and then validate) — with 15s timeout to avoid 30s frontend timeout
                 if not os.getenv("PYTEST_CURRENT_TEST"):
                     try:
                         from agents.doc_writer_agent import DocWriterAgent
+                        import concurrent.futures
                         agent = DocWriterAgent()
-                        # LLM tailoring attempt — prompt constrained to not hallucinate
-                        llm_text = agent.generate_tailored_resume(job.get("jd_text","") or "", {"personal": {}, "skills": {}}, master_resume_path="")
+                        # LLM tailoring attempt with timeout
+                        llm_text = None
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                            future = executor.submit(agent.generate_tailored_resume, job.get("jd_text","") or "", {"personal": {}, "skills": {}}, master_resume_path="")
+                            try:
+                                llm_text = future.result(timeout=15)
+                            except concurrent.futures.TimeoutError:
+                                warnings.append("LLM tailoring timed out after 15s — using deterministic proposal")
+                                llm_text = None
                         if llm_text and llm_text.strip():
                             unsupported = [g["skill"] for g in skill_gaps if g["gap_type"]=="UNSUPPORTED"]
                             flagged = self._detect_unsupported_claims(llm_text, unsupported, resume_source_text)

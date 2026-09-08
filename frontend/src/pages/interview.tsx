@@ -7,6 +7,7 @@ import {
 import { Topbar } from "@/components/layout/topbar"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { FormattedText } from "@/components/ui/formatted-text"
 import { fetchInterviewPrep as fetchGenericPrep, evaluateInterviewAnswer } from "@/api/interview"
 import { fetchInterviewPrep as fetchAppPrep } from "@/api/interviews"
 import type { InterviewPrepKit, InterviewEvaluation } from "@/types/api"
@@ -243,9 +244,9 @@ export default function InterviewPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3 text-xs">
-                  <p className="text-text-secondary leading-relaxed bg-white/[0.02] p-3 rounded-lg border border-border/60 text-[11px]">
-                    {prepKit.company_insights}
-                  </p>
+                  <div className="text-text-secondary leading-relaxed bg-white/[0.02] p-3 rounded-lg border border-border/60 text-[11px]">
+                    <FormattedText content={prepKit.company_insights} />
+                  </div>
                   <div className="space-y-1.5 pt-1">
                     <span className="text-[11px] font-medium text-text-muted">Key Talking Points:</span>
                     {prepKit.talking_points.map((tp, idx) => (
@@ -311,7 +312,7 @@ export default function InterviewPage() {
 
                       <div className="text-xs leading-relaxed text-text-secondary bg-bg-secondary p-3 rounded-lg border border-border/60">
                         <span className="font-medium text-accent block mb-1">AI Evaluation Feedback:</span>
-                        {evaluation.feedback}
+                        <FormattedText content={evaluation.feedback} />
                       </div>
 
                       {evaluation.strengths && evaluation.strengths.length > 0 && (
@@ -343,7 +344,7 @@ export default function InterviewPage() {
                       {evaluation.sample_improved_answer && (
                         <div className="p-3 rounded-lg bg-accent/[0.04] border border-accent/20 text-xs text-text-primary space-y-1">
                           <span className="font-medium text-accent block">Model High-Scoring Answer:</span>
-                          <p className="italic text-text-secondary text-[11px] leading-relaxed">{evaluation.sample_improved_answer}</p>
+                          <FormattedText content={evaluation.sample_improved_answer} />
                         </div>
                       )}
                     </div>

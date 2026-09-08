@@ -379,7 +379,7 @@ def parse_jobs(state: ResearchState) -> ResearchState:
     # 3-step fallback when the LLM didn't return a usable company name:
     #   (a) domain from the job URL, minus known job-board domains,
     #   (b) "at <Company>" / "<Company> - Role" parsed from the title,
-    #   (c) else "Company not found" + needs_review=True for human follow-up.
+    #   (c) else "Company unknown" + needs_review=True for human follow-up.
     # Steps (a) and (b) are both handled inside _company_from_url(url, title).
     for job in job_listings:
         company = str(
@@ -390,7 +390,7 @@ def parse_jobs(state: ResearchState) -> ResearchState:
             company = str(_company_from_url(job.get("url", ""), job.get("title", "")) or "").strip()
 
         if not company or company.lower() in _BAD_COMPANY:
-            company = "Company not found"
+            company = "Company unknown"
             job["needs_review"] = True
 
         job["company"] = company

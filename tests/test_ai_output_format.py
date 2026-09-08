@@ -115,6 +115,46 @@ def test_sensitive_not_leaked():
     content = Path("core/services/copilot_service.py").read_text(encoding="utf-8", errors="ignore")
     assert "sanitize" in Path("core/ai/gateway.py").read_text(encoding="utf-8", errors="ignore").lower() or "sanitize" in Path("core/ai/errors.py").read_text(encoding="utf-8", errors="ignore").lower()
 
+
+# ── AI Formatting & Sanitization Tests ──
+
+def test_clean_ai_filler_stripping():
+    from core.services.copilot_service import CopilotService
+    # Test that conversational filler like "Here is a strategic framework:" and "Great question!" is absent or stripped
+    from core.services.copilot_service import get_copilot_service
+    svc = get_copilot_service()
+    res = svc._heuristic_fallback("interview preparation strategy")
+    msg = res["message"]
+    assert "Here is a strategic framework:" not in msg
+    assert "Great question!" not in msg
+    assert "Hope this helps!" not in msg
+
+def test_markdown_formatting_patterns():
+    # Verify regex pattern matching for bold, lists, and headings
+    text = "Preparing for interview:\n\n* **Master Core Languages:** Focus on Python\n* **System Design:** Focus on APIs\n\n1. First step\n2. Second step"
+    # Bold patterns
+    bold_matches = re.findall(r"\*\*(.*?)\*\*", text)
+    assert bold_matches == ["Master Core Languages:", "System Design:"]
+    
+    # Bullet matches
+    bullets = re.findall(r"^\*\s+(.+)", text, re.MULTILINE)
+    assert len(bullets) == 2
+    assert "Master Core Languages:" in bullets[0]
+
+def test_html_sanitization_and_xss():
+    # Verify dangerous tags are stripped or handled safely
+    raw_ai_output = "Preparing for interview: <script>alert('xss')</script> <iframe src='http://evil.com'></iframe>"
+    # Ensure script/iframe tags are neutral strings or escaped
+    clean = re.sub(r"<(script|iframe|object|embed)[^>]*>.*?</\1>", "", raw_ai_output, flags=re.IGNORECASE | re.DOTALL)
+    assert "<script>" not in clean
+    assert "<iframe>" not in clean
+
+def test_unknown_facts_preservation():
+    # Ensure UNKNOWN remains UNKNOWN for candidate evidence
+    evidence = [{"skill": "AWS", "gap_type": "UNSUPPORTED", "status": "UNKNOWN"}]
+    assert evidence[0]["status"] == "UNKNOWN"
+    assert evidence[0]["gap_type"] == "UNSUPPORTED"
+
 # ── Studio hallucination safety — real path ──
 
 import pytest

@@ -6,6 +6,6 @@ export async function fetchStudio(jobId: number): Promise<any> {
 }
 
 export async function generateStudio(jobId: number): Promise<any> {
-  const { data } = await client.post(`/api/applications/studio/${jobId}`)
+  const { data } = await client.post(`/api/applications/studio/${jobId}`, {}, { timeout: 60000 })
   return data.studio
 }

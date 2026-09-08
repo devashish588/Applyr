@@ -7,7 +7,7 @@ import { useDashboard, useOutcomeOverview, useOutcomeInsights } from "@/hooks/us
 import { usePipeline } from "@/hooks/use-pipeline"
 import { useApplications } from "@/hooks/use-applications"
 import { useJobs } from "@/hooks/use-jobs"
-import { cn } from "@/lib/utils"
+import { cn, sanitizeCompany } from "@/lib/utils"
 import { getNextActionForApplication } from "@/lib/next-action"
 import { PriorityBadge } from "@/components/ui/priority-badge"
 import { Link } from "react-router-dom"
@@ -431,7 +431,7 @@ function ActiveWorkSection() {
               <div className="flex items-center gap-2 min-w-0">
                 <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-accent/[0.08] text-[10px] font-semibold text-accent-sub">{i+1}</span>
                 <span className="truncate text-accent-sub">{j.title}</span>
-                <span className="text-text-faint truncate">· {j.company}</span>
+                <span className="text-text-faint truncate">· {sanitizeCompany(j.company)}</span>
               </div>
               <PriorityBadge tier={j.priority_tier || (j.fit_score >= 80 ? "HOT" : j.fit_score >= 65 ? "WARM" : "REVIEW")} size="sm" className="shrink-0" />
             </Link>

@@ -7,7 +7,7 @@ import { Topbar } from "@/components/layout/topbar"
 import { Button, Badge, Skeleton, EmptyState } from "@/components/ui"
 import { usePipeline } from "@/hooks/use-pipeline"
 import { useJobs } from "@/hooks/use-jobs"
-import { cn } from "@/lib/utils"
+import { cn, sanitizeCompany } from "@/lib/utils"
 
 const agentIcons: Record<string, React.ElementType> = {
   orchestrator: Rocket, web_research: Search, resume_parser: FileText,
@@ -264,7 +264,7 @@ export default function PipelinePage() {
                       <div key={j.id} className="flex items-center justify-between rounded-lg px-3 py-2 border border-border/40 bg-white/[0.01] hover:bg-white/[0.02] transition">
                         <div className="min-w-0 pr-2">
                           <div className="truncate text-xs font-medium text-text-primary">{j.title || "Role"}</div>
-                          <div className="truncate text-[11px] text-text-muted">{j.company || "—"}</div>
+                          <div className="truncate text-[11px] text-text-muted">{sanitizeCompany(j.company)}</div>
                         </div>
                         <span className={cn("text-xs font-semibold shrink-0 font-mono", scoreColorClass(j.fit_score || 0))}>
                           {j.fit_score || 0}%

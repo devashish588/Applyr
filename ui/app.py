@@ -68,9 +68,9 @@ def _allowed(filename, allowed_set):
     return _ext(filename) in allowed_set
 
 def _sanitize_company(company) -> str:
-    """Never return None for a company name."""
-    if not company or str(company).strip().lower() in ("none", "null", "n/a", ""):
-        return "Unknown Company"
+    """Never return None for a company name; return 'Company unknown' for missing/placeholder values."""
+    if not company or str(company).strip().lower() in ("none", "null", "n/a", "", "unknown", "unknown company", "company not found", "company not extracted"):
+        return "Company unknown"
     return str(company).strip()
 
 def _infer_roles_from_skills(skills: list[str]) -> list[str]:

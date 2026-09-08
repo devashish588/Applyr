@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { getNextActionForApplication } from "@/lib/next-action"
 import { useState } from "react"
 import { ArrowLeft, Briefcase, Calendar, Clock, Sparkles, Send, CheckCircle2 } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { cn, sanitizeCompany } from "@/lib/utils"
 
 export default function ApplicationDetailPage() {
   const { appId } = useParams()
@@ -84,7 +84,7 @@ export default function ApplicationDetailPage() {
                   </h1>
                   <span className="text-text-faint">·</span>
                   <span className="text-sm font-medium text-text-secondary">
-                    {job?.company || app.company_snapshot || "Company"}
+                    {sanitizeCompany(job?.company || app.company_snapshot)}
                   </span>
                 </div>
                 <p className="text-xs text-text-muted">

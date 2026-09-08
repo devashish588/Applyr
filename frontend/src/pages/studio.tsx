@@ -10,7 +10,7 @@ import { PriorityBadge } from "@/components/ui/priority-badge"
 import { MatchScore } from "@/components/ui/match-score"
 import { EvidenceList } from "@/components/ui/evidence-list"
 import { StepIndicator, getStudioSteps } from "@/components/ui/step-indicator"
-import { cn } from "@/lib/utils"
+import { cn, sanitizeCompany } from "@/lib/utils"
 import { generateStudio, fetchStudio } from "@/api/studio"
 import { createApplication } from "@/api/applications"
 
@@ -114,7 +114,7 @@ export default function StudioPage() {
                 <div className="flex items-center gap-2 mb-1">
                   <h1 className="text-lg font-semibold text-text-primary tracking-tight">{job.title || "Untitled Role"}</h1>
                   <span className="text-text-faint">·</span>
-                  <span className="text-sm font-medium text-text-secondary">{job.company || "Unknown Company"}</span>
+                  <span className="text-sm font-medium text-text-secondary">{sanitizeCompany(job.company)}</span>
                   {job.location && (
                     <>
                       <span className="text-text-faint">·</span>

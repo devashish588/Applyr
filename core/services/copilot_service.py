@@ -11,11 +11,50 @@ Contextual AI Assistant for job candidates:
 import json
 import logging
 import os
+import re
 from typing import Dict, List, Any, Optional
 
 from utils.llm_client import chat, chat_json
 
 logger = logging.getLogger(__name__)
+
+PROSE_VERBS_REGEX = re.compile(r"\b(requires|includes|matters|contains|focuses|provides|covers|shows|is|are|was|were|be|been|have|has|had|can|should|will|would|could|for|with|about|into)\b", re.IGNORECASE)
+
+def clean_ai_filler(text: Optional[str]) -> str:
+    if not text or not isinstance(text, str):
+        return ""
+    cleaned = text.strip()
+    cleaned = re.sub(r"^(great question!|sure!|absolutely!|here is a strategic framework:?|here is the framework:?)\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*(hope this helps!?|let me know if you need anything else!?)$", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\n\s*here is a strategic framework:\s*\n", "\n\n", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip()
+
+def is_standalone_section_heading(line: str) -> bool:
+    if not line or not line.endswith(":") or len(line) > 30:
+        return False
+    if re.search(r"[.,?!=]", line[:-1]):
+        return False
+    if PROSE_VERBS_REGEX.search(line):
+        return False
+    raw_title = line[:-1].strip()
+    if not raw_title:
+        return False
+    is_all_upper = raw_title == raw_title.upper() and any(c.isalpha() for c in raw_title)
+    is_title_case = all(w[0].isupper() if w else True for w in raw_title.split())
+    return is_all_upper or is_title_case
+
+def parse_inline_tokens(text: Optional[str]) -> List[Dict[str, str]]:
+    if not text or not isinstance(text, str):
+        return []
+    parts = re.split(r"(\*\*|__)", text)
+    tokens = []
+    is_bold = False
+    for part in parts:
+        if part in ("**", "__"):
+            is_bold = not is_bold
+        elif part:
+            tokens.append({"type": "bold" if is_bold else "text", "text": part})
+    return tokens
 
 COPILOT_SYSTEM_PROMPT = """
 You are Applyr Career Intelligence — direct, concise, structured.
@@ -113,7 +152,7 @@ class CopilotService:
             msg = "**Outreach Tip:** Keep cold emails to recruiters concise (under 150 words). Reference a specific project, state why you're a fit, and attach your tailored resume."
             sugg = ["Show email templates", "Find recruiters for a company"]
         else:
-            msg = f"Here is strategic guidance regarding '{query}': Focus on applying to roles where your skill match score exceeds 70%, follow up within 5 business days, and personalize outreach to recruiters."
+            msg = "STRATEGY GUIDANCE\n\nFocus on applying to roles where your skill match score exceeds 70%, follow up within 5 business days, and personalize outreach to recruiters."
             sugg = ["Check application status", "Discover tech startups"]
 
         return {

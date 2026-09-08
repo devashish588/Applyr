@@ -24,7 +24,8 @@ export default function DiscoverJobsPage() {
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null)
   const { data: jobDetail } = useJobDetail(selectedJobId)
 
-  const sorted = [...(jobs || [])].sort((a, b) => (b.fit_score || 0) - (a.fit_score || 0))
+  const filteredByQuality = (jobs || []).filter((j: any) => j.source !== "test" && !j.is_duplicate && !j.is_duplicate_of)
+  const sorted = [...filteredByQuality].sort((a, b) => (b.fit_score || 0) - (a.fit_score || 0))
   const filtered = filter === "best" ? sorted.filter((j) => (j.fit_score || 0) >= 70) : sorted
   const displayJobs = filtered.slice(0, 30)
 
