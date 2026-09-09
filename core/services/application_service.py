@@ -76,6 +76,18 @@ ALLOWED_EVENT_TYPES = {
 # Generic endpoint allow-list — only informational, never lifecycle transitions
 GENERIC_ALLOWED_EVENTS = {"note", "recruiter_response"}
 
+# Lifecycle state -> application event mapping for patch_state().
+# Event vocabulary is intentionally distinct from lifecycle states: most states
+# happen to match their lowercase event name, but READY_TO_APPLY and APPLIED
+# do not exist as event types (the DB CHECK constraint rejects them), so they
+# map to the existing events that already describe those transitions elsewhere
+# ('application_started' is informational; 'application_submitted' is the same
+# event apply_application() records). Never expand the DB constraint for this.
+STATE_EVENT_MAP = {
+    "READY_TO_APPLY": "application_started",
+    "APPLIED": "application_submitted",
+}
+
 TERMINAL_OUTCOMES = {"REJECTED", "WITHDRAWN", "EXPIRED", "ACCEPTED", "DECLINED"}
 
 
@@ -205,7 +217,12 @@ class ApplicationService:
                         if not out or out["outcome"] == "NONE":
                             raise ValueError("CLOSED requires a valid final outcome (REJECTED/WITHDRAWN/EXPIRED/ACCEPTED/DECLINED/UNKNOWN)")
                     cur.execute("UPDATE applications SET current_state = %s, last_state_change_at = %s WHERE id = %s", (new_state, _now(), app_id))
-                    cur.execute("INSERT INTO application_events (application_id, event_type, timestamp, actor) VALUES (%s,%s,%s,'user')", (app_id, new_state.lower(), _now()))
+                    # States are NOT event types: map to the existing event vocabulary
+                    # (DB CHECK rejects lowercase states like 'ready_to_apply').
+                    event_type = STATE_EVENT_MAP.get(new_state, new_state.lower())
+                    if event_type not in ALLOWED_EVENT_TYPES:
+                        raise ValueError(f"No valid event for transition {cur_state} -> {new_state}")
+                    cur.execute("INSERT INTO application_events (application_id, event_type, timestamp, actor) VALUES (%s,%s,%s,'user')", (app_id, event_type, _now()))
             return self.get_application(app_id)  # type: ignore
         finally:
             conn.close()
