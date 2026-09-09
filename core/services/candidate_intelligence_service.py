@@ -487,7 +487,27 @@ class CandidateIntelligenceService:
         return {}
 
     def _load_default_resume_data(self) -> Dict[str, Any]:
-        """Load parsed resume from Neon PostgreSQL / SQLite database."""
+        """Load parsed resume from active master resume (TEST-aware), fallback to legacy."""
+        try:
+            from core.services.master_resume_service import get_master_resume_service
+            active = get_master_resume_service().get_active()
+            if active and active.get("status") == "READY":
+                # Normalize to resume_data shape for existing pipeline (UNKNOWN preserved when absent)
+                return {
+                    "filename": active.get("filename"),
+                    "file_size": active.get("file_size"),
+                    "uploaded_at": active.get("uploaded_at"),
+                    "parsed_at": active.get("parsed_at"),
+                    "parse_status": "success",
+                    "parsed_json": active.get("parsed_json") or {},
+                    "skills_json": active.get("skills_json") or [],
+                    "roles_json": active.get("roles_json") or [],
+                    "health_json": active.get("health_json") or {},
+                }
+            if active is None:
+                return {}
+        except Exception as e:
+            logger.warning(f"[candidate_service] Master resume lookup failed, falling back: {type(e).__name__}")
         try:
             from db.db_client import get_db
             db = get_db()

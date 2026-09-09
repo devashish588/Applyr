@@ -417,94 +417,74 @@ def api_config():
 
 @app.route("/api/upload-resume", methods=["POST"])
 def api_upload_resume():
-    # Accept either field name: the Flask UI posts "resume", the Next.js client
-    # posts "file". Support both so uploads don't silently 400.
+    # Legacy route preserved for backward compat; delegates to Master Resume Service
+    # for versioned storage + active handling. Returns same shape plus id/active/status.
     file = request.files.get("file") or request.files.get("resume")
     if file is None:
         logger.warning(
-            f"[app] upload-resume 400: no file field. "
+            "[app] upload-resume 400: no file field. "
             f"files={list(request.files.keys())} form={list(request.form.keys())} "
             f"content_type={request.content_type!r}"
         )
         return jsonify({"error": "No file provided"}), 400
-    if not file.filename:
-        logger.warning("[app] upload-resume 400: empty filename")
-        return jsonify({"error": "No filename — please select a file"}), 400
-    if not _allowed(file.filename, ALLOWED_RESUME):
-        rejected_ext = _ext(file.filename) or "(none)"
-        logger.warning(f"[app] upload-resume 400: disallowed type '{file.filename}' ext={rejected_ext}")
-        return jsonify({
-            "error": f"Unsupported file type '.{rejected_ext}'. Please upload a PDF, DOCX, or TXT."
-        }), 400
+    try:
+        from core.services.master_resume_service import get_master_resume_service
+        svc = get_master_resume_service()
+        rec = svc.upload(file)
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+    except RuntimeError as re_:
+        logger.error("[app] Resume upload setup error: %s", re_)
+        return jsonify({"error": "Resume storage not ready. Run migrations."}), 500
+    except Exception as e:
+        logger.error("[app] Resume upload failed: %s", type(e).__name__)
+        return jsonify({"error": "Internal server error"}), 500
 
-    ext        = _ext(file.filename)
-    resume_dir = ROOT / "resume"
-    resume_dir.mkdir(parents=True, exist_ok=True)
-    name_map   = {"pdf": "master_resume.pdf", "docx": "master_resume.docx",
-                  "doc": "master_resume.docx", "txt": "master_resume.txt"}
-    save_path  = resume_dir / name_map.get(ext, "master_resume.txt")
-    file.save(save_path)
-    upload_time = datetime.now().isoformat()
-    file_size = os.path.getsize(save_path)
-    logger.info(f"[app] Resume saved: {save_path}")
-
+    # Update in-memory role inference only on READY; on FAILED keep previous active
+    global _inferred_roles, _search_strategy
     result = {
         "success": True,
-        "path": str(save_path),
-        "filename": file.filename,
-        "size": file_size,
-        "uploaded_at": upload_time,
+        "id": rec.get("id"),
+        "filename": rec.get("filename"),
+        "size": rec.get("file_size"),
+        "uploaded_at": rec.get("uploaded_at"),
+        "parsed_at": rec.get("parsed_at"),
+        "parse_status": "success" if rec.get("status") == "READY" else "failed",
+        "status": rec.get("status"),
+        "active": rec.get("active"),
     }
-
-    # Parse resume
-    parsed = None
-    try:
-        from agents.resume_parser_agent import ResumeParserAgent
-        parsed = ResumeParserAgent().parse_file(str(save_path))
-        result["parsed"] = parsed.model_dump() if parsed else {}
-        result["parse_status"] = "success"
-    except Exception as e:
-        logger.warning(f"[app] Resume parse on upload failed: {e}")
-        result["parse_error"] = str(e)
-        result["parse_status"] = "failed"
-
-    # Infer roles from parsed skills
-    global _inferred_roles, _search_strategy
-    skills = parsed.skills if parsed else []
-    _inferred_roles = _infer_roles_from_skills(skills)
-
-    # Build search strategy
-    _search_strategy = {
-        "roles": _inferred_roles,
-        "locations": ["India", "Remote"],
-        "keywords": skills[:10],
-        "query": _build_search_query(_inferred_roles, skills),
-    }
-
-    # Persist to DB
-    health = {
-        "resume_parsed": result.get("parse_status") == "success",
-        "profile_generated": len(_inferred_roles) > 0,
-        "embedding_created": result.get("parse_status") == "success",
-        "ready_for_search": result.get("parse_status") == "success" and len(_inferred_roles) > 0,
-    }
-    try:
-        get_db().save_resume_data({
-            "filename": file.filename,
-            "file_size": file_size,
-            "uploaded_at": upload_time,
-            "parsed_at": datetime.now().isoformat(),
-            "parse_status": result.get("parse_status", "pending"),
-            "parsed_json": parsed.model_dump() if parsed else {},
-            "skills_json": skills,
-            "roles_json": _inferred_roles,
-            "health": health,
-        })
-    except Exception as e:
-        logger.warning(f"[app] Failed to persist resume data: {e}")
-
-    result["inferred_roles"] = _inferred_roles
-    result["health"] = health
+    if rec.get("status") == "READY":
+        try:
+            skills = rec.get("skills_json") or []
+            if isinstance(skills, dict):
+                flat = []
+                for v in skills.values():
+                    if isinstance(v, list):
+                        flat.extend(v)
+                skills = flat
+            _inferred_roles = _infer_roles_from_skills(skills or [])
+            _search_strategy = {
+                "roles": _inferred_roles,
+                "locations": ["India", "Remote"],
+                "keywords": (skills or [])[:10],
+                "query": _build_search_query(_inferred_roles, skills or []),
+            }
+            result["inferred_roles"] = _inferred_roles
+            result["health"] = {
+                "resume_parsed": True,
+                "profile_generated": len(_inferred_roles) > 0,
+                "embedding_created": True,
+                "ready_for_search": len(_inferred_roles) > 0,
+            }
+        except Exception:
+            result["inferred_roles"] = _inferred_roles
+            result["health"] = {"resume_parsed": True}
+    else:
+        result["parse_error"] = "Resume parsing failed. Previous active resume remains active."
+        result["inferred_roles"] = _inferred_roles
+        result["health"] = {"resume_parsed": False}
+        return jsonify(result), 400
+    logger.info("[app] Master resume uploaded: id=%s filename=%s", rec.get("id"), rec.get("filename"))
     return jsonify(result)
 
 
@@ -692,6 +672,147 @@ def api_resume_health():
             "ready_for_search": uploaded and bool(_inferred_roles),
         }
     })
+
+
+# ── Master Resume (active/history, versioned) ──────────────────────────────────
+def _sanitize_resume_response(rec: dict | None) -> dict | None:
+    if not rec:
+        return None
+    # Never expose absolute filesystem paths or secrets
+    return {
+        "id": rec.get("id"),
+        "filename": rec.get("filename"),
+        "active": bool(rec.get("active")),
+        "status": rec.get("status") or ("READY" if rec.get("active") else "NONE"),
+        "uploaded_at": rec.get("uploaded_at"),
+        "parsed_at": rec.get("parsed_at"),
+        "file_size": rec.get("file_size"),
+        "parse_error": rec.get("parse_error") if rec.get("status") in ("FAILED", "INACTIVE") else None,
+    }
+
+
+@app.route("/api/resume", methods=["GET"])
+def api_master_resume_get():
+    try:
+        from core.services.master_resume_service import get_master_resume_service
+        rec = get_master_resume_service().get_active()
+        if not rec:
+            return jsonify({"success": True, "resume": None, "status": "NONE"})
+        return jsonify({"success": True, "resume": _sanitize_resume_response(rec), "status": rec.get("status")})
+    except RuntimeError as e:
+        logger.error("[app] Master resume setup error: %s", e)
+        return jsonify({"error": "Resume storage not ready. Run migrations."}), 500
+    except Exception as e:
+        logger.error("[app] Master resume get failed: %s", type(e).__name__)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/resumes", methods=["GET"])
+def api_master_resume_list():
+    try:
+        from core.services.master_resume_service import get_master_resume_service
+        rows = get_master_resume_service().list_all()
+        return jsonify({"success": True, "resumes": [_sanitize_resume_response(r) for r in rows]})
+    except Exception as e:
+        logger.error("[app] Master resume list failed: %s", type(e).__name__)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/resume", methods=["POST"])
+def api_master_resume_upload():
+    file = request.files.get("file") or request.files.get("resume")
+    if file is None:
+        return jsonify({"error": "No file provided"}), 400
+    try:
+        from core.services.master_resume_service import get_master_resume_service
+        rec = get_master_resume_service().upload(file)
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+    except RuntimeError as e:
+        logger.error("[app] Master resume setup error: %s", e)
+        return jsonify({"error": "Resume storage not ready. Run migrations."}), 500
+    except Exception as e:
+        logger.error("[app] Master resume upload failed: %s", type(e).__name__)
+        return jsonify({"error": "Internal server error"}), 500
+    global _inferred_roles, _search_strategy
+    if rec.get("status") == "READY":
+        try:
+            skills = rec.get("skills_json") or []
+            if isinstance(skills, dict):
+                flat: list = []
+                for v in skills.values():
+                    if isinstance(v, list):
+                        flat.extend(v)
+                skills = flat
+            _inferred_roles = _infer_roles_from_skills(skills or [])
+            _search_strategy = {
+                "roles": _inferred_roles,
+                "locations": ["India", "Remote"],
+                "keywords": (skills or [])[:10],
+                "query": _build_search_query(_inferred_roles, skills or []),
+            }
+        except Exception:
+            pass
+        return jsonify({"success": True, "resume": _sanitize_resume_response(rec), "status": rec.get("status")})
+    return jsonify({"success": False, "resume": _sanitize_resume_response(rec), "error": "Resume parsing failed. Previous active resume remains active."}), 400
+
+
+@app.route("/api/resume/replace", methods=["POST"])
+def api_master_resume_replace():
+    # Replace is same as upload: new file becomes active only after successful parse
+    return api_master_resume_upload()
+
+
+@app.route("/api/resume", methods=["DELETE"])
+def api_master_resume_delete():
+    try:
+        from core.services.master_resume_service import get_master_resume_service
+        rec = get_master_resume_service().remove_active()
+        global _inferred_roles, _search_strategy
+        _inferred_roles = []
+        _search_strategy = {}
+        if not rec:
+            return jsonify({"success": True, "resume": None, "status": "NONE"})
+        return jsonify({"success": True, "resume": _sanitize_resume_response(rec), "status": "NONE"})
+    except RuntimeError as e:
+        logger.error("[app] Master resume setup error: %s", e)
+        return jsonify({"error": "Resume storage not ready. Run migrations."}), 500
+    except Exception as e:
+        logger.error("[app] Master resume delete failed: %s", type(e).__name__)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+@app.route("/api/resume/file/<int:resume_id>", methods=["GET"])
+def api_master_resume_file(resume_id: int):
+    try:
+        from core.services.master_resume_service import get_master_resume_service, _resume_dir
+        from core.services.master_resume_service import ROOT as _RESUME_ROOT
+        rec = get_master_resume_service().get_by_id(resume_id)
+        if not rec or not rec.get("stored_path"):
+            return jsonify({"error": "Resume not found"}), 404
+        p = Path(rec["stored_path"])
+        # Allow production resume/ and isolated MASTER_RESUME_DIR (tests); no traversal
+        try:
+            allowed = {_resume_dir().resolve(), (_RESUME_ROOT / "resume").resolve()}
+            cand = (_RESUME_ROOT / p).resolve() if not p.is_absolute() else p.resolve()
+            if not any(_is_within(cand, base) for base in allowed):
+                return jsonify({"error": "Resume not found"}), 404
+        except Exception:
+            return jsonify({"error": "Resume not found"}), 404
+        if not cand.exists() or not cand.is_file():
+            return jsonify({"error": "Resume not found"}), 404
+        return send_from_directory(str(cand.parent), cand.name, as_attachment=False)
+    except Exception as e:
+        logger.error("[app] Master resume file failed: %s", type(e).__name__)
+        return jsonify({"error": "Internal server error"}), 500
+
+
+def _is_within(path: Path, base: Path) -> bool:
+    try:
+        path.relative_to(base)
+        return True
+    except Exception:
+        return False
 
 
 # ── Profile endpoints ─────────────────────────────────────────────────────────

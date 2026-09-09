@@ -1,4 +1,4 @@
-import { Settings as SettingsIcon, Check, X, ExternalLink, Send, ShieldCheck, Mail, Sliders, CheckCircle2, Globe, Plus, Trash2, FlaskConical } from "lucide-react"
+import { Settings as SettingsIcon, Check, X, ExternalLink, Send, ShieldCheck, Mail, Sliders, CheckCircle2, Globe, Plus, Trash2, FlaskConical, FileText, Upload, Eye } from "lucide-react"
 import { motion } from "framer-motion"
 import { Topbar } from "@/components/layout/topbar"
 import { Button } from "@/components/ui/button"
@@ -7,9 +7,10 @@ import { useEmailStatus, useSystemStatus } from "@/hooks/use-dashboard"
 import { useSendTestEmail } from "@/hooks/use-emails"
 import { fetchGmailAuthUrl } from "@/api/settings"
 import { cn } from "@/lib/utils"
-import { useState } from "react"
+import { useState, useRef } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { fetchJobSources, createJobSource, updateJobSource, deleteJobSource, testJobSource, fetchJobSourcesHealth } from "@/api/job_sources"
+import { fetchMasterResume, uploadMasterResume, removeMasterResume, resumeFileUrl } from "@/api/resume"
 
 export default function SettingsPage() {
   const { data: config } = useConfig()
@@ -48,6 +49,8 @@ export default function SettingsPage() {
             <h2 className="text-base font-semibold text-text-primary tracking-tight">System Settings & Integrations</h2>
             <p className="text-xs text-text-muted">Manage API credentials, email delivery providers, and application automation parameters</p>
           </div>
+
+          <MasterResumeCard />
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
@@ -265,5 +268,112 @@ export default function SettingsPage() {
         </motion.div>
       </div>
     </>
+  )
+}
+
+function MasterResumeCard() {
+  const qc = useQueryClient()
+  const { data, isLoading, isError, refetch } = useQuery({ queryKey: ["master-resume"], queryFn: fetchMasterResume })
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [confirmRemove, setConfirmRemove] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+  const resume = data?.resume || null
+  const status = data?.status || "NONE"
+
+  const uploadMut = useMutation({
+    mutationFn: uploadMasterResume,
+    onSuccess: () => {
+      setUploadError(null)
+      setConfirmRemove(false)
+      qc.invalidateQueries({ queryKey: ["master-resume"] })
+      qc.invalidateQueries({ queryKey: ["resumeHistory"] })
+      qc.invalidateQueries({ queryKey: ["config"] })
+    },
+    onError: (e: any) => {
+      setUploadError(e?.response?.data?.error || "Upload failed")
+    },
+  })
+  const removeMut = useMutation({
+    mutationFn: removeMasterResume,
+    onSuccess: () => {
+      setConfirmRemove(false)
+      qc.invalidateQueries({ queryKey: ["master-resume"] })
+      qc.invalidateQueries({ queryKey: ["resumeHistory"] })
+    },
+    onError: (e: any) => {
+      setUploadError(e?.response?.data?.error || "Remove failed")
+    },
+  })
+
+  const busy = uploadMut.isPending || removeMut.isPending
+  const badge = status === "READY" ? "text-emerald-400" : status === "FAILED" ? "text-coral" : status === "PROCESSING" ? "text-amber" : "text-text-faint"
+
+  return (
+    <div className="rounded-xl border border-border bg-bg-secondary p-5 space-y-4">
+      <div className="text-[11px] font-medium uppercase tracking-wider text-text-muted flex items-center gap-2">
+        <FileText className="h-3.5 w-3.5 text-accent" /> Master Resume
+      </div>
+      {isLoading ? (
+        <p className="text-xs text-text-faint">Loading resume status…</p>
+      ) : isError ? (
+        <div className="space-y-2">
+          <p className="text-xs text-coral">Could not load resume status (network error).</p>
+          <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => refetch()}>Retry</Button>
+        </div>
+      ) : !resume ? (
+        <div className="space-y-3">
+          <p className="text-xs font-medium text-text-primary">No active resume selected.</p>
+          <p className="text-[11px] text-text-muted">Resume-based matching and Application Studio preparation may be limited until a resume is uploaded.</p>
+          <div className="flex items-center gap-2">
+            <input ref={fileRef} type="file" accept=".pdf,.docx,.doc,.txt" className="hidden" onChange={(e) => {
+              const f = e.target.files?.[0]
+              if (f) uploadMut.mutate(f)
+              e.target.value = ""
+            }} />
+            <Button size="sm" className="h-8 text-xs gap-1.5" disabled={busy} onClick={() => fileRef.current?.click()}>
+              <Upload className="h-3.5 w-3.5" /> {busy ? "Uploading…" : "Upload Resume"}
+            </Button>
+          </div>
+          {uploadError && <p className="text-[11px] text-coral">{uploadError}</p>}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="truncate text-xs font-medium text-text-primary">{resume.filename}</div>
+              <div className="text-[11px] text-text-muted">
+                Uploaded: {resume.uploaded_at ? new Date(resume.uploaded_at).toLocaleString() : "—"} • Status: <span className={cn("font-medium", badge)}>{status}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              <a href={resumeFileUrl(resume.id)} target="_blank" rel="noopener noreferrer" className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-[11px] text-text-secondary hover:bg-white/[0.04]">
+                <Eye className="h-3 w-3" /> View
+              </a>
+              <input ref={fileRef} type="file" accept=".pdf,.docx,.doc,.txt" className="hidden" onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) uploadMut.mutate(f)
+                e.target.value = ""
+              }} />
+              <Button size="sm" variant="ghost" className="h-7 text-[11px]" disabled={busy} onClick={() => fileRef.current?.click()}>
+                {busy ? "Replacing…" : "Replace"}
+              </Button>
+              {!confirmRemove ? (
+                <Button size="sm" variant="ghost" className="h-7 text-[11px] text-coral" disabled={busy} onClick={() => setConfirmRemove(true)}>
+                  <Trash2 className="h-3 w-3" /> Remove
+                </Button>
+              ) : (
+                <span className="flex items-center gap-1 text-[11px]">
+                  <span className="text-text-muted">Remove active resume? Existing applications will remain unchanged.</span>
+                  <Button size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setConfirmRemove(false)}>Cancel</Button>
+                  <Button size="sm" className="h-7 text-[11px]" disabled={busy} onClick={() => removeMut.mutate()}>Remove</Button>
+                </span>
+              )}
+            </div>
+          </div>
+          {uploadError && <p className="text-[11px] text-coral">{uploadError}</p>}
+          {status === "FAILED" && <p className="text-[11px] text-amber">Parsing failed. Previous active resume remains active where applicable.</p>}
+        </div>
+      )}
+    </div>
   )
 }

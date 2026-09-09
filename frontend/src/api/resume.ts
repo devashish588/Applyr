@@ -45,3 +45,43 @@ export async function uploadResume(file: File): Promise<Record<string, unknown>>
   })
   return data
 }
+
+export type MasterResume = {
+  id: number
+  filename: string
+  active: boolean
+  status: string
+  uploaded_at: string | null
+  parsed_at: string | null
+  file_size: number | null
+  parse_error?: string | null
+}
+
+export async function fetchMasterResume(): Promise<{ resume: MasterResume | null; status: string }> {
+  const { data } = await client.get("/api/resume")
+  return data
+}
+
+export async function fetchResumeHistory(): Promise<{ resumes: MasterResume[] }> {
+  const { data } = await client.get("/api/resumes")
+  return data
+}
+
+export async function uploadMasterResume(file: File): Promise<{ resume: MasterResume; status: string }> {
+  const form = new FormData()
+  form.append("file", file)
+  const { data } = await client.post("/api/resume", form, {
+    headers: { "Content-Type": "multipart/form-data" },
+    timeout: 60000,
+  })
+  return data
+}
+
+export async function removeMasterResume(): Promise<void> {
+  await client.delete("/api/resume")
+}
+
+export function resumeFileUrl(id: number): string {
+  const base = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "")
+  return `${base}/api/resume/file/${id}`
+}

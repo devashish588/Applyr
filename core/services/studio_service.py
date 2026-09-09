@@ -540,24 +540,59 @@ class StudioService:
     def persist(self, ctx: Dict[str, Any]) -> int:
         conn = _safe_conn()
         try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "INSERT INTO studio_runs (job_id, candidate_id, created_at, status, match_snapshot, priority_snapshot, tailored_resume_path, ats_snapshot, cover_letter_path, recruiter_snapshot, warnings_json) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
-                    (
-                        ctx["job_id"],
-                        "primary_candidate",
-                        ctx["created_at"],
-                        ctx["overall_status"],
-                        json.dumps(ctx.get("match"))[:5000] if ctx.get("match") else None,
-                        json.dumps(ctx.get("priority"))[:5000] if ctx.get("priority") else None,
-                        None,
-                        json.dumps(ctx.get("ats"))[:5000] if ctx.get("ats") else None,
-                        None,
-                        json.dumps(ctx.get("recruiter"))[:2000] if ctx.get("recruiter") else None,
-                        json.dumps(ctx.get("warnings"))[:2000],
-                    ),
-                )
-                sid = cur.fetchone()[0]
+            # Provenance: active master resume at build time (nullable, historical runs keep NULL)
+            resume_id = None
+            try:
+                from core.services.master_resume_service import get_master_resume_service
+                active = get_master_resume_service().get_active()
+                if active and active.get("id") and not active.get("legacy"):
+                    resume_id = int(active["id"])
+            except Exception:
+                resume_id = None
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO studio_runs (job_id, candidate_id, created_at, status, match_snapshot, priority_snapshot, tailored_resume_path, ats_snapshot, cover_letter_path, recruiter_snapshot, warnings_json, resume_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+                        (
+                            ctx["job_id"],
+                            "primary_candidate",
+                            ctx["created_at"],
+                            ctx["overall_status"],
+                            json.dumps(ctx.get("match"))[:5000] if ctx.get("match") else None,
+                            json.dumps(ctx.get("priority"))[:5000] if ctx.get("priority") else None,
+                            None,
+                            json.dumps(ctx.get("ats"))[:5000] if ctx.get("ats") else None,
+                            None,
+                            json.dumps(ctx.get("recruiter"))[:2000] if ctx.get("recruiter") else None,
+                            json.dumps(ctx.get("warnings"))[:2000],
+                            resume_id,
+                        ),
+                    )
+                    sid = cur.fetchone()[0]
+            except Exception as e:
+                # Fallback when resume_id column missing (pre-011 DB): legacy insert without provenance
+                if "resume_id" in str(e).lower() or "column" in str(e).lower():
+                    conn.rollback()
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "INSERT INTO studio_runs (job_id, candidate_id, created_at, status, match_snapshot, priority_snapshot, tailored_resume_path, ats_snapshot, cover_letter_path, recruiter_snapshot, warnings_json) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+                            (
+                                ctx["job_id"],
+                                "primary_candidate",
+                                ctx["created_at"],
+                                ctx["overall_status"],
+                                json.dumps(ctx.get("match"))[:5000] if ctx.get("match") else None,
+                                json.dumps(ctx.get("priority"))[:5000] if ctx.get("priority") else None,
+                                None,
+                                json.dumps(ctx.get("ats"))[:5000] if ctx.get("ats") else None,
+                                None,
+                                json.dumps(ctx.get("recruiter"))[:2000] if ctx.get("recruiter") else None,
+                                json.dumps(ctx.get("warnings"))[:2000],
+                            ),
+                        )
+                        sid = cur.fetchone()[0]
+                else:
+                    raise
             conn.commit()
             return sid
         except Exception as e:

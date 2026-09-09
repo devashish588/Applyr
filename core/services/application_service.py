@@ -115,12 +115,30 @@ class ApplicationService:
                     cur.execute("SELECT id FROM applications WHERE job_id = %s ORDER BY attempt_number DESC LIMIT 1", (job_id,))
                     prev = cur.fetchone()
                     prev_id = prev["id"] if prev else None
-
-                    cur.execute(
-                        """INSERT INTO applications (job_id, attempt_number, previous_application_id, candidate_id, job_title_snapshot, company_snapshot, current_state, last_state_change_at, created_at)
-                           VALUES (%s,%s,%s,%s,%s,%s,'PREPARING',%s,%s) RETURNING id""",
-                        (job_id, attempt, prev_id, candidate_id, job["title"], job["company"], _now(), _now()),
-                    )
+                    # Provenance: active master resume at creation (nullable, history preserved)
+                    resume_id = None
+                    try:
+                        from core.services.master_resume_service import get_master_resume_service
+                        active = get_master_resume_service().get_active()
+                        if active and active.get("id") and not active.get("legacy"):
+                            resume_id = int(active["id"])
+                    except Exception:
+                        resume_id = None
+                    try:
+                        cur.execute(
+                            """INSERT INTO applications (job_id, attempt_number, previous_application_id, candidate_id, job_title_snapshot, company_snapshot, current_state, last_state_change_at, created_at, resume_id)
+                               VALUES (%s,%s,%s,%s,%s,%s,'PREPARING',%s,%s,%s) RETURNING id""",
+                            (job_id, attempt, prev_id, candidate_id, job["title"], job["company"], _now(), _now(), resume_id),
+                        )
+                    except Exception as e:
+                        if "resume_id" in str(e).lower() or "column" in str(e).lower():
+                            cur.execute(
+                                """INSERT INTO applications (job_id, attempt_number, previous_application_id, candidate_id, job_title_snapshot, company_snapshot, current_state, last_state_change_at, created_at)
+                                   VALUES (%s,%s,%s,%s,%s,%s,'PREPARING',%s,%s) RETURNING id""",
+                                (job_id, attempt, prev_id, candidate_id, job["title"], job["company"], _now(), _now()),
+                            )
+                        else:
+                            raise
                     app_id = cur.fetchone()["id"]
                     cur.execute(
                         "INSERT INTO application_events (application_id, event_type, timestamp, actor, payload) VALUES (%s,'preparing',%s,'user',%s)",
@@ -239,11 +257,29 @@ class ApplicationService:
                     prev = cur.fetchone()
                     prev_id = prev["id"] if prev else None
                     now = submitted_at or _now()
-                    cur.execute(
-                        """INSERT INTO applications (job_id, attempt_number, previous_application_id, candidate_id, job_title_snapshot, company_snapshot, current_state, last_state_change_at, created_at, submitted_at)
-                           VALUES (%s,%s,%s,'primary_candidate',%s,%s,'APPLIED',%s,%s,%s) RETURNING id""",
-                        (job_id, attempt, prev_id, job["title"], job["company"], _now(), _now(), now),
-                    )
+                    resume_id = None
+                    try:
+                        from core.services.master_resume_service import get_master_resume_service
+                        active = get_master_resume_service().get_active()
+                        if active and active.get("id") and not active.get("legacy"):
+                            resume_id = int(active["id"])
+                    except Exception:
+                        resume_id = None
+                    try:
+                        cur.execute(
+                            """INSERT INTO applications (job_id, attempt_number, previous_application_id, candidate_id, job_title_snapshot, company_snapshot, current_state, last_state_change_at, created_at, submitted_at, resume_id)
+                               VALUES (%s,%s,%s,'primary_candidate',%s,%s,'APPLIED',%s,%s,%s,%s) RETURNING id""",
+                            (job_id, attempt, prev_id, job["title"], job["company"], _now(), _now(), now, resume_id),
+                        )
+                    except Exception as e:
+                        if "resume_id" in str(e).lower() or "column" in str(e).lower():
+                            cur.execute(
+                                """INSERT INTO applications (job_id, attempt_number, previous_application_id, candidate_id, job_title_snapshot, company_snapshot, current_state, last_state_change_at, created_at, submitted_at)
+                                   VALUES (%s,%s,%s,'primary_candidate',%s,%s,'APPLIED',%s,%s,%s) RETURNING id""",
+                                (job_id, attempt, prev_id, job["title"], job["company"], _now(), _now(), now),
+                            )
+                        else:
+                            raise
                     app_id = cur.fetchone()["id"]
                     cur.execute("INSERT INTO application_events (application_id, event_type, timestamp, actor) VALUES (%s,'application_recorded_externally',%s,'user')", (app_id, _now()))
                     cur.execute("INSERT INTO application_outcomes (application_id, outcome) VALUES (%s,'NONE') ON CONFLICT DO NOTHING", (app_id,))

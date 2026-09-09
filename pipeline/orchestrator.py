@@ -73,12 +73,77 @@ class Orchestrator:
         logger.info(f"[orchestrator] Profile loaded: "
                     f"{self.profile.get('personal', {}).get('name', 'Unknown')}")
 
-        # Resume parsing with blocking logic
+        # Resume parsing with blocking logic — DB active is authoritative (011).
+        # Legacy master_resume.* existence alone never means active when DB says NONE.
         self.parsed_resume = None
         self.resume_blocked = False
         self.resume_block_reason = None
+        self.active_resume_path = None
+        try:
+            from core.services.master_resume_service import get_master_resume_service
+            _active = get_master_resume_service().get_active()
+        except Exception:
+            _active = None
+        # _active is None when no active row (or legacy fallback with no data).
+        # When resumes table has never been used, _active may be legacy resume_data fallback;
+        # otherwise None means NONE even if stale legacy file exists.
+        if _active and _active.get("status") == "READY":
+            _sp = _active.get("stored_path")
+            # Prefer versioned stored_path (authoritative). Never silently pick stale legacy V1.
+            _cand = None
+            if _sp:
+                try:
+                    from pathlib import Path as _P
+                    _pp = _P(_sp)
+                    if _pp.exists():
+                        _cand = str(_pp)
+                except Exception:
+                    _cand = None
+            if not _cand and _active.get("legacy"):
+                # Pre-migration legacy row has no versioned file; legacy pointer is compatibility
+                if os.path.exists(self.master_resume_pdf):
+                    _cand = self.master_resume_pdf
+            if _cand:
+                self.active_resume_path = _cand
+                self.master_resume_pdf = _cand
+            else:
+                # Active exists but versioned file missing: real storage problem, do not use stale file
+                self.active_resume_path = None
+                if _sp:
+                    self.resume_blocked = True
+                    self.resume_block_reason = (
+                        f"Active master resume file missing at { _sp }. Re-upload the resume."
+                    )
+                    logger.error(f"[orchestrator] BLOCKED: {self.resume_block_reason}")
+        else:
+            self.active_resume_path = None
 
-        if not os.path.exists(self.master_resume_pdf):
+        if self.active_resume_path is None and _active is None:
+            # Check if resumes table exists: if it does (post-011), DB NONE wins over stale file.
+            # If table missing (pre-migration), fall back to legacy file check for backward compat.
+            _has_table = True
+            try:
+                from core.services.master_resume_service import _conn as _mconn, _has_resumes_table
+                _c = _mconn()
+                try:
+                    _has_table = _has_resumes_table(_c)
+                finally:
+                    try:
+                        _c.close()
+                    except Exception:
+                        pass
+            except Exception:
+                _has_table = False
+            if _has_table:
+                self.resume_blocked = True
+                self.resume_block_reason = (
+                    "No active master resume. Upload a resume before running the pipeline."
+                )
+                logger.error(f"[orchestrator] BLOCKED: {self.resume_block_reason}")
+
+        if self.resume_blocked:
+            pass
+        elif not os.path.exists(self.master_resume_pdf):
             self.resume_blocked = True
             self.resume_block_reason = (
                 f"No resume found at {self.master_resume_pdf}. "
