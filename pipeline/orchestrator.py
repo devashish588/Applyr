@@ -219,6 +219,7 @@ class Orchestrator:
             "jobs_found":           0,
             "jobs_inserted":        0,
             "jobs_duplicate":       0,
+            "non_job_filtered":     0,
             "jobs_rejected":        0,
             "jobs_filtered":        0,
             "applications_drafted": 0,
@@ -482,6 +483,14 @@ class Orchestrator:
                     # Map actual_mode to adapter truthfully
                     from core.services.job_source_adapters import _mode_to_adapter as _m2a
                     actual_adapter = _m2a(actual_mode)
+                    # Pre-storage gate: exclude clear non-job pages (listing indexes,
+                    # team/tag/article pages) BEFORE canonical ID / DB insert.
+                    # jobs_found = raw adapter output; jobs_normalized = gate
+                    # survivors (JOB + UNDETERMINED); non_job_filtered is new.
+                    from core.services.job_listing_gate import filter_listings
+                    passing, nonjob = filter_listings(jobs)
+                    for _nj, _reason in nonjob:
+                        logger.info(f"[orchestrator] filtered non-job from {src.host}: {_reason} :: {str(_nj.get('title'))[:60]!r}")
                     res = {
                         "source_id": src.id,
                         "status": status,
@@ -490,7 +499,8 @@ class Orchestrator:
                         "primary_mode": getattr(src, "primary_mode", actual_mode),
                         "source_role": getattr(src, "source_role", "UNKNOWN"),
                         "jobs_found": len(jobs),
-                        "jobs_normalized": len(jobs),
+                        "jobs_normalized": len(passing),
+                        "non_job_filtered": len(nonjob),
                         "jobs_new": 0,
                         "jobs_duplicate": 0,
                         "failure_category": cat,
@@ -516,10 +526,12 @@ class Orchestrator:
                                agent="web_research", status="done" if status == "success" else "error",
                                source_id=src.id, host=src.host, adapter=actual_adapter, mode=actual_mode, fallback_used=fallback_used,
                                jobs_found=len(jobs), failure_category=cat, duration_ms=duration)
-                    logger.info(f"[orchestrator] source {src.host} role={getattr(src,'source_role','?')} primary={getattr(src,'primary_mode','?')} actual={actual_mode} fallback={fallback_used} found={len(jobs)} cat={cat} ms={duration} err={err!r}")
+                    logger.info(f"[orchestrator] source {src.host} role={getattr(src,'source_role','?')} primary={getattr(src,'primary_mode','?')} actual={actual_mode} fallback={fallback_used} found={len(jobs)} normalized={len(passing)} non_job_filtered={len(nonjob)} cat={cat} ms={duration} err={err!r}")
                     per_source.append(res)
                     # Tag jobs with truthful source attribution (host not primary, mode truthful)
-                    for j in jobs:
+                    # Only gate survivors are tagged/extended: NON_JOB creates no
+                    # canonical identity, attribution, Match, Priority, or OI.
+                    for j in passing:
                         j["_source_id"] = src.id
                         j["_source_name"] = src.name
                         j["_source_host"] = src.host
@@ -529,8 +541,8 @@ class Orchestrator:
                         j["_fallback_used"] = fallback_used
                         j["_primary_failure"] = primary_failure
                     # Only extend successes; failures contribute 0 jobs but are tracked
-                    if jobs:
-                        all_listings.extend(jobs)
+                    if passing:
+                        all_listings.extend(passing)
                     # Fallback detection: if any search source used broadened query, mark
                     # but do NOT hide per-source failure — per-source contract is authoritative
                 except Exception as e:
@@ -547,7 +559,7 @@ class Orchestrator:
                         _actual_adapter = getattr(src, "adapter", "SearchAdapter")
                         _actual_mode = "UNKNOWN"
                     res = {"source_id": src.id, "status": "failed", "adapter": _actual_adapter, "mode": _actual_mode,
-                           "jobs_found": 0, "jobs_normalized": 0, "jobs_new": 0, "jobs_duplicate": 0,
+                           "jobs_found": 0, "jobs_normalized": 0, "non_job_filtered": 0, "jobs_new": 0, "jobs_duplicate": 0,
                            "failure_category": "UNKNOWN", "error": safe, "duration_ms": duration, "fallback_used": False}
                     try:
                         svc.record_run(src.id, res)
@@ -568,8 +580,10 @@ class Orchestrator:
             self.results["fallback_used"] = any(r.get("fallback_used") for r in per_source)
             # Also expose per-source fallback details for UI diagnostics
             self.results["fallback_details"] = [r for r in per_source if r.get("fallback_used")]
+            self.results["non_job_filtered"] = sum(int(r.get("non_job_filtered", 0) or 0) for r in per_source)
             logger.info(f"[orchestrator] Multi-source found {len(all_listings)} jobs across {len(sources)} sources "
-                        f"({self.results['sources_succeeded']} succeeded, {self.results['sources_failed']} failed) fallback_used={self.results['fallback_used']}")
+                        f"({self.results['sources_succeeded']} succeeded, {self.results['sources_failed']} failed) fallback_used={self.results['fallback_used']} "
+                        f"non_job_filtered={self.results['non_job_filtered']}")
             return all_listings
         except Exception as e:
             from core.ai.errors import sanitize_exception_message, classify_error
