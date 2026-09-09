@@ -1018,6 +1018,9 @@ def test_api_competition_determined(mod_conn):
         j = r.get_json()["opportunity_intelligence"]
         assert j["competition_intensity"]["level"] in ("LOW", "MODERATE", "HIGH")
         assert j["competition_intensity"]["status"] == "DETERMINED"
+        # Why? UI input: competition evidence present with reasons, same model
+        assert len(j["competition_intensity"]["evidence"]) >= 1
+        assert all(e["signal"] == "COMPETITION_INTENSITY" and e["reason"] for e in j["competition_intensity"]["evidence"])
 
 
 def test_persistence_competition_preserves_others(mod_conn):

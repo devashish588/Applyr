@@ -209,9 +209,11 @@ function OpportunityIntelligenceSection({ jobId }: { jobId: number }) {
   const allUnknown = rows.every((r) => r.signal.level === "UNKNOWN")
   const short = data.shortlisting_strictness
   const bg = data.background_fit_sensitivity
+  const comp = data.competition_intensity
   const whyItems = [
     ...((short && short.status === "DETERMINED" ? short.evidence : []) as Array<{ reason: string }>),
     ...((bg && bg.status === "DETERMINED" ? bg.evidence : []) as Array<{ reason: string }>),
+    ...((comp && comp.status === "DETERMINED" ? comp.evidence : []) as Array<{ reason: string }>),
   ]
   return (
     <div className="rounded-xl border border-border bg-bg-secondary p-5 space-y-3">

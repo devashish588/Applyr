@@ -120,6 +120,12 @@ def main():
     dup = sum(1 for e in evals if e.get("discovery_quality")=="DUPLICATE")
     stale = sum(1 for e in evals if e.get("discovery_quality")=="STALE")
     print(f"Duplicate: {dup}, Stale: {stale}")
+    # Competition signal coverage (implementation correctness, not outcomes).
+    # Descriptive only: never interpret as causing interviews/offers.
+    comp_levels = Counter(str(e.get("competition_intensity") or "UNKNOWN").upper() for e in evals)
+    comp_avail = sum(1 for e in evals if _bool(e.get("competition_signal_available")) or str(e.get("competition_intensity") or "").upper() in ("LOW","MODERATE","HIGH"))
+    print(f"Competition evaluated: {comp_avail}/{total}")
+    print("Competition distribution: " + ", ".join(f"{k}={comp_levels.get(k,0)}" for k in ("UNKNOWN","LOW","MODERATE","HIGH")))
 
 if __name__=="__main__":
     main()

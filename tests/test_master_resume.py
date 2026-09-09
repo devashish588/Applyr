@@ -285,15 +285,28 @@ def test_13_new_studio_uses_active(mod_conn):
         assert r.get_json()["studio"]["job_id"] == jid
 
 
+def _get_test_resume_data():
+    # TEST-aware read (isolated applyr_test). Production-bound get_db() must NOT
+    # be used here: uploads write the TEST mirror, and asserting production state
+    # would both pollute prod and read stale data.
+    conn = _get_conn()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT * FROM resume_data ORDER BY id DESC LIMIT 1")
+            row = cur.fetchone()
+            return dict(row) if row else None
+    finally:
+        conn.close()
+
+
 def test_16_cache_invalidated():
     from ui.app import app
-    from db.db_client import get_db
     with app.test_client() as c:
         _upload(c, "v1.txt", b"v1", mock_skills=["Python"])
-        d1 = get_db().get_resume_data()
+        d1 = _get_test_resume_data()
         assert d1["filename"] == "v1.txt"
         _upload(c, "v2.txt", b"v2", mock_skills=["Go"])
-        d2 = get_db().get_resume_data()
+        d2 = _get_test_resume_data()
         assert d2["filename"] == "v2.txt"
 
 
@@ -371,3 +384,122 @@ def test_29_source_policy_unchanged():
     from core.services.job_source_service import _policy_for_host
     role, mode, direct, search = _policy_for_host("wellfound.com", "search")
     assert role == "JOB_BOARD" and mode == "SEARCH" and direct is False
+
+
+def _ensure_lifecycle_schema(conn):
+    # Self-sufficient: lifecycle + interview/follow-up tables (idempotent).
+    with conn.cursor() as cur:
+        cur.execute(Path("db/migrations/002_application_lifecycle.sql").read_text())
+        cur.execute(Path("db/migrations/005_interview_followup.sql").read_text())
+    conn.commit()
+
+
+def test_10b_historical_resume_identity(mod_conn):
+    # Replacement must not retroactively rewrite historical applications.
+    from ui.app import app
+    from core.services.application_service import get_application_service
+    with app.test_client() as c:
+        r1 = _upload(c, "v1.txt", b"v1", mock_skills=["Python"])
+        assert r1.status_code == 200
+        v1_id = r1.get_json()["resume"]["id"]
+        with mod_conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("INSERT INTO jobs (title, company, url, location, jd_text, scraped_at) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
+                        ("Engineer", "Acme", "https://example.com/hist-A", "Remote", "Python", "2026-01-01T00:00:00Z"))
+            jid_a = cur.fetchone()["id"]
+            cur.execute("INSERT INTO jobs (title, company, url, location, jd_text, scraped_at) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
+                        ("Engineer", "Acme", "https://example.com/hist-B", "Remote", "Python", "2026-01-01T00:00:00Z"))
+            jid_b = cur.fetchone()["id"]
+        mod_conn.commit()
+        svc = get_application_service()
+        app_a = svc.create_application(job_id=jid_a)
+        assert app_a["resume_id"] == v1_id
+        r2 = _upload(c, "v2.txt", b"v2", mock_skills=["Go"])
+        assert r2.status_code == 200
+        v2_id = r2.get_json()["resume"]["id"]
+        assert v2_id != v1_id
+        # Historical application still points at V1 (persisted, not in-memory)
+        fetched_a = svc.get_application(app_a["id"])
+        assert fetched_a["resume_id"] == v1_id
+        # New application uses V2
+        app_b = svc.create_application(job_id=jid_b)
+        assert app_b["resume_id"] == v2_id
+
+
+def test_05b_failed_replace_keeps_usable_state():
+    # Failed V2: V1 stays active, usable, and error is sanitized.
+    from ui.app import app
+    from core.services.candidate_intelligence_service import get_candidate_intelligence_service
+    with app.test_client() as c:
+        _upload(c, "v1.txt", b"good content", mock_skills=["Python"])
+        with patch("agents.resume_parser_agent.ResumeParserAgent") as MockAgent:
+            MockAgent.return_value.parse_file.side_effect = Exception("parse boom")
+            data = {"file": (io.BytesIO(b"bad content"), "v2.txt")}
+            r = c.post("/api/resume", data=data, content_type="multipart/form-data")
+            assert r.status_code == 400
+            body = r.get_data(as_text=True)
+            assert "Traceback" not in body
+            assert "DATABASE_URL" not in body
+            assert "resume/" not in body
+        assert c.get("/api/resume").get_json()["resume"]["filename"] == "v1.txt"
+        assert _get_test_resume_data()["filename"] == "v1.txt"
+        prof = get_candidate_intelligence_service().build_candidate_intelligence()
+        flat = []
+        for v in (prof.skills_by_category or {}).values():
+            flat.extend(v)
+        assert "Python" in flat
+
+
+def test_10c_remove_preserves_lifecycle(mod_conn, isolated_resume_dir):
+    # Remove must leave application/interview/follow-up/outcome/document/history intact.
+    from ui.app import app
+    from core.services.application_service import get_application_service
+    _ensure_lifecycle_schema(mod_conn)
+    with app.test_client() as c:
+        _upload(c, "v1.txt", b"v1", mock_skills=["Python"])
+        with mod_conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("INSERT INTO jobs (title, company, url, location, jd_text, scraped_at) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id",
+                        ("Engineer", "Acme", "https://example.com/lifecycle-A", "Remote", "Python", "2026-01-01T00:00:00Z"))
+            jid = cur.fetchone()["id"]
+        mod_conn.commit()
+        svc = get_application_service()
+        app_row = svc.create_application(job_id=jid)
+        app_id = app_row["id"]
+        svc.add_event(app_id, "note", payload="follow-up drafted")
+        svc.set_outcome(app_id, "REJECTED", reason="pilot")
+        with mod_conn.cursor() as cur:
+            cur.execute("INSERT INTO interviews (application_id, stage, status, scheduled_at, created_at, updated_at) VALUES (%s,%s,%s,%s,%s,%s)",
+                        (app_id, "PHONE_SCREEN", "COMPLETED", "2026-01-02T00:00:00Z", "2026-01-02T00:00:00Z", "2026-01-02T00:00:00Z"))
+            cur.execute("INSERT INTO follow_ups (application_id, follow_up_type, channel, status, created_at, updated_at) VALUES (%s,%s,%s,%s,%s,%s)",
+                        (app_id, "POST_INTERVIEW", "EMAIL", "SENT", "2026-01-03T00:00:00Z", "2026-01-03T00:00:00Z"))
+        mod_conn.commit()
+        doc = isolated_resume_dir / "tailored_v1.txt"
+        doc.write_bytes(b"historical tailored artifact v1")
+        events_before = len(svc.get_timeline(app_id))
+        # Remove active resume
+        assert c.delete("/api/resume").status_code == 200
+        assert c.get("/api/resume").get_json()["resume"] is None
+        # Everything historical intact
+        fetched = svc.get_application(app_id)
+        assert fetched is not None and fetched["current_state"] == "CLOSED"
+        assert len(svc.get_timeline(app_id)) == events_before
+        with mod_conn.cursor() as cur:
+            cur.execute("SELECT outcome FROM application_outcomes WHERE application_id=%s", (app_id,))
+            assert cur.fetchone()[0] == "REJECTED"
+            cur.execute("SELECT COUNT(*) FROM interviews WHERE application_id=%s", (app_id,))
+            assert cur.fetchone()[0] == 1
+            cur.execute("SELECT COUNT(*) FROM follow_ups WHERE application_id=%s", (app_id,))
+            assert cur.fetchone()[0] == 1
+            cur.execute("SELECT active FROM resumes WHERE filename='v1.txt'")
+            assert cur.fetchone()[0] is False
+        assert doc.read_bytes() == b"historical tailored artifact v1"
+
+
+def test_16b_remove_clears_mirror():
+    # After remove there must be no active resume-derived state masquerading as current.
+    from ui.app import app
+    with app.test_client() as c:
+        _upload(c, "v1.txt", b"v1", mock_skills=["Python"])
+        assert _get_test_resume_data() is not None
+        assert c.delete("/api/resume").status_code == 200
+        assert _get_test_resume_data() is None
+        assert c.get("/api/resume").get_json()["resume"] is None

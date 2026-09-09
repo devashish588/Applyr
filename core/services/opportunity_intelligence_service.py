@@ -819,7 +819,11 @@ class OpportunityIntelligenceService:
                     conn.close()
                 except Exception:
                     pass
-        except Exception:
+        except Exception as e:
+            # Debug-only diagnostic so operators can distinguish "computed but
+            # persistence unavailable" (e.g. 012 not applied) from other states.
+            # Silent at default INFO level; nothing reaches the browser.
+            logger.debug("[opportunity] load skipped: %s", type(e).__name__)
             return None
         return None
 
