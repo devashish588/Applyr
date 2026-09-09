@@ -1,0 +1,11 @@
+{
+  "description": "Sparse JD with no structured requirements -> UNKNOWN",
+  "input": {
+    "title": "Engineer",
+    "company": "Acme",
+    "location": "",
+    "jd_text": "Looking for an engineer to join our team.",
+    "url": "https://example.com/bg-unknown"
+  },
+  "expected": {"level": "UNKNOWN", "status": "UNDETERMINED"}
+}

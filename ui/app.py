@@ -1811,6 +1811,34 @@ def api_job_priority(job_id):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/jobs/<int:job_id>/opportunity-intelligence")
+def api_job_opportunity_intelligence(job_id):
+    """Phase 16: informational Opportunity Intelligence foundation (UNKNOWN unless computed)."""
+    try:
+        from core.services.opportunity_intelligence_service import _fetch_job_record
+        job = _fetch_job_record(job_id)
+    except Exception:
+        job = None
+    if not job:
+        # Fall back to default pool for backward compat (production), then 404
+        try:
+            job = get_db().get_job_by_id(job_id)
+        except Exception:
+            job = None
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    try:
+        from core.services.opportunity_intelligence_service import get_opportunity_intelligence_service
+        svc = get_opportunity_intelligence_service()
+        result = svc.get_for_job(job_id)
+        if result is None:
+            return jsonify({"error": "Job not found"}), 404
+        return jsonify({"success": True, "opportunity_intelligence": result.to_response()})
+    except Exception as e:
+        logger.error("Opportunity intelligence failed for %s: %s", job_id, type(e).__name__)
+        return jsonify({"error": "Internal server error"}), 500
+
+
 # ── Applications (Phase 7 P0) ────────────────────────────────────────────────
 
 @app.route("/api/applications", methods=["GET"])

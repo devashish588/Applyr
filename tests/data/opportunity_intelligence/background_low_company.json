@@ -1,0 +1,11 @@
+{
+  "description": "Fintech company with generic JD and no domain requirement stays LOW",
+  "input": {
+    "title": "Software Engineer",
+    "company": "FintechCorp",
+    "location": "Remote",
+    "jd_text": "We are a fintech company.\nRequirements:\n- Python\n- React",
+    "url": "https://example.com/bg-low-company"
+  },
+  "expected": {"level": "LOW", "status": "DETERMINED"}
+}

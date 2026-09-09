@@ -1,0 +1,11 @@
+{
+  "description": "Explicit experience + several required skills -> MODERATE",
+  "input": {
+    "title": "Backend Engineer",
+    "company": "Acme",
+    "location": "Remote",
+    "jd_text": "Requirements:\n- 3+ years Python experience\n- Python\n- SQL\n- Docker",
+    "url": "https://example.com/moderate"
+  },
+  "expected": {"level": "MODERATE", "status": "DETERMINED"}
+}

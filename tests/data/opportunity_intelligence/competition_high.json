@@ -1,0 +1,11 @@
+{
+  "description": "Remote broad role with widely transferable stack -> HIGH",
+  "input": {
+    "title": "Backend Engineer",
+    "company": "Acme",
+    "location": "Remote",
+    "jd_text": "Requirements:\n- Python\n- SQL\n- AWS",
+    "url": "https://example.com/comp-high"
+  },
+  "expected": {"level": "HIGH", "status": "DETERMINED"}
+}

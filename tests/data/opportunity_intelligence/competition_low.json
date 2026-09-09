@@ -1,0 +1,11 @@
+{
+  "description": "Onsite senior niche role with narrow range and specialized skills -> LOW",
+  "input": {
+    "title": "Senior Mainframe Engineer",
+    "company": "Acme",
+    "location": "Bangalore",
+    "jd_text": "Must be onsite in Bangalore.\nRequirements:\n- 5-8 years experience\n- COBOL\n- Mainframe\n- JCL",
+    "url": "https://example.com/comp-low"
+  },
+  "expected": {"level": "LOW", "status": "DETERMINED"}
+}

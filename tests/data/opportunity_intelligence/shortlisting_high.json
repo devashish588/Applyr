@@ -1,0 +1,11 @@
+{
+  "description": "Narrow experience + many skills + cert + domain -> HIGH",
+  "input": {
+    "title": "Senior ML Engineer",
+    "company": "Acme",
+    "location": "Bangalore",
+    "jd_text": "Must be onsite in Bangalore.\nRequirements:\n- 5-8 years experience\n- Python\n- SQL\n- AWS\n- Docker\n- Kubernetes\n- TensorFlow\n- AWS Certified Solutions Architect required\n- Finance domain experience required",
+    "url": "https://example.com/high"
+  },
+  "expected": {"level": "HIGH", "status": "DETERMINED"}
+}

@@ -1,0 +1,11 @@
+{
+  "description": "Generic engineering, transferable stack, no domain requirement -> LOW",
+  "input": {
+    "title": "Software Engineer",
+    "company": "Acme",
+    "location": "Remote",
+    "jd_text": "We are hiring a backend engineer.\nRequirements:\n- Python\n- FastAPI\n- PostgreSQL\n- Docker",
+    "url": "https://example.com/bg-low"
+  },
+  "expected": {"level": "LOW", "status": "DETERMINED"}
+}

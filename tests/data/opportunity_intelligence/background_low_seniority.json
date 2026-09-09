@@ -1,0 +1,11 @@
+{
+  "description": "Senior title without domain requirement stays LOW",
+  "input": {
+    "title": "Senior ML Engineer",
+    "company": "Acme",
+    "location": "Remote",
+    "jd_text": "Requirements:\n- Python\n- PyTorch",
+    "url": "https://example.com/bg-low-senior"
+  },
+  "expected": {"level": "LOW", "status": "DETERMINED"}
+}

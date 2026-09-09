@@ -1,0 +1,11 @@
+{
+  "description": "Mandatory healthcare domain experience -> HIGH",
+  "input": {
+    "title": "Engineer",
+    "company": "Acme",
+    "location": "Remote",
+    "jd_text": "Requirements:\n- Python\n- Healthcare claims processing experience required",
+    "url": "https://example.com/bg-high-health"
+  },
+  "expected": {"level": "HIGH", "status": "DETERMINED"}
+}

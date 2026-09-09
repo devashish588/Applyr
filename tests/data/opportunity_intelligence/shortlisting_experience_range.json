@@ -1,0 +1,11 @@
+{
+  "description": "Narrow 3-5 year range is an explicit restrictive filter",
+  "input": {
+    "title": "Backend Engineer",
+    "company": "Acme",
+    "location": "Remote",
+    "jd_text": "Requirements:\n- 3-5 years experience\n- Python\n- SQL",
+    "url": "https://example.com/range"
+  },
+  "expected": {"level": "MODERATE", "status": "DETERMINED"}
+}

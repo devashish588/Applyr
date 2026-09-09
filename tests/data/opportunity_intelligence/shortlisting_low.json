@@ -1,0 +1,11 @@
+{
+  "description": "Broad role, few mandatory requirements -> LOW",
+  "input": {
+    "title": "Software Engineer",
+    "company": "Acme",
+    "location": "Remote",
+    "jd_text": "We are hiring a software engineer.\nResponsibilities:\n- Build features\n- Collaborate with the team\nRequirements:\n- Python\n- Good communication",
+    "url": "https://example.com/low"
+  },
+  "expected": {"level": "LOW", "status": "DETERMINED"}
+}

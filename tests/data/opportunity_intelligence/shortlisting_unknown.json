@@ -1,0 +1,11 @@
+{
+  "description": "Sparse JD, no structured requirements -> UNKNOWN",
+  "input": {
+    "title": "Software Engineer",
+    "company": "Acme",
+    "location": "",
+    "jd_text": "Looking for a software engineer to join our team.",
+    "url": "https://example.com/unknown"
+  },
+  "expected": {"level": "UNKNOWN", "status": "UNDETERMINED"}
+}

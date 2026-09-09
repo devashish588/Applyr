@@ -1,0 +1,11 @@
+{
+  "description": "Sparse job with no useful metadata -> UNKNOWN",
+  "input": {
+    "title": "Engineer",
+    "company": "",
+    "location": "",
+    "jd_text": "Join our team.",
+    "url": "https://example.com/comp-unknown"
+  },
+  "expected": {"level": "UNKNOWN", "status": "UNDETERMINED"}
+}

@@ -1,0 +1,11 @@
+{
+  "description": "Mixed signals (hybrid, mid, few skills) -> MODERATE",
+  "input": {
+    "title": "Frontend Engineer",
+    "company": "Acme",
+    "location": "Pune",
+    "jd_text": "Hybrid role in Pune.\nRequirements:\n- React\n- TypeScript",
+    "url": "https://example.com/comp-moderate"
+  },
+  "expected": {"level": "MODERATE", "status": "DETERMINED"}
+}

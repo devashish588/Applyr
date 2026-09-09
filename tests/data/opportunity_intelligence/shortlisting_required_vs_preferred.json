@@ -1,0 +1,11 @@
+{
+  "description": "Preferred skills must not inflate strictness",
+  "input": {
+    "title": "Engineer",
+    "company": "Acme",
+    "location": "Remote",
+    "jd_text": "Requirements:\n- Python\n- SQL\nPreferred:\n- Docker\n- Kubernetes\n- AWS\n- Terraform\n- GCP\n- Azure",
+    "url": "https://example.com/reqpref"
+  },
+  "expected": {"level": "LOW", "status": "DETERMINED"}
+}

@@ -1,5 +1,7 @@
 import { useParams, useNavigate, Link } from "react-router-dom"
+import { useQuery } from "@tanstack/react-query"
 import { useJobDetail } from "@/hooks/use-jobs"
+import { fetchOpportunityIntelligence } from "@/api/opportunity"
 import { useApplications } from "@/hooks/use-applications"
 import { Topbar } from "@/components/layout/topbar"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -161,6 +163,9 @@ export default function JobDetailPage() {
 
         </div>
 
+        {/* Opportunity Intelligence (Phase 16, informational only, subordinate to Match/Priority) */}
+        <OpportunityIntelligenceSection jobId={job.id} />
+
         {/* Job Description Requirements */}
         <div className="rounded-xl border border-border bg-bg-secondary p-5 space-y-3">
           <div className="text-[11px] font-medium uppercase tracking-wider text-text-muted">Role Description Snippet</div>
@@ -178,5 +183,67 @@ export default function JobDetailPage() {
 
       </div>
     </>
+  )
+}
+
+function OpportunityIntelligenceSection({ jobId }: { jobId: number }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["opportunity-intelligence", jobId],
+    queryFn: () => fetchOpportunityIntelligence(jobId),
+    retry: false,
+  })
+  if (isLoading) {
+    return (
+      <div className="rounded-xl border border-border bg-bg-secondary p-5 space-y-3">
+        <div className="text-[11px] font-medium uppercase tracking-wider text-text-muted">Opportunity Intelligence</div>
+        <p className="text-xs text-text-faint">Loading opportunity context…</p>
+      </div>
+    )
+  }
+  if (!data) return null
+  const rows = [
+    { label: "Competition", signal: data.competition_intensity },
+    { label: "Background Fit", signal: data.background_fit_sensitivity },
+    { label: "Shortlisting", signal: data.shortlisting_strictness },
+  ]
+  const allUnknown = rows.every((r) => r.signal.level === "UNKNOWN")
+  const short = data.shortlisting_strictness
+  const bg = data.background_fit_sensitivity
+  const whyItems = [
+    ...((short && short.status === "DETERMINED" ? short.evidence : []) as Array<{ reason: string }>),
+    ...((bg && bg.status === "DETERMINED" ? bg.evidence : []) as Array<{ reason: string }>),
+  ]
+  return (
+    <div className="rounded-xl border border-border bg-bg-secondary p-5 space-y-3">
+      <div className="text-[11px] font-medium uppercase tracking-wider text-text-muted">Opportunity Intelligence</div>
+      <p className="text-[11px] text-text-faint">Shortlisting strictness estimates how restrictive the job&apos;s initial screening requirements appear to be.</p>
+      {data.competition_intensity?.status === "DETERMINED" && (
+        <p className="text-[11px] text-text-faint">Competition intensity is estimated from available job/context signals.</p>
+      )}
+      {data.competition_intensity?.status !== "DETERMINED" && !allUnknown && (
+        <p className="text-[11px] text-text-faint">Not enough evidence to estimate competition.</p>
+      )}
+      <div className="space-y-1.5">
+        {rows.map((r) => (
+          <div key={r.label} className="flex items-center justify-between text-xs">
+            <span className="text-text-muted">{r.label}</span>
+            <span className="font-mono text-text-faint">{r.signal.level}</span>
+          </div>
+        ))}
+      </div>
+      {whyItems.length > 0 && (
+        <div className="space-y-1 pt-1">
+          <div className="text-[11px] text-text-muted">Why?</div>
+          <ul className="list-disc pl-4 space-y-0.5">
+            {whyItems.slice(0, 6).map((e, i) => (
+              <li key={i} className="text-[11px] text-text-secondary">{e.reason}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {allUnknown && (
+        <p className="text-[11px] text-text-faint">Opportunity intelligence is not yet available.</p>
+      )}
+    </div>
   )
 }

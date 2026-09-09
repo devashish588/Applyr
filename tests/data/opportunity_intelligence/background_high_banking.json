@@ -1,0 +1,11 @@
+{
+  "description": "Explicit mandatory banking domain experience -> HIGH",
+  "input": {
+    "title": "Engineer",
+    "company": "Acme",
+    "location": "Remote",
+    "jd_text": "Requirements:\n- Python\n- 3 years banking payments domain experience required",
+    "url": "https://example.com/bg-high-banking"
+  },
+  "expected": {"level": "HIGH", "status": "DETERMINED"}
+}

@@ -1,0 +1,11 @@
+{
+  "description": "Preferred (not mandatory) domain context -> MODERATE at most",
+  "input": {
+    "title": "Engineer",
+    "company": "Acme",
+    "location": "Remote",
+    "jd_text": "Requirements:\n- Python\n- SQL\nPreferred qualifications:\n- Healthcare experience preferred",
+    "url": "https://example.com/bg-moderate"
+  },
+  "expected": {"level": "MODERATE", "status": "DETERMINED"}
+}

@@ -1,0 +1,24 @@
+{
+  "description": "Phase 16 foundation: missing/empty evidence must remain UNKNOWN/UNDETERMINED",
+  "cases": [
+    {
+      "name": "missing_evidence",
+      "input": {"job_id": null, "evidence": []},
+      "expected": {
+        "competition_intensity": {"level": "UNKNOWN", "status": "UNDETERMINED", "confidence": null},
+        "background_fit_sensitivity": {"level": "UNKNOWN", "status": "UNDETERMINED", "confidence": null},
+        "shortlisting_strictness": {"level": "UNKNOWN", "status": "UNDETERMINED", "confidence": null},
+        "determination_status": "UNDETERMINED",
+        "confidence": null
+      }
+    },
+    {
+      "name": "empty_evidence",
+      "input": {"job_id": 1, "evidence": []},
+      "expected": {
+        "determination_status": "UNDETERMINED",
+        "evidence": []
+      }
+    }
+  ]
+}
