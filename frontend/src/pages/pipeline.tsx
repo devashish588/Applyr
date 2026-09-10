@@ -127,7 +127,7 @@ export default function PipelinePage() {
                 <div>
                   <div className="text-xs font-medium text-text-primary">Discovery completed with fallback</div>
                   <div className="text-[11px] text-text-muted mt-1">Discovery completed using a fallback AI provider because the primary provider was unavailable.</div>
-                  <div className="text-[11px] text-text-muted mt-1">{jobsFound} new job{jobsFound===1?"":"s"} found</div>
+                  <div className="text-[11px] text-text-muted mt-1">{jobsFound} jobs extracted</div>
                 </div>
               </div>
             </div>
@@ -137,7 +137,7 @@ export default function PipelinePage() {
               <div className="flex items-start gap-3">
                 <div className="grid h-7 w-7 place-items-center rounded-full bg-green/15"><Search className="h-3.5 w-3.5 text-green" /></div>
                 <div>
-                  <div className="text-xs font-medium text-text-primary">{jobsFound} new job{jobsFound===1?"":"s"} found</div>
+                  <div className="text-xs font-medium text-text-primary">{jobsFound} jobs extracted</div>
                   <div className="text-[11px] text-text-muted mt-1">Discovery completed — results are available in Discover.</div>
                 </div>
               </div>
@@ -249,12 +249,7 @@ export default function PipelinePage() {
                 {jobsLoading ? (
                   <Skeleton lines={4} />
                 ) : jobs && jobs.length > 0 ? (
-                  <div className="space-y-2 pt-1">
-                    <ResultRow label="Total Jobs Discovered" value={jobs.length} />
-                    <ResultRow label="High Compatibility (≥70%)" value={jobs.filter((j) => (j.fit_score || 0) >= 70).length} color="text-emerald-400" />
-                    <ResultRow label="Direct HR Contacts Found" value={jobs.filter((j) => j.hr_email).length} />
-                    <ResultRow label="Average Match Score" value={scoreAvg(jobs)} />
-                  </div>
+                  <DiscoveryTelemetryContent jobs={jobs} />
                 ) : (
                   <p className="text-xs text-text-faint pt-1">No discovery telemetry available yet.</p>
                 )}
@@ -354,6 +349,23 @@ function ResultRow({ label, value, color }: { label: string; value: string | num
     <div className="flex items-center justify-between py-1 border-b border-border/40 last:border-0 text-xs">
       <span className="text-text-muted">{label}</span>
       <span className={cn("font-mono font-semibold", color || "text-text-primary")}>{value}</span>
+    </div>
+  )
+}
+
+function DiscoveryTelemetryContent({ jobs }: { jobs: any[] }) {
+  const { data: div } = useQuery({ queryKey: ["diversity"], queryFn: fetchDiversity, enabled: true })
+  return (
+    <div className="space-y-2 pt-1">
+      <ResultRow label="Total Jobs in DB (100 cap)" value={jobs.length} />
+      <ResultRow label="Total Canonical Jobs" value={div?.total_canonical ?? "—"} />
+      <ResultRow label="High Compatibility (≥70%)" value={jobs.filter((j) => (j.fit_score || 0) >= 70).length} color="text-emerald-400" />
+      <ResultRow label="Direct HR Contacts Found" value={jobs.filter((j) => j.hr_email).length} />
+      <ResultRow label="Average Match Score" value={scoreAvg(jobs)} />
+      <div className="pt-2 border-t border-border/40 flex items-center justify-between text-[11px] text-text-faint">
+        <span>New since last run</span>
+        <span className="font-mono font-semibold text-emerald-400">{div?.new_jobs_last_run ?? 0} new</span>
+      </div>
     </div>
   )
 }
