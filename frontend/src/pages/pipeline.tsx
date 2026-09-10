@@ -45,7 +45,7 @@ export default function PipelinePage() {
   const failureCat = results.failure_category || (results.errors?.some((er:string)=> er.includes("TAVILY_API_KEY") || er.includes("All AI providers")) ? "provider_unavailable" : null)
   const isProviderFailure = failureCat === "provider_unavailable" || results.status === "blocked"
   const isFailed = !!errorEvent || results.status === "failed" || (failureCat === "discovery_failed" && jobsFound===0)
-  const perSource = (results.sources || []) as Array<{source_id:string;status:string;adapter:string;mode?:string;jobs_found:number;failure_category:string;error?:string;duration_ms:number;host?:string;fallback_used?:boolean}>
+  const perSource = (results.sources || []) as Array<{source_id:string;status:string;adapter:string;mode?:string;jobs_found:number;provider_raw_count?:number;llm_extracted_count?:number;jobs_normalized?:number;non_job_filtered?:number;site_mismatch_count?:number;site_mismatch_examples?:Array<{title:string;url:string;host:string}>;failure_category:string;error?:string;duration_ms:number;host?:string;fallback_used?:boolean}>
   const sourcesConfigured = results.sources_configured ?? perSource.length
   const sourcesAttempted = results.sources_attempted ?? perSource.length
   const sourcesSucceeded = results.sources_succeeded ?? perSource.filter(s=> s.status==="success" && s.failure_category==="SUCCESS").length
@@ -273,15 +273,29 @@ export default function PipelinePage() {
                   <div className="max-h-[220px] overflow-y-auto space-y-1 pt-1">
                     {perSource.map((s) => {
                       const modeLabel = ({SEARCH:"Search discovery",HTML:"Direct source",RSS:"RSS feed",JSON:"JSON/API",ATS:"ATS/API"} as any)[(s as any).mode] || s.adapter
+                      const isSearch = (s as any).mode === "SEARCH"
                       return (
-                      <div key={s.source_id} className="flex items-center justify-between rounded-lg px-3 py-1.5 border border-border/30 bg-white/[0.01] text-[11px]">
-                        <div className="min-w-0 pr-2">
-                          <div className="truncate font-medium text-text-primary">{(s as any).host || s.source_id} <span className="text-text-faint font-normal">• {modeLabel}</span>{(s as any).fallback_used ? <span className="ml-1 rounded bg-amber/10 px-1 py-0.5 text-[9px] text-amber">fallback</span> : null}</div>
-                          <div className="truncate text-[10px] text-text-faint">{(s as any).mode || s.adapter} • {s.failure_category}{s.error ? ` • ${s.error.slice(0,80)}` : ""}</div>
+                      <div key={s.source_id} className="flex flex-col rounded-lg px-3 py-1.5 border border-border/30 bg-white/[0.01] text-[11px] gap-1">
+                        <div className="flex items-center justify-between">
+                          <div className="min-w-0 pr-2">
+                            <div className="truncate font-medium text-text-primary">{(s as any).host || s.source_id} <span className="text-text-faint font-normal">• {modeLabel}</span>{(s as any).fallback_used ? <span className="ml-1 rounded bg-amber/10 px-1 py-0.5 text-[9px] text-amber">fallback</span> : null}</div>
+                            <div className="truncate text-[10px] text-text-faint">{(s as any).mode || s.adapter} • {s.failure_category}{s.error ? ` • ${s.error.slice(0,80)}` : ""}</div>
+                          </div>
+                          <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium border", s.status==="success" && s.failure_category==="SUCCESS" ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" : s.failure_category==="NO_RESULTS" ? "bg-amber/10 text-amber border-amber/20" : "bg-red/10 text-red border-red/20")}>
+                            {s.jobs_found} jobs • {s.duration_ms}ms
+                          </span>
                         </div>
-                        <span className={cn("shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium border", s.status==="success" && s.failure_category==="SUCCESS" ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" : s.failure_category==="NO_RESULTS" ? "bg-amber/10 text-amber border-amber/20" : "bg-red/10 text-red border-red/20")}>
-                          {s.jobs_found} jobs • {s.duration_ms}ms
-                        </span>
+                        <div className="flex flex-wrap gap-2 text-[10px] font-mono text-text-faint">
+                          {isSearch && s.provider_raw_count !== undefined && <span>Provider: {s.provider_raw_count}</span>}
+                          {s.llm_extracted_count !== undefined && <span>Extracted: {s.llm_extracted_count}</span>}
+                          {s.jobs_normalized !== undefined && <span>Gate eligible: {s.jobs_normalized}</span>}
+                          {s.non_job_filtered !== undefined && s.non_job_filtered > 0 && <span className="text-amber">Non-job: {s.non_job_filtered}</span>}
+                          {s.site_mismatch_count !== undefined && s.site_mismatch_count > 0 && <span className="text-amber">Site mismatch: {s.site_mismatch_count}</span>}
+                          {s.failure_category && !["SUCCESS","NO_RESULTS"].includes(s.failure_category) && <span className="text-red">Failure: {s.failure_category}</span>}
+                        </div>
+                        {s.site_mismatch_examples && s.site_mismatch_examples.length > 0 && (
+                          <div className="text-[10px] text-text-faint truncate">Ex: {s.site_mismatch_examples[0].host} • {s.site_mismatch_examples[0].url.slice(0,40)}</div>
+                        )}
                       </div>
                     )})}
                   </div>
@@ -368,9 +382,18 @@ function DiversityPanel() {
           <div className="text-[11px] font-medium uppercase tracking-wider text-text-muted">Source Diagnostics (33.7)</div>
           <div className="max-h-[180px] overflow-y-auto space-y-1 pt-1">
             {diag.diagnostics.slice(0,8).map((d:any, i:number)=> (
-              <div key={i} className="rounded px-2 py-1 bg-white/[0.01] border border-border/30 text-[11px] flex justify-between">
-                <span className="truncate">{d.host} • {d.mode || d.adapter} • {d.failure_category} • {d.jobs_found} found/{d.jobs_normalized} norm</span>
-                <span className="shrink-0 font-mono text-text-faint">{d.duration_ms}ms</span>
+              <div key={i} className="rounded px-2 py-1 bg-white/[0.01] border border-border/30 text-[11px] flex flex-col gap-0.5">
+                <div className="flex justify-between">
+                  <span className="truncate">{d.host} • {d.mode || d.adapter} • {d.failure_category} • {d.jobs_found} found/{d.jobs_normalized} norm</span>
+                  <span className="shrink-0 font-mono text-text-faint">{d.duration_ms}ms</span>
+                </div>
+                {(d.provider_raw_count !== undefined || d.site_mismatch_count !== undefined) && (
+                  <div className="flex gap-2 text-[10px] font-mono text-text-faint">
+                    {d.provider_raw_count !== undefined && <span>Raw: {d.provider_raw_count}</span>}
+                    {d.site_mismatch_count !== undefined && d.site_mismatch_count > 0 && <span className="text-amber">Mismatch: {d.site_mismatch_count}</span>}
+                    {d.failure_category && !["SUCCESS","NO_RESULTS"].includes(d.failure_category) && <span className="text-red">{d.failure_category}</span>}
+                  </div>
+                )}
               </div>
             ))}
           </div>

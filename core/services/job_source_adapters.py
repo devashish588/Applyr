@@ -24,8 +24,8 @@ TIMEOUT = 12
 
 FAIL = {
     "SUCCESS", "NO_RESULTS", "TIMEOUT", "HTTP_ERROR", "BLOCKED",
-    "ROBOTS_DISALLOWED", "AUTH_REQUIRED", "PARSER_ERROR", "SCHEMA_CHANGED",
-    "RATE_LIMITED", "UNSUPPORTED", "NETWORK", "UNKNOWN",
+    "ROBOTS_DISALLOWED", "AUTH_REQUIRED", "AUTH", "PARSER_ERROR", "SCHEMA_CHANGED",
+    "RATE_LIMITED", "UNSUPPORTED", "NETWORK", "PROVIDER_ERROR", "FILTERED", "UNKNOWN",
 }
 
 def _robots_allowed(url: str) -> bool:
@@ -81,13 +81,13 @@ def _to_job(title: str, company: str, url: str, source: str, snippet: str = "", 
         "required_skills": [],
     }
 
-def generic_html_adapter(source) -> Tuple[list[dict], str, str | None]:
+def generic_html_adapter(source) -> Tuple[list[dict], str, str | None, int]:
     url = source.url
     status, html, cat = _http_get(url)
     if cat:
-        return [], cat, f"HTTP {status} {cat}" if status else cat
+        return [], cat, f"HTTP {status} {cat}" if status else cat, 0
     if not html or len(html.strip()) < 80:
-        return [], "NO_RESULTS", "Empty HTML"
+        return [], "NO_RESULTS", "Empty HTML", 0
     # Minimal parse: use BeautifulSoup if available else regex
     try:
         from bs4 import BeautifulSoup
@@ -118,12 +118,12 @@ def generic_html_adapter(source) -> Tuple[list[dict], str, str | None]:
             if len(jobs) >= 20:
                 break
         if jobs:
-            return jobs, "SUCCESS", None
+            return jobs, "SUCCESS", None, len(jobs)
         # fallback: treat page as single listing if it looks like a JD
         if len(text) > 800 and any(k in text.lower() for k in ("responsibilities", "requirements", "qualifications", "about us")):
             title = soup.title.string.strip() if soup.title and soup.title.string else source.name
-            return [_to_job(title, source.name, url, source.host, snippet=text[:1200], jd_text=text[:4000])], "SUCCESS", None
-        return [], "NO_RESULTS", "No job links found"
+            return [_to_job(title, source.name, url, source.host, snippet=text[:1200], jd_text=text[:4000])], "SUCCESS", None, 1
+        return [], "NO_RESULTS", "No job links found", 0
     except ImportError:
         # regex fallback
         links = re.findall(r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>([^<]{8,120})</a>', html, re.I)
@@ -136,21 +136,21 @@ def generic_html_adapter(source) -> Tuple[list[dict], str, str | None]:
             if len(jobs) >= 15:
                 break
         if jobs:
-            return jobs, "SUCCESS", None
-        return [], "NO_RESULTS", "No job links (no bs4)"
+            return jobs, "SUCCESS", None, len(jobs)
+        return [], "NO_RESULTS", "No job links (no bs4)", 0
     except Exception as e:
-        return [], "PARSER_ERROR", str(e)[:500]
+        return [], "PARSER_ERROR", str(e)[:500], 0
 
-def rss_adapter(source) -> Tuple[list[dict], str, str | None]:
+def rss_adapter(source) -> Tuple[list[dict], str, str | None, int]:
     url = source.url
     status, text, cat = _http_get(url)
     if cat:
-        return [], cat, f"HTTP {status} {cat}" if status else cat
+        return [], cat, f"HTTP {status} {cat}" if status else cat, 0
     try:
         import feedparser
         feed = feedparser.parse(text)
         if feed.bozo and not feed.entries:
-            return [], "PARSER_ERROR", str(feed.bozo_exception)[:500]
+            return [], "PARSER_ERROR", str(feed.bozo_exception)[:500], 0
         jobs = []
         for e in feed.entries[:25]:
             title = getattr(e, "title", "") or ""
@@ -160,8 +160,9 @@ def rss_adapter(source) -> Tuple[list[dict], str, str | None]:
             desc = re.sub(r"<[^>]+>", " ", desc)[:1200]
             jobs.append(_to_job(title, source.name, link, source.host, snippet=desc, jd_text=desc))
         if not jobs:
-            return [], "NO_RESULTS", "Empty feed"
-        return jobs, "SUCCESS", None
+            return [], "NO_RESULTS", "Empty feed", 0
+        # provider_raw is raw entry count before normalization
+        return jobs, "SUCCESS", None, len(feed.entries[:25])
     except ImportError:
         # minimal xml regex fallback
         items = re.findall(r"<item[^>]*>(.*?)</item>", text, re.S | re.I)
@@ -175,16 +176,16 @@ def rss_adapter(source) -> Tuple[list[dict], str, str | None]:
             desc = re.sub(r"<[^>]+>", "", d.group(1)).strip()[:1200] if d else ""
             jobs.append(_to_job(title, source.name, link, source.host, snippet=desc, jd_text=desc))
         if not jobs:
-            return [], "PARSER_ERROR", "feedparser not installed and regex found 0 items"
-        return jobs, "SUCCESS", None
+            return [], "PARSER_ERROR", "feedparser not installed and regex found 0 items", 0
+        return jobs, "SUCCESS", None, len(items[:25])
     except Exception as e:
-        return [], "PARSER_ERROR", str(e)[:500]
+        return [], "PARSER_ERROR", str(e)[:500], 0
 
-def json_adapter(source) -> Tuple[list[dict], str, str | None]:
+def json_adapter(source) -> Tuple[list[dict], str, str | None, int]:
     url = source.url
     status, text, cat = _http_get(url)
     if cat:
-        return [], cat, f"HTTP {status} {cat}" if status else cat
+        return [], cat, f"HTTP {status} {cat}" if status else cat, 0
     try:
         data = json.loads(text)
         # common shapes: list, {jobs: [...]}, {results: [...]}, Greenhouse {jobs: [...]}
@@ -201,7 +202,7 @@ def json_adapter(source) -> Tuple[list[dict], str, str | None]:
                 if "title" in data and "company" in data or "title" in data:
                     candidates = [data]
         if not candidates:
-            return [], "NO_RESULTS", "No job array in JSON"
+            return [], "NO_RESULTS", "No job array in JSON", 0
         jobs = []
         for j in candidates[:25]:
             if not isinstance(j, dict):
@@ -217,14 +218,14 @@ def json_adapter(source) -> Tuple[list[dict], str, str | None]:
                 desc = ""
             jobs.append(_to_job(str(title), str(company), str(link), source.host, snippet=str(desc)[:1200], location=str(loc), jd_text=str(desc)))
         if not jobs:
-            return [], "NO_RESULTS", "JSON array contained 0 mappable jobs"
-        return jobs, "SUCCESS", None
+            return [], "NO_RESULTS", "JSON array contained 0 mappable jobs", 0
+        return jobs, "SUCCESS", None, len(candidates[:25])
     except json.JSONDecodeError as e:
-        return [], "PARSER_ERROR", f"JSON decode: {e}"
+        return [], "PARSER_ERROR", f"JSON decode: {e}", 0
     except Exception as e:
-        return [], "PARSER_ERROR", str(e)[:500]
+        return [], "PARSER_ERROR", str(e)[:500], 0
 
-def ats_adapter(source) -> Tuple[list[dict], str, str | None]:
+def ats_adapter(source) -> Tuple[list[dict], str, str | None, int]:
     url = source.url
     # Greenhouse: https://boards.greenhouse.io/embed/job_board?for=company  or https://boards-api.greenhouse.io/v1/board/company/jobs
     # Lever: https://api.lever.co/v0/postings/company?mode=json
@@ -241,11 +242,11 @@ def ats_adapter(source) -> Tuple[list[dict], str, str | None]:
                 if hm:
                     company = hm.group(1)
             if not company:
-                return [], "UNSUPPORTED", "Could not extract Greenhouse company slug from URL"
+                return [], "UNSUPPORTED", "Could not extract Greenhouse company slug from URL", 0
             api = f"https://boards-api.greenhouse.io/v1/board/{company}/jobs"
             status, text, cat = _http_get(api)
             if cat:
-                return [], cat, f"Greenhouse API {status} {cat}" if status else cat
+                return [], cat, f"Greenhouse API {status} {cat}" if status else cat, 0
             data = json.loads(text)
             jobs_raw = data.get("jobs", []) if isinstance(data, dict) else []
             jobs = []
@@ -257,8 +258,8 @@ def ats_adapter(source) -> Tuple[list[dict], str, str | None]:
                 desc = re.sub(r"<[^>]+>", " ", desc)[:1200]
                 jobs.append(_to_job(title, source.name, link, source.host, snippet=desc, location=str(loc), jd_text=desc))
             if not jobs:
-                return [], "NO_RESULTS", "Greenhouse returned 0 jobs"
-            return jobs, "SUCCESS", None
+                return [], "NO_RESULTS", "Greenhouse returned 0 jobs", 0
+            return jobs, "SUCCESS", None, len(jobs_raw[:25])
         if "lever.co" in low:
             m = re.search(r"lever\.co/([^/?&#]+)", low)
             company = m.group(1) if m else None
@@ -268,11 +269,11 @@ def ats_adapter(source) -> Tuple[list[dict], str, str | None]:
                 if path_parts:
                     company = path_parts[0]
             if not company:
-                return [], "UNSUPPORTED", "Could not extract Lever company slug"
+                return [], "UNSUPPORTED", "Could not extract Lever company slug", 0
             api = f"https://api.lever.co/v0/postings/{company}?mode=json&limit=25"
             status, text, cat = _http_get(api)
             if cat:
-                return [], cat, f"Lever API {status} {cat}" if status else cat
+                return [], cat, f"Lever API {status} {cat}" if status else cat, 0
             data = json.loads(text)
             # Lever returns list
             lst = data if isinstance(data, list) else data.get("data") if isinstance(data, dict) else []
@@ -285,15 +286,15 @@ def ats_adapter(source) -> Tuple[list[dict], str, str | None]:
                 desc = re.sub(r"<[^>]+>", " ", desc)[:1200]
                 jobs.append(_to_job(title, source.name, link, source.host, snippet=desc, location=str(loc), jd_text=desc))
             if not jobs:
-                return [], "NO_RESULTS", "Lever returned 0 jobs"
-            return jobs, "SUCCESS", None
+                return [], "NO_RESULTS", "Lever returned 0 jobs", 0
+            return jobs, "SUCCESS", None, len((lst or [])[:25])
         # generic ATS fallback: treat as JSON
         return json_adapter(source)
     except Exception as e:
-        return [], "PARSER_ERROR", str(e)[:500]
+        return [], "PARSER_ERROR", str(e)[:500], 0
 
 # SearchAdapter wraps existing web_research_agent per-source site-filtered Tavily call
-def search_adapter(source, profile: dict, resume_data: dict | None) -> Tuple[list[dict], str, str | None]:
+def search_adapter(source, profile: dict, resume_data: dict | None) -> Tuple[list[dict], str, str | None, int]:
     # For built-in search sources, we run a site-specific Tavily query (one host only)
     # Reuse _run_tavily + LLM extraction via agents pipeline but scoped to single host
     host = source.host
@@ -326,14 +327,15 @@ def search_adapter(source, profile: dict, resume_data: dict | None) -> Tuple[lis
         # Respect missing key -> UNSUPPORTED
         import os
         if not os.getenv("TAVILY_API_KEY"):
-            return [], "AUTH_REQUIRED", "TAVILY_API_KEY not configured"
+            return [], "AUTH", "TAVILY_API_KEY not configured", 0
         results = _run_tavily(query)
+        provider_raw = len(results) if isinstance(results, list) else 0
         if not results:
-            return [], "NO_RESULTS", "Tavily returned 0 results"
+            return [], "NO_RESULTS", "Tavily returned 0 results", provider_raw
         llm = get_llm()
         listings = _extract_job_listings(results, llm)
         if not listings:
-            return [], "NO_RESULTS", "LLM extracted 0 jobs"
+            return [], "NO_RESULTS", "LLM extracted 0 jobs", provider_raw
         # normalize to standard shape
         out = []
         for j in listings[:15]:
@@ -344,41 +346,95 @@ def search_adapter(source, profile: dict, resume_data: dict | None) -> Tuple[lis
                                jd_text=j.get("description_snippet","") ))
             out[-1]["required_skills"] = j.get("required_skills", [])
             out[-1]["type"] = j.get("type", "fulltime")
-        return out, "SUCCESS", None
+        return out, "SUCCESS", None, provider_raw
     except Exception as e:
+        # Preserve highest-confidence failure taxonomy without exposing secrets
+        # Use gateway exception hierarchy when available, else fallback to message heuristics
+        try:
+            from core.ai.errors import (
+                RateLimitError as _RL, TimeoutError as _TO, AuthenticationError as _AE,
+                ProviderUnavailableError as _PU, sanitize_exception_message as _san,
+            )
+            safe = _san(str(e))[:500]
+            if isinstance(e, _RL):
+                return [], "RATE_LIMITED", safe, 0
+            if isinstance(e, _TO):
+                return [], "TIMEOUT", safe, 0
+            if isinstance(e, _AE):
+                return [], "AUTH", safe, 0
+            if isinstance(e, _PU):
+                # Distinguish rate-limit wrapped as ProviderUnavailable with 429 hint
+                low = str(e).lower()
+                if "429" in low or "rate" in low or "quota" in low:
+                    return [], "RATE_LIMITED", safe, 0
+                if "timeout" in low:
+                    return [], "TIMEOUT", safe, 0
+                return [], "PROVIDER_ERROR", safe, 0
+        except Exception:
+            pass
+        # Fallback heuristics (do NOT infer RATE_LIMITED merely from multi-provider failure)
+        try:
+            from core.ai.errors import sanitize_exception_message as _san2
+            safe2 = _san2(str(e))[:500]
+        except Exception:
+            safe2 = str(e)[:500]
         msg = str(e).lower()
         if "tavily" in msg and "api key" in msg:
-            return [], "AUTH_REQUIRED", str(e)[:500]
+            return [], "AUTH", safe2, 0
         if "timeout" in msg:
-            return [], "TIMEOUT", str(e)[:500]
-        if "rate" in msg:
-            return [], "RATE_LIMITED", str(e)[:500]
-        return [], "UNKNOWN", str(e)[:800]
+            return [], "TIMEOUT", safe2, 0
+        if "rate" in msg and ("429" in msg or "quota" in msg or "rate limit" in msg):
+            return [], "RATE_LIMITED", safe2, 0
+        if "auth" in msg or "401" in msg or "403" in msg:
+            return [], "AUTH", safe2, 0
+        # Generic provider/availability without stronger evidence
+        if "connection" in msg or "provider" in msg or "unavailable" in msg or "5" in msg:
+            # If insufficient evidence for RATE_LIMITED/TIMEOUT/AUTH, use PROVIDER_ERROR
+            if "all ai providers unavailable" in msg:
+                # Ambiguous multi-provider exhaustion — keep as PROVIDER_ERROR (not RATE_LIMITED) per spec
+                return [], "PROVIDER_ERROR", safe2, 0
+            return [], "PROVIDER_ERROR", safe2, 0
+        return [], "UNKNOWN", safe2, 0
 
-def dispatch(source, profile: dict | None = None, resume_data: dict | None = None) -> Tuple[list[dict], str, str | None]:
-    """Dispatch to correct adapter based on source.adapter / source_type."""
+def dispatch(source, profile: dict | None = None, resume_data: dict | None = None) -> Tuple[list[dict], str, str | None, int]:
+    """Dispatch to correct adapter based on source.adapter / source_type. Returns (jobs, cat, err, provider_raw)."""
+    def _norm(res):
+        # Normalize adapter result to 4-tuple (jobs, cat, err, provider_raw) for backward compat with mocks returning 3-tuple
+        if isinstance(res, tuple):
+            if len(res) == 4:
+                return res  # type: ignore
+            if len(res) == 3:
+                jobs, cat, err = res
+                # provider_raw best effort: len(jobs) if success else 0
+                try:
+                    pr = len(jobs) if isinstance(jobs, list) and cat in ("SUCCESS", "NO_RESULTS") else 0
+                except Exception:
+                    pr = 0
+                return (jobs, cat, err, pr)
+        # fallback
+        return ([], "UNKNOWN", "Invalid adapter result", 0)
     adapter = (source.adapter or "").lower()
     if "search" in adapter:
-        return search_adapter(source, profile or {}, resume_data)
+        return _norm(search_adapter(source, profile or {}, resume_data))
     if "rss" in adapter:
-        return rss_adapter(source)
+        return _norm(rss_adapter(source))
     if "json" in adapter:
-        return json_adapter(source)
+        return _norm(json_adapter(source))
     if "ats" in adapter:
-        return ats_adapter(source)
+        return _norm(ats_adapter(source))
     if "generic" in adapter or "html" in adapter:
-        return generic_html_adapter(source)
+        return _norm(generic_html_adapter(source))
     # fallback by source_type
     st = (source.source_type or "").lower()
     if st == "rss":
-        return rss_adapter(source)
+        return _norm(rss_adapter(source))
     if st == "json":
-        return json_adapter(source)
+        return _norm(json_adapter(source))
     if st == "ats":
-        return ats_adapter(source)
+        return _norm(ats_adapter(source))
     if st == "search":
-        return search_adapter(source, profile or {}, resume_data)
-    return generic_html_adapter(source)
+        return _norm(search_adapter(source, profile or {}, resume_data))
+    return _norm(generic_html_adapter(source))
 
 def _mode_to_adapter(mode: str) -> str:
     m = (mode or "AUTO").upper()
@@ -396,11 +452,11 @@ def _mode_to_adapter(mode: str) -> str:
         return "PlaywrightAdapter"
     return "GenericHTMLAdapter"
 
-def dispatch_with_policy(source, profile: dict | None = None, resume_data: dict | None = None) -> tuple[list[dict], str, str | None, str, bool, str | None]:
+def dispatch_with_policy(source, profile: dict | None = None, resume_data: dict | None = None) -> tuple[list[dict], str, str | None, str, bool, str | None, int]:
     """
     Source-aware dispatch (010): uses source_role/primary_mode/direct_fetch_allowed/search_discovery_allowed.
-    Returns (jobs, failure_category, error, actual_mode, fallback_used, primary_failure)
-    Truthful mode, no hidden fallback.
+    Returns (jobs, failure_category, error, actual_mode, fallback_used, primary_failure, provider_raw_count)
+    Truthful mode, no hidden fallback. provider_raw_count is raw Tavily count for SEARCH, or raw feed count for others.
     """
     # Determine policy (fallback to derived if DB columns missing)
     try:
@@ -435,11 +491,11 @@ def dispatch_with_policy(source, profile: dict | None = None, resume_data: dict 
         if search_allowed:
             primary = "SEARCH"
         else:
-            return [], "ROBOTS_DISALLOWED", "Direct fetch disabled by policy", primary, False, None
+            return [], "ROBOTS_DISALLOWED", "Direct fetch disabled by policy", primary, False, None, 0
 
     # If search disallowed and primary is SEARCH, and direct not allowed -> UNSUPPORTED
     if not search_allowed and primary == "SEARCH" and not direct_allowed:
-        return [], "UNSUPPORTED", "Search discovery disabled by policy", primary, False, None
+        return [], "UNSUPPORTED", "Search discovery disabled by policy", primary, False, None, 0
 
     # Choose adapter for primary
     primary_adapter = _mode_to_adapter(primary)
@@ -452,8 +508,15 @@ def dispatch_with_policy(source, profile: dict | None = None, resume_data: dict 
     tmp.name = getattr(source, "name", "")
     tmp.adapter = primary_adapter
     tmp.source_type = primary.lower()
-    # Execute primary
-    jobs, cat, err = dispatch(tmp, profile, resume_data)  # type: ignore
+    # Execute primary — dispatch now returns (jobs, cat, err, provider_raw)
+    _r = dispatch(tmp, profile, resume_data)  # type: ignore
+    if isinstance(_r, tuple) and len(_r) == 4:
+        jobs, cat, err, provider_raw = _r
+    elif isinstance(_r, tuple) and len(_r) == 3:
+        jobs, cat, err = _r  # type: ignore
+        provider_raw = len(jobs) if isinstance(jobs, list) and cat in ("SUCCESS", "NO_RESULTS") else 0
+    else:
+        jobs, cat, err, provider_raw = [], "UNKNOWN", "Invalid dispatch result", 0
     actual_mode = primary
     fallback_used = False
     primary_failure = None
@@ -462,7 +525,7 @@ def dispatch_with_policy(source, profile: dict | None = None, resume_data: dict 
     if cat not in ("SUCCESS","NO_RESULTS") or not jobs:
         # Consider fallback only for meaningful failures, not for NO_RESULTS (which is not failure)
         should_fallback = False
-        if cat in ("PARSER_ERROR","HTTP_ERROR","BLOCKED","ROBOTS_DISALLOWED","TIMEOUT","NETWORK","UNKNOWN","UNSUPPORTED"):
+        if cat in ("PARSER_ERROR","HTTP_ERROR","BLOCKED","ROBOTS_DISALLOWED","TIMEOUT","NETWORK","UNKNOWN","UNSUPPORTED","AUTH","PROVIDER_ERROR"):
             should_fallback = True
         # Also fallback if SUCCESS but 0 jobs and primary was HTML with search allowed? But NO_RESULTS is not failure, don't fallback
         if should_fallback and search_allowed and primary in ("HTML","RSS","JSON","ATS","PLAYWRIGHT") and cat != "NO_RESULTS":
@@ -477,15 +540,23 @@ def dispatch_with_policy(source, profile: dict | None = None, resume_data: dict 
             tmp2.name = getattr(source, "name", "")
             tmp2.adapter = fallback_adapter
             tmp2.source_type = "search"
-            jobs2, cat2, err2 = dispatch(tmp2, profile, resume_data)  # type: ignore
+            _r2 = dispatch(tmp2, profile, resume_data)  # type: ignore
+            if isinstance(_r2, tuple) and len(_r2) == 4:
+                jobs2, cat2, err2, provider_raw2 = _r2
+            elif isinstance(_r2, tuple) and len(_r2) == 3:
+                jobs2, cat2, err2 = _r2  # type: ignore
+                provider_raw2 = len(jobs2) if isinstance(jobs2, list) and cat2 in ("SUCCESS", "NO_RESULTS") else 0
+            else:
+                jobs2, cat2, err2, provider_raw2 = [], "UNKNOWN", "Invalid dispatch result", 0
             # Record fallback truthfully
             actual_mode = fallback_mode
             fallback_used = True
+            provider_raw = provider_raw2
             # If fallback succeeded, return its result with fallback flag
             if cat2 in ("SUCCESS","NO_RESULTS"):
-                return jobs2, cat2, err2, actual_mode, fallback_used, primary_failure
+                return jobs2, cat2, err2, actual_mode, fallback_used, primary_failure, provider_raw
             # If fallback also failed, return fallback result but preserve primary_failure
-            return jobs2, cat2, err2, actual_mode, fallback_used, primary_failure
+            return jobs2, cat2, err2, actual_mode, fallback_used, primary_failure, provider_raw
 
     # No fallback, return primary result
-    return jobs, cat, err, actual_mode, fallback_used, primary_failure
+    return jobs, cat, err, actual_mode, fallback_used, primary_failure, provider_raw

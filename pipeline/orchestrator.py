@@ -470,27 +470,86 @@ class Orchestrator:
                 except Exception:
                     rid = None
                 try:
-                    jobs, cat, err, actual_mode, fallback_used, primary_failure = dispatch_with_policy(src, self.profile, resume_data)
+                    # dispatch_with_policy now returns 7 values with provider_raw_count (backward compat for 6)
+                    _dp = dispatch_with_policy(src, self.profile, resume_data)
+                    if isinstance(_dp, tuple) and len(_dp) == 7:
+                        jobs, cat, err, actual_mode, fallback_used, primary_failure, provider_raw_count = _dp
+                    elif isinstance(_dp, tuple) and len(_dp) == 6:
+                        jobs, cat, err, actual_mode, fallback_used, primary_failure = _dp
+                        provider_raw_count = len(jobs) if cat in ("SUCCESS", "NO_RESULTS") else 0
+                    else:
+                        jobs, cat, err, actual_mode, fallback_used, primary_failure, provider_raw_count = [], "UNKNOWN", "Invalid dispatch result", "UNKNOWN", False, None, 0
                     duration = int((time.time() - t0) * 1000)
-                    # Normalize cat
-                    if cat not in ("SUCCESS", "NO_RESULTS", "TIMEOUT", "HTTP_ERROR", "BLOCKED",
-                                   "ROBOTS_DISALLOWED", "AUTH_REQUIRED", "PARSER_ERROR",
-                                   "SCHEMA_CHANGED", "RATE_LIMITED", "UNSUPPORTED", "UNSUPPORTED_SOURCE", "NETWORK", "NETWORK_ERROR", "UNKNOWN"):
+                    # Normalize cat — preserve new taxonomy without collapsing to UNKNOWN
+                    # New categories: SUCCESS, NO_RESULTS, FILTERED, RATE_LIMITED, TIMEOUT, AUTH, PROVIDER_ERROR, UNKNOWN (plus legacy)
+                    if cat not in ("SUCCESS", "NO_RESULTS", "FILTERED", "TIMEOUT", "HTTP_ERROR", "BLOCKED",
+                                   "ROBOTS_DISALLOWED", "AUTH", "AUTH_REQUIRED", "PARSER_ERROR",
+                                   "SCHEMA_CHANGED", "RATE_LIMITED", "UNSUPPORTED", "UNSUPPORTED_SOURCE", "NETWORK", "NETWORK_ERROR", "PROVIDER_ERROR", "UNKNOWN"):
                         cat = "UNKNOWN" if err else ("SUCCESS" if jobs else "NO_RESULTS")
-                    status = "success" if cat in ("SUCCESS", "NO_RESULTS") else "failed"
+                    status = "success" if cat in ("SUCCESS", "NO_RESULTS", "FILTERED") else "failed"
                     if not jobs and cat == "SUCCESS":
                         cat = "NO_RESULTS"
                     # Map actual_mode to adapter truthfully
                     from core.services.job_source_adapters import _mode_to_adapter as _m2a
                     actual_adapter = _m2a(actual_mode)
+                    # Site-mismatch observability (SEARCH only, do NOT drop)
+                    # Compare source.host vs each extracted job.url hostname safely
+                    site_mismatch_count = 0
+                    site_mismatch_examples: list[dict] = []
+                    try:
+                        from urllib.parse import urlparse as _up
+                        def _belongs(job_host: str, src_host: str) -> bool:
+                            j = (job_host or "").lower().strip()
+                            s = (src_host or "").lower().strip()
+                            if not j or not s:
+                                return True  # unknown -> treat as not mismatched to avoid false positives
+                            if j.startswith("www."):
+                                j = j[4:]
+                            if s.startswith("www."):
+                                s = s[4:]
+                            if j == s:
+                                return True
+                            # legitimate subdomain: foo.source.com belongs to source.com
+                            if j.endswith("." + s):
+                                return True
+                            return False
+                        src_host_norm = (src.host or "").lower()
+                        # Only for SEARCH sources per spec; other adapters have host-specific URLs already filtered
+                        if actual_mode == "SEARCH":
+                            for _j in jobs:
+                                _u = str(_j.get("url") or "")
+                                try:
+                                    _jh = (_up(_u).netloc or "").lower().split(":")[0]
+                                    if _jh.startswith("www."):
+                                        _jh = _jh[4:]
+                                except Exception:
+                                    _jh = ""
+                                # Only evaluate when job has http URL; skip manual/fallback URLs
+                                if _u and _u.lower().startswith("http") and _jh:
+                                    if not _belongs(_jh, src_host_norm):
+                                        site_mismatch_count += 1
+                                        if len(site_mismatch_examples) < 3:
+                                            site_mismatch_examples.append({"title": str(_j.get("title") or "")[:80], "url": _u[:200], "host": _jh})
+                                # non-http or empty URL -> not counted as mismatch
+                        else:
+                            site_mismatch_count = 0
+                            site_mismatch_examples = []
+                    except Exception:
+                        site_mismatch_count = 0
+                        site_mismatch_examples = []
                     # Pre-storage gate: exclude clear non-job pages (listing indexes,
                     # team/tag/article pages) BEFORE canonical ID / DB insert.
-                    # jobs_found = raw adapter output; jobs_normalized = gate
-                    # survivors (JOB + UNDETERMINED); non_job_filtered is new.
+                    # jobs_found = LLM extracted count (preserve meaning for backward compat)
+                    # provider_raw_count = raw provider count (Tavily raw for SEARCH)
+                    # jobs_normalized = gate survivors (JOB + UNDETERMINED); non_job_filtered is new.
                     from core.services.job_listing_gate import filter_listings
                     passing, nonjob = filter_listings(jobs)
                     for _nj, _reason in nonjob:
                         logger.info(f"[orchestrator] filtered non-job from {src.host}: {_reason} :: {str(_nj.get('title'))[:60]!r}")
+                    # If gate filtered everything and original cat was SUCCESS, keep SUCCESS but note filtered count
+                    # Do not invent FILTERED category here unless all filtered and no other error — keep cat as SUCCESS per backward compat
+                    llm_extracted_count = len(jobs)
+                    # provider_raw_count already captured; for non-SEARCH adapters it equals llm_extracted_count
                     res = {
                         "source_id": src.id,
                         "status": status,
@@ -498,16 +557,25 @@ class Orchestrator:
                         "mode": actual_mode,
                         "primary_mode": getattr(src, "primary_mode", actual_mode),
                         "source_role": getattr(src, "source_role", "UNKNOWN"),
-                        "jobs_found": len(jobs),
+                        "jobs_found": llm_extracted_count,
                         "jobs_normalized": len(passing),
                         "non_job_filtered": len(nonjob),
+                        "gate_eligible_count": len(passing),
+                        "normalized_count": len(passing),
                         "jobs_new": 0,
                         "jobs_duplicate": 0,
+                        "duplicate_count": 0,
+                        "inserted_count": 0,
                         "failure_category": cat,
                         "error": err,
                         "duration_ms": duration,
                         "fallback_used": fallback_used,
                         "primary_failure": primary_failure,
+                        # New observability fields (additive, no recall change)
+                        "provider_raw_count": int(provider_raw_count or 0),
+                        "llm_extracted_count": llm_extracted_count,
+                        "site_mismatch_count": site_mismatch_count,
+                        "site_mismatch_examples": site_mismatch_examples,
                     }
                     # Record health + observed mode
                     try:
@@ -525,8 +593,8 @@ class Orchestrator:
                     self._emit("source_done", f"Source {src.host}: {len(jobs)} jobs ({cat}) via {actual_mode}{' (fallback)' if fallback_used else ''}",
                                agent="web_research", status="done" if status == "success" else "error",
                                source_id=src.id, host=src.host, adapter=actual_adapter, mode=actual_mode, fallback_used=fallback_used,
-                               jobs_found=len(jobs), failure_category=cat, duration_ms=duration)
-                    logger.info(f"[orchestrator] source {src.host} role={getattr(src,'source_role','?')} primary={getattr(src,'primary_mode','?')} actual={actual_mode} fallback={fallback_used} found={len(jobs)} normalized={len(passing)} non_job_filtered={len(nonjob)} cat={cat} ms={duration} err={err!r}")
+                               jobs_found=len(jobs), provider_raw_count=provider_raw_count, llm_extracted_count=llm_extracted_count, site_mismatch_count=site_mismatch_count, failure_category=cat, duration_ms=duration)
+                    logger.info(f"[orchestrator] source {src.host} role={getattr(src,'source_role','?')} primary={getattr(src,'primary_mode','?')} actual={actual_mode} fallback={fallback_used} found={len(jobs)} provider_raw={provider_raw_count} llm_extracted={llm_extracted_count} site_mismatch={site_mismatch_count} normalized={len(passing)} non_job_filtered={len(nonjob)} cat={cat} ms={duration} err={err!r}")
                     per_source.append(res)
                     # Tag jobs with truthful source attribution (host not primary, mode truthful)
                     # Only gate survivors are tagged/extended: NON_JOB creates no
@@ -548,7 +616,9 @@ class Orchestrator:
                 except Exception as e:
                     duration = int((time.time() - t0) * 1000)
                     from core.ai.errors import sanitize_exception_message
-                    safe = sanitize_exception_message(str(e))
+                    # Strip stack trace: only first line, no newlines, sanitized
+                    raw = str(e).split("\n")[0].split("Traceback")[0].strip()
+                    safe = sanitize_exception_message(raw)[:500]
                     # Use policy adapter for exception case as well
                     try:
                         _pm = getattr(src, "primary_mode", "AUTO")
@@ -560,7 +630,8 @@ class Orchestrator:
                         _actual_mode = "UNKNOWN"
                     res = {"source_id": src.id, "status": "failed", "adapter": _actual_adapter, "mode": _actual_mode,
                            "jobs_found": 0, "jobs_normalized": 0, "non_job_filtered": 0, "jobs_new": 0, "jobs_duplicate": 0,
-                           "failure_category": "UNKNOWN", "error": safe, "duration_ms": duration, "fallback_used": False}
+                           "failure_category": "UNKNOWN", "error": safe, "duration_ms": duration, "fallback_used": False,
+                           "provider_raw_count": 0, "llm_extracted_count": 0, "site_mismatch_count": 0, "site_mismatch_examples": []}
                     try:
                         svc.record_run(src.id, res)
                         svc.finish_source_run(rid, res)
@@ -575,15 +646,25 @@ class Orchestrator:
             self.results["sources_configured"] = len(sources)
             self.results["sources_attempted"] = len(per_source)
             self.results["sources_succeeded"] = sum(1 for r in per_source if r["status"] == "success" and r["failure_category"] == "SUCCESS")
-            self.results["sources_failed"] = sum(1 for r in per_source if r["status"] == "failed" or r["failure_category"] not in ("SUCCESS", "NO_RESULTS"))
+            self.results["sources_failed"] = sum(1 for r in per_source if r["status"] == "failed" or r["failure_category"] not in ("SUCCESS", "NO_RESULTS", "FILTERED"))
             # Explicit fallback: true if any source used fallback (primary HTML failed → SEARCH succeeded)
             self.results["fallback_used"] = any(r.get("fallback_used") for r in per_source)
             # Also expose per-source fallback details for UI diagnostics
             self.results["fallback_details"] = [r for r in per_source if r.get("fallback_used")]
             self.results["non_job_filtered"] = sum(int(r.get("non_job_filtered", 0) or 0) for r in per_source)
+            self.results["provider_raw_count"] = sum(int(r.get("provider_raw_count", 0) or 0) for r in per_source)
+            self.results["llm_extracted_count"] = sum(int(r.get("llm_extracted_count", 0) or r.get("jobs_found", 0) or 0) for r in per_source)
+            self.results["site_mismatch_count"] = sum(int(r.get("site_mismatch_count", 0) or 0) for r in per_source)
+            # Aggregate mismatch examples (cap 5)
+            _examples: list[dict] = []
+            for r in per_source:
+                for ex in (r.get("site_mismatch_examples") or [])[:1]:
+                    if len(_examples) < 5:
+                        _examples.append({"source_id": r.get("source_id"), "host": r.get("host", ""), **ex})
+            self.results["site_mismatch_examples"] = _examples
             logger.info(f"[orchestrator] Multi-source found {len(all_listings)} jobs across {len(sources)} sources "
                         f"({self.results['sources_succeeded']} succeeded, {self.results['sources_failed']} failed) fallback_used={self.results['fallback_used']} "
-                        f"non_job_filtered={self.results['non_job_filtered']}")
+                        f"non_job_filtered={self.results['non_job_filtered']} provider_raw={self.results['provider_raw_count']} llm_extracted={self.results['llm_extracted_count']} site_mismatch={self.results['site_mismatch_count']}")
             return all_listings
         except Exception as e:
             from core.ai.errors import sanitize_exception_message, classify_error

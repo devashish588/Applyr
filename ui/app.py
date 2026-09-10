@@ -1079,11 +1079,60 @@ def api_job_sources_test(source_id):
         except Exception:
             pass
         t0 = time.time()
-        jobs, cat, err, actual_mode, fallback_used, primary_failure = dispatch_with_policy(src, profile, resume_data)
+        _dp = dispatch_with_policy(src, profile, resume_data)
+        # Backward compat: dispatch_with_policy now returns 7 with provider_raw_count
+        if isinstance(_dp, tuple) and len(_dp) == 7:
+            jobs, cat, err, actual_mode, fallback_used, primary_failure, provider_raw_count = _dp
+        elif isinstance(_dp, tuple) and len(_dp) == 6:
+            jobs, cat, err, actual_mode, fallback_used, primary_failure = _dp
+            provider_raw_count = len(jobs) if cat in ("SUCCESS", "NO_RESULTS") else 0
+        else:
+            jobs, cat, err, actual_mode, fallback_used, primary_failure, provider_raw_count = [], "UNKNOWN", "Invalid dispatch", "UNKNOWN", False, None, 0
         duration = int((time.time() - t0) * 1000)
-        status = "success" if cat in ("SUCCESS", "NO_RESULTS") else "failed"
+        status = "success" if cat in ("SUCCESS", "NO_RESULTS", "FILTERED") else "failed"
         # Truthful terminology mapping
         mode_label = {"SEARCH":"Search discovery","HTML":"Direct source","RSS":"RSS feed","JSON":"JSON/API","ATS":"ATS/API"}.get(actual_mode, actual_mode)
+        # Site-mismatch for this dry-run (observability only, do not drop)
+        site_mismatch_count = 0
+        site_mismatch_examples: list[dict] = []
+        try:
+            from urllib.parse import urlparse as _up
+            def _belongs(jh: str, sh: str) -> bool:
+                j = (jh or "").lower().strip()
+                s = (sh or "").lower().strip()
+                if not j or not s:
+                    return True
+                if j.startswith("www."):
+                    j = j[4:]
+                if s.startswith("www."):
+                    s = s[4:]
+                return j == s or j.endswith("." + s)
+            sh = (src.host or "").lower()
+            for _j in jobs:
+                _u = str(_j.get("url") or "")
+                try:
+                    _jh = (_up(_u).netloc or "").lower().split(":")[0]
+                    if _jh.startswith("www."):
+                        _jh = _jh[4:]
+                except Exception:
+                    _jh = ""
+                if _u and _u.lower().startswith("http") and _jh and not _belongs(_jh, sh):
+                    site_mismatch_count += 1
+                    if len(site_mismatch_examples) < 3:
+                        site_mismatch_examples.append({"title": str(_j.get("title") or "")[:80], "url": _u[:200], "host": _jh})
+        except Exception:
+            site_mismatch_count = 0
+            site_mismatch_examples = []
+        # Gate counts for dry-run (no DB insert, just gate observability)
+        non_job_filtered = 0
+        jobs_normalized = len(jobs)
+        try:
+            from core.services.job_listing_gate import filter_listings as _fl
+            _passing, _non = _fl(jobs)
+            non_job_filtered = len(_non)
+            jobs_normalized = len(_passing)
+        except Exception:
+            pass
         result = {
             "source_id": src.id,
             "source_role": getattr(src, "source_role", "UNKNOWN"),
@@ -1093,7 +1142,12 @@ def api_job_sources_test(source_id):
             "adapter": src.adapter if not fallback_used else __import__("core.services.job_source_adapters", fromlist=["_mode_to_adapter"])._mode_to_adapter(actual_mode),
             "status": status,
             "jobs_found": len(jobs),
-            "jobs_normalized": len(jobs),
+            "provider_raw_count": int(provider_raw_count or 0),
+            "llm_extracted_count": len(jobs),
+            "jobs_normalized": jobs_normalized,
+            "non_job_filtered": non_job_filtered,
+            "site_mismatch_count": site_mismatch_count,
+            "site_mismatch_examples": site_mismatch_examples,
             "jobs_new": 0,
             "jobs_duplicate": 0,
             "failure_category": cat,
@@ -1119,37 +1173,72 @@ def api_job_sources_health():
         srcs = svc.list_sources()
         enabled = [s for s in srcs if s.enabled]
         recent = svc.recent_source_runs(limit=100)
-        # per-source performance aggregates from job_source_runs (33.4)
+        # per-source performance aggregates from job_source_runs (33.4) + observability (013)
         perf_map = {}
         try:
             db = get_db()
             conn = db._conn()
             try:
                 with conn.cursor() as cur:
-                    cur.execute("""
-                        SELECT source_id,
-                               COUNT(*) as attempts,
-                               SUM(CASE WHEN status='success' AND failure_category='SUCCESS' THEN 1 ELSE 0 END) as successes,
-                               SUM(CASE WHEN status='failed' OR failure_category NOT IN ('SUCCESS','NO_RESULTS') THEN 1 ELSE 0 END) as failures,
-                               COALESCE(SUM(jobs_found),0) as jobs_found,
-                               COALESCE(SUM(jobs_normalized),0) as jobs_normalized,
-                               COALESCE(SUM(jobs_new),0) as jobs_new,
-                               COALESCE(SUM(jobs_duplicate),0) as duplicates,
-                               COALESCE(AVG(duration_ms),0) as avg_duration
-                        FROM job_source_runs GROUP BY source_id
-                    """)
+                    # Try observability columns if migration 013 applied, else fallback
+                    try:
+                        cur.execute("""
+                            SELECT source_id,
+                                   COUNT(*) as attempts,
+                                   SUM(CASE WHEN status='success' AND failure_category='SUCCESS' THEN 1 ELSE 0 END) as successes,
+                                   SUM(CASE WHEN status='failed' OR failure_category NOT IN ('SUCCESS','NO_RESULTS','FILTERED') THEN 1 ELSE 0 END) as failures,
+                                   COALESCE(SUM(jobs_found),0) as jobs_found,
+                                   COALESCE(SUM(jobs_normalized),0) as jobs_normalized,
+                                   COALESCE(SUM(jobs_new),0) as jobs_new,
+                                   COALESCE(SUM(jobs_duplicate),0) as duplicates,
+                                   COALESCE(AVG(duration_ms),0) as avg_duration,
+                                   COALESCE(SUM(provider_raw_count),0) as provider_raw,
+                                   COALESCE(SUM(site_mismatch_count),0) as site_mismatch
+                            FROM job_source_runs GROUP BY source_id
+                        """)
+                    except Exception:
+                        # Fallback without new columns (pre-migration)
+                        conn.rollback()
+                        cur.execute("""
+                            SELECT source_id,
+                                   COUNT(*) as attempts,
+                                   SUM(CASE WHEN status='success' AND failure_category='SUCCESS' THEN 1 ELSE 0 END) as successes,
+                                   SUM(CASE WHEN status='failed' OR failure_category NOT IN ('SUCCESS','NO_RESULTS') THEN 1 ELSE 0 END) as failures,
+                                   COALESCE(SUM(jobs_found),0) as jobs_found,
+                                   COALESCE(SUM(jobs_normalized),0) as jobs_normalized,
+                                   COALESCE(SUM(jobs_new),0) as jobs_new,
+                                   COALESCE(SUM(jobs_duplicate),0) as duplicates,
+                                   COALESCE(AVG(duration_ms),0) as avg_duration
+                            FROM job_source_runs GROUP BY source_id
+                        """)
                     for row in cur.fetchall():
-                        # row is tuple
-                        perf_map[row[0]] = {
-                            "attempts": int(row[1] or 0),
-                            "successes": int(row[2] or 0),
-                            "failures": int(row[3] or 0),
-                            "jobs_found": int(row[4] or 0),
-                            "jobs_normalized": int(row[5] or 0),
-                            "jobs_new": int(row[6] or 0),
-                            "duplicates": int(row[7] or 0),
-                            "avg_duration_ms": int(row[8] or 0),
-                        }
+                        # row is tuple; handle both 9 and 11 columns
+                        if len(row) == 11:
+                            perf_map[row[0]] = {
+                                "attempts": int(row[1] or 0),
+                                "successes": int(row[2] or 0),
+                                "failures": int(row[3] or 0),
+                                "jobs_found": int(row[4] or 0),
+                                "jobs_normalized": int(row[5] or 0),
+                                "jobs_new": int(row[6] or 0),
+                                "duplicates": int(row[7] or 0),
+                                "avg_duration_ms": int(row[8] or 0),
+                                "provider_raw_count": int(row[9] or 0),
+                                "site_mismatch_count": int(row[10] or 0),
+                            }
+                        else:
+                            perf_map[row[0]] = {
+                                "attempts": int(row[1] or 0),
+                                "successes": int(row[2] or 0),
+                                "failures": int(row[3] or 0),
+                                "jobs_found": int(row[4] or 0),
+                                "jobs_normalized": int(row[5] or 0),
+                                "jobs_new": int(row[6] or 0),
+                                "duplicates": int(row[7] or 0),
+                                "avg_duration_ms": int(row[8] or 0),
+                                "provider_raw_count": 0,
+                                "site_mismatch_count": 0,
+                            }
                 # success rate
                 for v in perf_map.values():
                     v["success_rate"] = round((v["successes"]/v["attempts"]*100) if v["attempts"] else 0, 1)
@@ -1312,6 +1401,9 @@ def api_sources_diagnostics():
                 "failure_category": r.get("failure_category"),
                 "error": r.get("error"),
                 "jobs_found": r.get("jobs_found"),
+                "provider_raw_count": r.get("provider_raw_count", 0) if "provider_raw_count" in r else 0,
+                "llm_extracted_count": r.get("jobs_found"),
+                "site_mismatch_count": r.get("site_mismatch_count", 0) if "site_mismatch_count" in r else 0,
                 "jobs_normalized": r.get("jobs_normalized"),
                 "jobs_new": r.get("jobs_new"),
                 "jobs_duplicate": r.get("jobs_duplicate"),

@@ -44,9 +44,9 @@ _HOST_MAP = {
 }
 
 VALID_FAILURE_CATEGORIES = {
-    "SUCCESS", "NO_RESULTS", "TIMEOUT", "HTTP_ERROR", "BLOCKED",
-    "ROBOTS_DISALLOWED", "AUTH_REQUIRED", "PARSER_ERROR", "SCHEMA_CHANGED",
-    "RATE_LIMITED", "UNSUPPORTED", "UNSUPPORTED_SOURCE", "NETWORK", "NETWORK_ERROR", "UNKNOWN",
+    "SUCCESS", "NO_RESULTS", "FILTERED", "TIMEOUT", "HTTP_ERROR", "BLOCKED",
+    "ROBOTS_DISALLOWED", "AUTH", "AUTH_REQUIRED", "PARSER_ERROR", "SCHEMA_CHANGED",
+    "RATE_LIMITED", "UNSUPPORTED", "UNSUPPORTED_SOURCE", "NETWORK", "NETWORK_ERROR", "PROVIDER_ERROR", "UNKNOWN",
 }
 
 # Source policy vocabulary (single enum)
@@ -551,27 +551,62 @@ class JobSourceService:
         db = self._db()
         if not db:
             return
+        # Sanitize error for telemetry (no secrets)
         try:
-            conn = db._conn()
+            from core.ai.errors import sanitize_exception_message as _san
+            _err = _san(str(result.get("error") or ""))[:2000]
+        except Exception:
+            _err = (result.get("error") or "")[:2000]
+        # Try extended observability columns if migration 013 applied, else fallback
+        for attempt in (0, 1):
             try:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        UPDATE job_source_runs SET finished_at=%s, status=%s,
-                            jobs_found=%s, jobs_normalized=%s, jobs_new=%s, jobs_duplicate=%s,
-                            failure_category=%s, error=%s, duration_ms=%s
-                        WHERE id=%s
-                    """, (_now(), result.get("status", "unknown"),
-                          int(result.get("jobs_found", 0) or 0),
-                          int(result.get("jobs_normalized", 0) or 0),
-                          int(result.get("jobs_new", 0) or 0),
-                          int(result.get("jobs_duplicate", 0) or 0),
-                          result.get("failure_category"), (result.get("error") or "")[:2000],
-                          int(result.get("duration_ms", 0) or 0), run_row_id))
-                conn.commit()
-            finally:
-                db._put_conn(conn)
-        except Exception as e:
-            logger.warning("[job_source] finish_source_run failed: %s", e)
+                conn = db._conn()
+                try:
+                    with conn.cursor() as cur:
+                        if attempt == 0:
+                            cur.execute("""
+                                UPDATE job_source_runs SET finished_at=%s, status=%s,
+                                    jobs_found=%s, jobs_normalized=%s, jobs_new=%s, jobs_duplicate=%s,
+                                    failure_category=%s, error=%s, duration_ms=%s,
+                                    provider_raw_count=%s, site_mismatch_count=%s
+                                WHERE id=%s
+                            """, (_now(), result.get("status", "unknown"),
+                                  int(result.get("jobs_found", 0) or 0),
+                                  int(result.get("jobs_normalized", 0) or 0),
+                                  int(result.get("jobs_new", 0) or 0),
+                                  int(result.get("jobs_duplicate", 0) or 0),
+                                  result.get("failure_category"), _err,
+                                  int(result.get("duration_ms", 0) or 0),
+                                  int(result.get("provider_raw_count", 0) or 0),
+                                  int(result.get("site_mismatch_count", 0) or 0),
+                                  run_row_id))
+                        else:
+                            cur.execute("""
+                                UPDATE job_source_runs SET finished_at=%s, status=%s,
+                                    jobs_found=%s, jobs_normalized=%s, jobs_new=%s, jobs_duplicate=%s,
+                                    failure_category=%s, error=%s, duration_ms=%s
+                                WHERE id=%s
+                            """, (_now(), result.get("status", "unknown"),
+                                  int(result.get("jobs_found", 0) or 0),
+                                  int(result.get("jobs_normalized", 0) or 0),
+                                  int(result.get("jobs_new", 0) or 0),
+                                  int(result.get("jobs_duplicate", 0) or 0),
+                                  result.get("failure_category"), _err,
+                                  int(result.get("duration_ms", 0) or 0), run_row_id))
+                    conn.commit()
+                finally:
+                    db._put_conn(conn)
+                break
+            except Exception as e:
+                try:
+                    conn.rollback()
+                    db._put_conn(conn)
+                except Exception:
+                    pass
+                if attempt == 0 and ("column" in str(e).lower() or "does not exist" in str(e).lower()):
+                    continue
+                logger.warning("[job_source] finish_source_run failed: %s", e)
+                break
 
     def get_source_runs(self, run_id: str) -> list[dict]:
         db = self._db()
