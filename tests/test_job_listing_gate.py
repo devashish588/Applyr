@@ -201,12 +201,14 @@ def test_non_job_excluded_from_discovery():
 
 def test_failures_stay_distinct_from_filtering():
     from pipeline.orchestrator import Orchestrator
-    from core.services.job_source_service import get_job_source_service
-    svc = get_job_source_service()
-    srcs = svc.list_enabled()[:2]
+    from core.services.job_source_service import JobSource, _now
+    # Isolated fixtures — no dependency on production registry size/order or cross-attr fixtures
+    src1 = JobSource(id="test-gate-success", name="Test Gate Success", url="https://example.com/jobs", host="example.com", enabled=True, source_type="search", adapter="SearchAdapter", created_at=_now(), updated_at=_now())
+    src2 = JobSource(id="test-gate-timeout", name="Test Gate Timeout", url="https://other.example/jobs", host="other.example", enabled=True, source_type="search", adapter="SearchAdapter", created_at=_now(), updated_at=_now())
+    srcs = [src1, src2]
 
     def fake(src, profile, resume_data):
-        if "builtin" in src.host:
+        if src.id == "test-gate-success":
             return ([dict(VIEW_ALL)], "SUCCESS", None, "SEARCH", False, None)
         return ([], "TIMEOUT", "timeout", "SEARCH", False, None)
 
