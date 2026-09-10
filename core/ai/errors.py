@@ -62,11 +62,17 @@ class MalformedResponseError(AIGatewayError):
     pass
 
 
+class PaymentRequiredError(AIGatewayError):
+    """Raised when provider requires payment/quota (HTTP 402)."""
+    pass
+
+
 # Provider error taxonomy — single source for retry/fallback decisions
 ERROR_TAXONOMY = {
     RateLimitError: {"category": "RATE_LIMITED", "retryable": True, "fallback_allowed": True, "user_action_required": False},
     AuthenticationError: {"category": "AUTH_FAILED", "retryable": False, "fallback_allowed": True, "user_action_required": False},
     TimeoutError: {"category": "TIMEOUT", "retryable": True, "fallback_allowed": True, "user_action_required": False},
+    PaymentRequiredError: {"category": "PAYMENT_REQUIRED", "retryable": False, "fallback_allowed": True, "user_action_required": True},
     ProviderUnavailableError: {"category": "PROVIDER_UNAVAILABLE", "retryable": True, "fallback_allowed": True, "user_action_required": False},
     MalformedResponseError: {"category": "INVALID_RESPONSE", "retryable": True, "fallback_allowed": True, "user_action_required": False},
     AIGatewayError: {"category": "UNKNOWN", "retryable": False, "fallback_allowed": False, "user_action_required": False},

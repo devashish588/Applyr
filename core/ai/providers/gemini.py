@@ -19,6 +19,7 @@ from core.ai.errors import (
     RateLimitError,
     TimeoutError,
     ProviderUnavailableError,
+    PaymentRequiredError,
     MalformedResponseError,
     sanitize_exception_message,
 )
@@ -87,6 +88,8 @@ class GeminiProvider(BaseAIProvider):
 
             if resp.status_code == 401 or resp.status_code == 403:
                 raise AuthenticationError(f"Gemini authentication failed (status {resp.status_code})")
+            elif resp.status_code == 402:
+                raise PaymentRequiredError(f"Gemini payment required (status 402)")
             elif resp.status_code == 429:
                 raise RateLimitError("Gemini rate limit exceeded (HTTP 429)")
             elif resp.status_code >= 500:

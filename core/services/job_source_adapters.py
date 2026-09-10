@@ -322,20 +322,93 @@ def search_adapter(source, profile: dict, resume_data: dict | None) -> Tuple[lis
     loc = (prefs.get("target_locations") or ["Remote"])[0]
     query = f"({role_str}) {skill_str} {loc} jobs hiring now (site:{host})"
     try:
-        from agents.web_research_agent import _run_tavily, _extract_job_listings
+        from agents.web_research_agent import _run_tavily
         from utils.llm_client import get_llm
+        import json as _json
+        import re as _re
+        import ast as _ast
+        def _local_parse(text: str):
+            t = text.strip()
+            if "```" in t:
+                m = _re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", t)
+                if m:
+                    t = m.group(1).strip()
+            # try JSON
+            try:
+                data = _json.loads(t)
+                if isinstance(data, list):
+                    return data
+                if isinstance(data, dict):
+                    for v in data.values():
+                        if isinstance(v, list):
+                            return v
+                    return [data]
+            except Exception:
+                pass
+            # try array extract
+            m = _re.search(r"\[\s*\{[\s\S]*\}\s*\]", t)
+            if m:
+                try:
+                    return _json.loads(m.group(0))
+                except Exception:
+                    pass
+            # try ast literal_eval for Python repr (tests)
+            try:
+                data = _ast.literal_eval(t)
+                if isinstance(data, list):
+                    return data
+                if isinstance(data, dict):
+                    return [data]
+            except Exception:
+                pass
+            return []
         # Respect missing key -> UNSUPPORTED
         import os
         if not os.getenv("TAVILY_API_KEY"):
-            return [], "AUTH", "TAVILY_API_KEY not configured", 0
+            return [], "AUTH", "TAVILY_API_KEY not configured", 0, []
         results = _run_tavily(query)
         provider_raw = len(results) if isinstance(results, list) else 0
         if not results:
-            return [], "NO_RESULTS", "Tavily returned 0 results", provider_raw
+            return [], "NO_RESULTS", "Tavily returned 0 results", provider_raw, []
         llm = get_llm()
-        listings = _extract_job_listings(results, llm)
+        # Build LLM extraction like _extract_job_listings but capture provider_attempts
+        # Replicate _extract_job_listings to keep observability
+        results_text = "\n\n".join(
+            f"[{i+1}] URL: {r.get('url', 'N/A')}\n"
+            f"Title: {r.get('title', 'N/A')}\n"
+            f"Snippet: {r.get('content', r.get('snippet', ''))[:400]}"
+            for i, r in enumerate(results[:8])
+        )
+        system_prompt = """You are a job listing extractor.
+Given raw search results, extract ONLY actual job postings (not articles or blogs).
+Return a JSON array. Each object must have these exact keys:
+{
+  "title": "Job title",
+  "company": "Company name",
+  "location": "City or Remote",
+  "url": "Direct job URL",
+  "source": "linkedin|internshala|naukri|wellfound|other",
+  "type": "fulltime|internship|contract",
+  "hr_email": null,
+  "description_snippet": "1-2 sentence summary of the role",
+  "required_skills": ["skill1", "skill2"]
+}
+If you cannot extract a real job listing from a result, skip it.
+Return ONLY the JSON array, no other text."""
+        try:
+            from langchain_core.messages import SystemMessage, HumanMessage
+            messages = [SystemMessage(content=system_prompt), HumanMessage(content=f"Extract job listings from these results:\n\n{results_text}")]
+        except Exception:
+            messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": f"Extract job listings from these results:\n\n{results_text}"}]
+        try:
+            response = llm.invoke(messages, max_tokens=4000)
+        except Exception:
+            response = llm.invoke(messages)
+        raw_json = getattr(response, "content", str(response)).strip() if hasattr(response, "content") else str(response).strip()
+        provider_attempts = getattr(response, "provider_attempts", [])
+        listings = _local_parse(raw_json)
         if not listings:
-            return [], "NO_RESULTS", "LLM extracted 0 jobs", provider_raw
+            return [], "NO_RESULTS", "LLM extracted 0 jobs", provider_raw, provider_attempts
         # normalize to standard shape
         out = []
         for j in listings[:15]:
@@ -346,30 +419,38 @@ def search_adapter(source, profile: dict, resume_data: dict | None) -> Tuple[lis
                                jd_text=j.get("description_snippet","") ))
             out[-1]["required_skills"] = j.get("required_skills", [])
             out[-1]["type"] = j.get("type", "fulltime")
-        return out, "SUCCESS", None, provider_raw
+        return out, "SUCCESS", None, provider_raw, provider_attempts
     except Exception as e:
         # Preserve highest-confidence failure taxonomy without exposing secrets
         # Use gateway exception hierarchy when available, else fallback to message heuristics
+        # Capture per-provider attempts if available
+        _pa = getattr(e, "provider_attempts", [])
+        if not isinstance(_pa, list):
+            _pa = []
         try:
             from core.ai.errors import (
                 RateLimitError as _RL, TimeoutError as _TO, AuthenticationError as _AE,
-                ProviderUnavailableError as _PU, sanitize_exception_message as _san,
+                PaymentRequiredError as _PAY, ProviderUnavailableError as _PU, sanitize_exception_message as _san,
             )
             safe = _san(str(e))[:500]
             if isinstance(e, _RL):
-                return [], "RATE_LIMITED", safe, 0
+                return [], "RATE_LIMITED", safe, 0, _pa
             if isinstance(e, _TO):
-                return [], "TIMEOUT", safe, 0
+                return [], "TIMEOUT", safe, 0, _pa
             if isinstance(e, _AE):
-                return [], "AUTH", safe, 0
+                return [], "AUTH", safe, 0, _pa
+            if isinstance(e, _PAY):
+                return [], "PAYMENT_REQUIRED", safe, 0, _pa
             if isinstance(e, _PU):
                 # Distinguish rate-limit wrapped as ProviderUnavailable with 429 hint
                 low = str(e).lower()
                 if "429" in low or "rate" in low or "quota" in low:
-                    return [], "RATE_LIMITED", safe, 0
+                    return [], "RATE_LIMITED", safe, 0, _pa
                 if "timeout" in low:
-                    return [], "TIMEOUT", safe, 0
-                return [], "PROVIDER_ERROR", safe, 0
+                    return [], "TIMEOUT", safe, 0, _pa
+                if "402" in low or "payment" in low:
+                    return [], "PAYMENT_REQUIRED", safe, 0, _pa
+                return [], "PROVIDER_ERROR", safe, 0, _pa
         except Exception:
             pass
         # Fallback heuristics (do NOT infer RATE_LIMITED merely from multi-provider failure)
@@ -380,39 +461,44 @@ def search_adapter(source, profile: dict, resume_data: dict | None) -> Tuple[lis
             safe2 = str(e)[:500]
         msg = str(e).lower()
         if "tavily" in msg and "api key" in msg:
-            return [], "AUTH", safe2, 0
+            return [], "AUTH", safe2, 0, _pa
         if "timeout" in msg:
-            return [], "TIMEOUT", safe2, 0
+            return [], "TIMEOUT", safe2, 0, _pa
         if "rate" in msg and ("429" in msg or "quota" in msg or "rate limit" in msg):
-            return [], "RATE_LIMITED", safe2, 0
+            return [], "RATE_LIMITED", safe2, 0, _pa
+        if "402" in msg or "payment" in msg:
+            return [], "PAYMENT_REQUIRED", safe2, 0, _pa
         if "auth" in msg or "401" in msg or "403" in msg:
-            return [], "AUTH", safe2, 0
+            return [], "AUTH", safe2, 0, _pa
         # Generic provider/availability without stronger evidence
         if "connection" in msg or "provider" in msg or "unavailable" in msg or "5" in msg:
             # If insufficient evidence for RATE_LIMITED/TIMEOUT/AUTH, use PROVIDER_ERROR
             if "all ai providers unavailable" in msg:
                 # Ambiguous multi-provider exhaustion — keep as PROVIDER_ERROR (not RATE_LIMITED) per spec
-                return [], "PROVIDER_ERROR", safe2, 0
-            return [], "PROVIDER_ERROR", safe2, 0
-        return [], "UNKNOWN", safe2, 0
+                return [], "PROVIDER_ERROR", safe2, 0, _pa
+            return [], "PROVIDER_ERROR", safe2, 0, _pa
+        return [], "UNKNOWN", safe2, 0, _pa
 
-def dispatch(source, profile: dict | None = None, resume_data: dict | None = None) -> Tuple[list[dict], str, str | None, int]:
-    """Dispatch to correct adapter based on source.adapter / source_type. Returns (jobs, cat, err, provider_raw)."""
+def dispatch(source, profile: dict | None = None, resume_data: dict | None = None) -> Tuple[list[dict], str, str | None, int, list]:
+    """Dispatch to correct adapter based on source.adapter / source_type. Returns (jobs, cat, err, provider_raw, provider_attempts)."""
     def _norm(res):
-        # Normalize adapter result to 4-tuple (jobs, cat, err, provider_raw) for backward compat with mocks returning 3-tuple
+        # Normalize adapter result to 5-tuple (jobs, cat, err, provider_raw, provider_attempts) for backward compat with mocks returning 3/4-tuple
         if isinstance(res, tuple):
-            if len(res) == 4:
+            if len(res) == 5:
                 return res  # type: ignore
+            if len(res) == 4:
+                jobs, cat, err, pr = res  # type: ignore
+                return (jobs, cat, err, pr, [])
             if len(res) == 3:
-                jobs, cat, err = res
+                jobs, cat, err = res  # type: ignore
                 # provider_raw best effort: len(jobs) if success else 0
                 try:
                     pr = len(jobs) if isinstance(jobs, list) and cat in ("SUCCESS", "NO_RESULTS") else 0
                 except Exception:
                     pr = 0
-                return (jobs, cat, err, pr)
+                return (jobs, cat, err, pr, [])
         # fallback
-        return ([], "UNKNOWN", "Invalid adapter result", 0)
+        return ([], "UNKNOWN", "Invalid adapter result", 0, [])
     adapter = (source.adapter or "").lower()
     if "search" in adapter:
         return _norm(search_adapter(source, profile or {}, resume_data))
@@ -452,11 +538,12 @@ def _mode_to_adapter(mode: str) -> str:
         return "PlaywrightAdapter"
     return "GenericHTMLAdapter"
 
-def dispatch_with_policy(source, profile: dict | None = None, resume_data: dict | None = None) -> tuple[list[dict], str, str | None, str, bool, str | None, int]:
+def dispatch_with_policy(source, profile: dict | None = None, resume_data: dict | None = None) -> tuple[list[dict], str, str | None, str, bool, str | None, int, list]:
     """
     Source-aware dispatch (010): uses source_role/primary_mode/direct_fetch_allowed/search_discovery_allowed.
-    Returns (jobs, failure_category, error, actual_mode, fallback_used, primary_failure, provider_raw_count)
+    Returns (jobs, failure_category, error, actual_mode, fallback_used, primary_failure, provider_raw_count, provider_attempts)
     Truthful mode, no hidden fallback. provider_raw_count is raw Tavily count for SEARCH, or raw feed count for others.
+    provider_attempts is list of {provider, attempts, final_category} for observability.
     """
     # Determine policy (fallback to derived if DB columns missing)
     try:
@@ -491,11 +578,11 @@ def dispatch_with_policy(source, profile: dict | None = None, resume_data: dict 
         if search_allowed:
             primary = "SEARCH"
         else:
-            return [], "ROBOTS_DISALLOWED", "Direct fetch disabled by policy", primary, False, None, 0
+            return [], "ROBOTS_DISALLOWED", "Direct fetch disabled by policy", primary, False, None, 0, []
 
     # If search disallowed and primary is SEARCH, and direct not allowed -> UNSUPPORTED
     if not search_allowed and primary == "SEARCH" and not direct_allowed:
-        return [], "UNSUPPORTED", "Search discovery disabled by policy", primary, False, None, 0
+        return [], "UNSUPPORTED", "Search discovery disabled by policy", primary, False, None, 0, []
 
     # Choose adapter for primary
     primary_adapter = _mode_to_adapter(primary)
@@ -508,15 +595,19 @@ def dispatch_with_policy(source, profile: dict | None = None, resume_data: dict 
     tmp.name = getattr(source, "name", "")
     tmp.adapter = primary_adapter
     tmp.source_type = primary.lower()
-    # Execute primary — dispatch now returns (jobs, cat, err, provider_raw)
+    # Execute primary — dispatch now returns (jobs, cat, err, provider_raw, provider_attempts)
     _r = dispatch(tmp, profile, resume_data)  # type: ignore
-    if isinstance(_r, tuple) and len(_r) == 4:
-        jobs, cat, err, provider_raw = _r
+    if isinstance(_r, tuple) and len(_r) == 5:
+        jobs, cat, err, provider_raw, provider_attempts = _r  # type: ignore
+    elif isinstance(_r, tuple) and len(_r) == 4:
+        jobs, cat, err, provider_raw = _r  # type: ignore
+        provider_attempts = []
     elif isinstance(_r, tuple) and len(_r) == 3:
         jobs, cat, err = _r  # type: ignore
         provider_raw = len(jobs) if isinstance(jobs, list) and cat in ("SUCCESS", "NO_RESULTS") else 0
+        provider_attempts = []
     else:
-        jobs, cat, err, provider_raw = [], "UNKNOWN", "Invalid dispatch result", 0
+        jobs, cat, err, provider_raw, provider_attempts = [], "UNKNOWN", "Invalid dispatch result", 0, []
     actual_mode = primary
     fallback_used = False
     primary_failure = None
@@ -525,7 +616,7 @@ def dispatch_with_policy(source, profile: dict | None = None, resume_data: dict 
     if cat not in ("SUCCESS","NO_RESULTS") or not jobs:
         # Consider fallback only for meaningful failures, not for NO_RESULTS (which is not failure)
         should_fallback = False
-        if cat in ("PARSER_ERROR","HTTP_ERROR","BLOCKED","ROBOTS_DISALLOWED","TIMEOUT","NETWORK","UNKNOWN","UNSUPPORTED","AUTH","PROVIDER_ERROR"):
+        if cat in ("PARSER_ERROR","HTTP_ERROR","BLOCKED","ROBOTS_DISALLOWED","TIMEOUT","NETWORK","UNKNOWN","UNSUPPORTED","AUTH","PAYMENT_REQUIRED","PROVIDER_ERROR"):
             should_fallback = True
         # Also fallback if SUCCESS but 0 jobs and primary was HTML with search allowed? But NO_RESULTS is not failure, don't fallback
         if should_fallback and search_allowed and primary in ("HTML","RSS","JSON","ATS","PLAYWRIGHT") and cat != "NO_RESULTS":
@@ -541,22 +632,27 @@ def dispatch_with_policy(source, profile: dict | None = None, resume_data: dict 
             tmp2.adapter = fallback_adapter
             tmp2.source_type = "search"
             _r2 = dispatch(tmp2, profile, resume_data)  # type: ignore
-            if isinstance(_r2, tuple) and len(_r2) == 4:
-                jobs2, cat2, err2, provider_raw2 = _r2
+            if isinstance(_r2, tuple) and len(_r2) == 5:
+                jobs2, cat2, err2, provider_raw2, provider_attempts2 = _r2  # type: ignore
+            elif isinstance(_r2, tuple) and len(_r2) == 4:
+                jobs2, cat2, err2, provider_raw2 = _r2  # type: ignore
+                provider_attempts2 = []
             elif isinstance(_r2, tuple) and len(_r2) == 3:
                 jobs2, cat2, err2 = _r2  # type: ignore
                 provider_raw2 = len(jobs2) if isinstance(jobs2, list) and cat2 in ("SUCCESS", "NO_RESULTS") else 0
+                provider_attempts2 = []
             else:
-                jobs2, cat2, err2, provider_raw2 = [], "UNKNOWN", "Invalid dispatch result", 0
+                jobs2, cat2, err2, provider_raw2, provider_attempts2 = [], "UNKNOWN", "Invalid dispatch result", 0, []
             # Record fallback truthfully
             actual_mode = fallback_mode
             fallback_used = True
             provider_raw = provider_raw2
+            provider_attempts = provider_attempts2
             # If fallback succeeded, return its result with fallback flag
             if cat2 in ("SUCCESS","NO_RESULTS"):
-                return jobs2, cat2, err2, actual_mode, fallback_used, primary_failure, provider_raw
+                return jobs2, cat2, err2, actual_mode, fallback_used, primary_failure, provider_raw, provider_attempts
             # If fallback also failed, return fallback result but preserve primary_failure
-            return jobs2, cat2, err2, actual_mode, fallback_used, primary_failure, provider_raw
+            return jobs2, cat2, err2, actual_mode, fallback_used, primary_failure, provider_raw, provider_attempts
 
     # No fallback, return primary result
-    return jobs, cat, err, actual_mode, fallback_used, primary_failure, provider_raw
+    return jobs, cat, err, actual_mode, fallback_used, primary_failure, provider_raw, provider_attempts

@@ -19,6 +19,7 @@ from core.ai.errors import (
     RateLimitError,
     TimeoutError,
     ProviderUnavailableError,
+    PaymentRequiredError,
     MalformedResponseError,
     sanitize_exception_message,
 )
@@ -72,6 +73,8 @@ class GroqProvider(BaseAIProvider):
 
             if resp.status_code == 401 or resp.status_code == 403:
                 raise AuthenticationError(f"Groq authentication failed (status {resp.status_code})")
+            elif resp.status_code == 402:
+                raise PaymentRequiredError(f"Groq payment required (status 402)")
             elif resp.status_code == 429:
                 raise RateLimitError("Groq rate limit exceeded (HTTP 429)")
             elif resp.status_code >= 500:

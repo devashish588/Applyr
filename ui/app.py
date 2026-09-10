@@ -1246,6 +1246,34 @@ def api_job_sources_health():
                 db._put_conn(conn)
         except Exception:
             perf_map = {}
+        # Provider histogram from recent run_log summaries (observability, no extra subsystem)
+        provider_histogram: dict = {}
+        try:
+            db = get_db()
+            conn = db._conn()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT summary_json FROM run_log ORDER BY started_at DESC LIMIT 5")
+                    for row in cur.fetchall():
+                        sj = row[0]
+                        if not sj:
+                            continue
+                        if isinstance(sj, str):
+                            import json as _j
+                            try:
+                                sj = _j.loads(sj)
+                            except Exception:
+                                continue
+                        hist = sj.get("provider_histogram") or {}
+                        for prov, stats in hist.items():
+                            if prov not in provider_histogram:
+                                provider_histogram[prov] = {"provider": prov, "attempts": 0, "successes": 0, "rate_limited": 0, "auth": 0, "payment_required": 0, "provider_error": 0, "timeouts": 0, "unknown": 0}
+                            for k in ("attempts","successes","rate_limited","auth","payment_required","provider_error","timeouts","unknown"):
+                                provider_histogram[prov][k] += int(stats.get(k,0) or 0)
+            finally:
+                db._put_conn(conn)
+        except Exception:
+            provider_histogram = {}
         # Parser health: POSSIBLE_SCHEMA_CHANGE if current 0 jobs but previous avg >5 (33.8)
         health = []
         for s in srcs:
@@ -1288,6 +1316,7 @@ def api_job_sources_health():
             "success": True,
             "configured": len(srcs),
             "enabled": len(enabled),
+            "provider_histogram": provider_histogram,
             "sources": health,
             "recent_runs": recent[:20],
         })
@@ -1387,9 +1416,50 @@ def api_sources_diagnostics():
         recent = svc.recent_source_runs(limit=50)
         # Enrich with source url/host
         src_map = {s.id: s for s in svc.list_sources()}
+        # Build per-run provider_attempts map from run_log summaries for enrichment (no extra subsystem)
+        run_provider_map: dict[str, dict] = {}
+        run_attrib_map: dict[str, dict] = {}
+        try:
+            db2 = get_db()
+            conn2 = db2._conn()
+            try:
+                with conn2.cursor() as cur:
+                    # Get recent run_log summaries for provider_attempts and attribution
+                    cur.execute("SELECT run_id, summary_json FROM run_log ORDER BY started_at DESC LIMIT 5")
+                    for row in cur.fetchall():
+                        rid, sj = row[0], row[1]
+                        if not sj:
+                            continue
+                        if isinstance(sj, str):
+                            import json as _j2
+                            try:
+                                sj = _j2.loads(sj)
+                            except Exception:
+                                continue
+                        # Map source_id -> provider_attempts and attribution counts
+                        for s in (sj.get("sources") or []):
+                            sid = s.get("source_id")
+                            if not sid:
+                                continue
+                            key = f"{rid}:{sid}"
+                            run_provider_map[key] = s.get("provider_attempts") or []
+                            run_attrib_map[key] = {
+                                "source_native_count": s.get("source_native_count", 0),
+                                "alternate_domain_count": s.get("alternate_domain_count", 0),
+                                "external_result_count": s.get("external_result_count", 0),
+                            }
+            finally:
+                db2._put_conn(conn2)
+        except Exception:
+            pass
         diags = []
         for r in recent[:20]:
             src = src_map.get(r.get("source_id"))
+            key = f"{r.get('run_id')}:{r.get('source_id')}"
+            pa = r.get("provider_attempts")
+            if pa is None:
+                pa = run_provider_map.get(key, [])
+            attrib = run_attrib_map.get(key, {})
             diags.append({
                 "run_id": r.get("run_id"),
                 "source_id": r.get("source_id"),
@@ -1404,6 +1474,10 @@ def api_sources_diagnostics():
                 "provider_raw_count": r.get("provider_raw_count", 0) if "provider_raw_count" in r else 0,
                 "llm_extracted_count": r.get("jobs_found"),
                 "site_mismatch_count": r.get("site_mismatch_count", 0) if "site_mismatch_count" in r else 0,
+                "source_native_count": attrib.get("source_native_count", 0),
+                "alternate_domain_count": attrib.get("alternate_domain_count", 0),
+                "external_result_count": attrib.get("external_result_count", 0),
+                "provider_attempts": pa,
                 "jobs_normalized": r.get("jobs_normalized"),
                 "jobs_new": r.get("jobs_new"),
                 "jobs_duplicate": r.get("jobs_duplicate"),

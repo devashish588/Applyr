@@ -38,12 +38,13 @@ class _AIGatewayLangChainAdapter:
         )
         res = gateway.generate(req)
         
-        # Return wrapper object with .content
+        # Return wrapper object with .content and provider_attempts for observability
         class _Resp:
-            def __init__(self, text: str):
+            def __init__(self, text: str, provider_attempts=None):
                 self.content = text
+                self.provider_attempts = provider_attempts or []
 
-        return _Resp(res.text)
+        return _Resp(res.text, getattr(res, "provider_attempts", []))
 
 
 def get_llm(temperature: float = 0.0, model: Optional[str] = None) -> Any:

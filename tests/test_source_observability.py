@@ -22,15 +22,20 @@ def test_provider_raw_count_recorded():
     with patch("agents.web_research_agent._run_tavily", return_value=fake_results):
         with patch("utils.llm_client.get_llm") as mllm:
             m = MagicMock()
-            m.invoke.return_value = MagicMock(content=str(fake_listings))
+            # mock invoke to return content and provider_attempts
+            mock_resp = MagicMock()
+            mock_resp.content = str(fake_listings)
+            mock_resp.provider_attempts = [{"provider": "groq", "attempts": 1, "final_category": "SUCCESS"}]
+            m.invoke.return_value = mock_resp
             mllm.return_value = m
-            # need to patch _extract_job_listings to return our fake listings
-            with patch("agents.web_research_agent._extract_job_listings", return_value=fake_listings):
-                from core.services.job_source_adapters import search_adapter
-                jobs, cat, err, provider_raw = search_adapter(src, {}, {"roles_json": ["SE"], "skills_json": ["Python"]})
-                assert cat == "SUCCESS"
-                assert provider_raw == 10
-                assert len(jobs) == 14
+            from core.services.job_source_adapters import search_adapter
+            res = search_adapter(src, {}, {"roles_json": ["SE"], "skills_json": ["Python"]})
+            # handle 5-tuple (jobs, cat, err, provider_raw, provider_attempts)
+            assert len(res) >= 4
+            jobs, cat, err, provider_raw = res[:4]
+            assert cat == "SUCCESS"
+            assert provider_raw == 10
+            assert len(jobs) == 14
 
 # 2. LLM extraction count recorded correctly (jobs_found == llm count)
 def test_llm_extracted_count_is_jobs_found():
@@ -118,7 +123,8 @@ def test_429_rate_limited():
     src=_make_source("linkedin.com")
     with patch("agents.web_research_agent._run_tavily", side_effect=RateLimitError("429 rate limit")):
         from core.services.job_source_adapters import search_adapter
-        jobs,cat,err,pr=search_adapter(src, {}, {})
+        res=search_adapter(src, {}, {})
+        jobs,cat,err,pr=res[:4]
         assert cat=="RATE_LIMITED"
 
 # 7. timeout → TIMEOUT
@@ -126,7 +132,8 @@ def test_timeout():
     src=_make_source("linkedin.com")
     with patch("agents.web_research_agent._run_tavily", side_effect=TimeoutError("timeout")):
         from core.services.job_source_adapters import search_adapter
-        jobs,cat,err,pr=search_adapter(src, {}, {})
+        res=search_adapter(src, {}, {})
+        jobs,cat,err,pr=res[:4]
         assert cat=="TIMEOUT"
 
 # 8. auth failure → AUTH
@@ -134,7 +141,8 @@ def test_auth():
     src=_make_source("linkedin.com")
     with patch("agents.web_research_agent._run_tavily", side_effect=AuthenticationError("auth failed")):
         from core.services.job_source_adapters import search_adapter
-        jobs,cat,err,pr=search_adapter(src, {}, {})
+        res=search_adapter(src, {}, {})
+        jobs,cat,err,pr=res[:4]
         assert cat=="AUTH"
 
 # 9. generic provider failure → PROVIDER_ERROR
@@ -142,7 +150,8 @@ def test_provider_error():
     src=_make_source("linkedin.com")
     with patch("agents.web_research_agent._run_tavily", side_effect=ProviderUnavailableError("All AI providers unavailable")):
         from core.services.job_source_adapters import search_adapter
-        jobs,cat,err,pr=search_adapter(src, {}, {})
+        res=search_adapter(src, {}, {})
+        jobs,cat,err,pr=res[:4]
         assert cat=="PROVIDER_ERROR"
 
 # 10. ambiguous failure → UNKNOWN
@@ -150,7 +159,8 @@ def test_unknown():
     src=_make_source("linkedin.com")
     with patch("agents.web_research_agent._run_tavily", side_effect=Exception("weird ambiguous")):
         from core.services.job_source_adapters import search_adapter
-        jobs,cat,err,pr=search_adapter(src, {}, {})
+        res=search_adapter(src, {}, {})
+        jobs,cat,err,pr=res[:4]
         assert cat=="UNKNOWN"
 
 # 11. same host → false

@@ -470,20 +470,25 @@ class Orchestrator:
                 except Exception:
                     rid = None
                 try:
-                    # dispatch_with_policy now returns 7 values with provider_raw_count (backward compat for 6)
+                    # dispatch_with_policy now returns 8 values with provider_raw_count + provider_attempts (backward compat for 6/7)
                     _dp = dispatch_with_policy(src, self.profile, resume_data)
-                    if isinstance(_dp, tuple) and len(_dp) == 7:
-                        jobs, cat, err, actual_mode, fallback_used, primary_failure, provider_raw_count = _dp
+                    provider_attempts: list[dict] = []
+                    if isinstance(_dp, tuple) and len(_dp) == 8:
+                        jobs, cat, err, actual_mode, fallback_used, primary_failure, provider_raw_count, provider_attempts = _dp  # type: ignore
+                    elif isinstance(_dp, tuple) and len(_dp) == 7:
+                        jobs, cat, err, actual_mode, fallback_used, primary_failure, provider_raw_count = _dp  # type: ignore
+                        provider_attempts = []
                     elif isinstance(_dp, tuple) and len(_dp) == 6:
-                        jobs, cat, err, actual_mode, fallback_used, primary_failure = _dp
+                        jobs, cat, err, actual_mode, fallback_used, primary_failure = _dp  # type: ignore
                         provider_raw_count = len(jobs) if cat in ("SUCCESS", "NO_RESULTS") else 0
+                        provider_attempts = []
                     else:
-                        jobs, cat, err, actual_mode, fallback_used, primary_failure, provider_raw_count = [], "UNKNOWN", "Invalid dispatch result", "UNKNOWN", False, None, 0
+                        jobs, cat, err, actual_mode, fallback_used, primary_failure, provider_raw_count, provider_attempts = [], "UNKNOWN", "Invalid dispatch result", "UNKNOWN", False, None, 0, []
                     duration = int((time.time() - t0) * 1000)
                     # Normalize cat — preserve new taxonomy without collapsing to UNKNOWN
                     # New categories: SUCCESS, NO_RESULTS, FILTERED, RATE_LIMITED, TIMEOUT, AUTH, PROVIDER_ERROR, UNKNOWN (plus legacy)
                     if cat not in ("SUCCESS", "NO_RESULTS", "FILTERED", "TIMEOUT", "HTTP_ERROR", "BLOCKED",
-                                   "ROBOTS_DISALLOWED", "AUTH", "AUTH_REQUIRED", "PARSER_ERROR",
+                                   "ROBOTS_DISALLOWED", "AUTH", "AUTH_REQUIRED", "PAYMENT_REQUIRED", "PARSER_ERROR",
                                    "SCHEMA_CHANGED", "RATE_LIMITED", "UNSUPPORTED", "UNSUPPORTED_SOURCE", "NETWORK", "NETWORK_ERROR", "PROVIDER_ERROR", "UNKNOWN"):
                         cat = "UNKNOWN" if err else ("SUCCESS" if jobs else "NO_RESULTS")
                     status = "success" if cat in ("SUCCESS", "NO_RESULTS", "FILTERED") else "failed"
@@ -492,10 +497,19 @@ class Orchestrator:
                     # Map actual_mode to adapter truthfully
                     from core.services.job_source_adapters import _mode_to_adapter as _m2a
                     actual_adapter = _m2a(actual_mode)
-                    # Site-mismatch observability (SEARCH only, do NOT drop)
+                    # Site-mismatch + SEARCH attribution observability (SEARCH only, do NOT drop)
                     # Compare source.host vs each extracted job.url hostname safely
+                    # Classification: SOURCE_NATIVE (same host or subdomain), ALTERNATE_SOURCE_DOMAIN (verified alternate), EXTERNAL_RESULT
                     site_mismatch_count = 0
                     site_mismatch_examples: list[dict] = []
+                    # Attribution counts for this source run
+                    source_native_count = 0
+                    alternate_domain_count = 0
+                    external_result_count = 0
+                    # Minimal verified alternate hosts (Built In family city sites) — deterministic, not invented dozens
+                    _ALLOWED_ALTERNATE = {
+                        "builtin.com": {"builtinla.com", "builtinaustin.com", "builtinboston.com", "builtinnyc.com", "builtinsf.com", "builtinseattle.com", "builtinchicago.com", "builtincolorado.com"},
+                    }
                     try:
                         from urllib.parse import urlparse as _up
                         def _belongs(job_host: str, src_host: str) -> bool:
@@ -513,6 +527,20 @@ class Orchestrator:
                             if j.endswith("." + s):
                                 return True
                             return False
+                        def _classify(job_host: str, src_host: str) -> str:
+                            j = (job_host or "").lower().strip()
+                            s = (src_host or "").lower().strip()
+                            if j.startswith("www."):
+                                j = j[4:]
+                            if s.startswith("www."):
+                                s = s[4:]
+                            if _belongs(j, s):
+                                return "SOURCE_NATIVE"
+                            # Check alternate family
+                            alts = _ALLOWED_ALTERNATE.get(s, set())
+                            if j in alts or j.replace("www.", "") in alts:
+                                return "ALTERNATE_SOURCE_DOMAIN"
+                            return "EXTERNAL_RESULT"
                         src_host_norm = (src.host or "").lower()
                         # Only for SEARCH sources per spec; other adapters have host-specific URLs already filtered
                         if actual_mode == "SEARCH":
@@ -526,17 +554,32 @@ class Orchestrator:
                                     _jh = ""
                                 # Only evaluate when job has http URL; skip manual/fallback URLs
                                 if _u and _u.lower().startswith("http") and _jh:
-                                    if not _belongs(_jh, src_host_norm):
+                                    cls = _classify(_jh, src_host_norm)
+                                    if cls == "SOURCE_NATIVE":
+                                        source_native_count += 1
+                                    elif cls == "ALTERNATE_SOURCE_DOMAIN":
+                                        alternate_domain_count += 1
+                                    else:
+                                        external_result_count += 1
+                                    if cls != "SOURCE_NATIVE":
                                         site_mismatch_count += 1
                                         if len(site_mismatch_examples) < 3:
-                                            site_mismatch_examples.append({"title": str(_j.get("title") or "")[:80], "url": _u[:200], "host": _jh})
-                                # non-http or empty URL -> not counted as mismatch
+                                            site_mismatch_examples.append({"title": str(_j.get("title") or "")[:80], "url": _u[:200], "host": _jh, "classification": cls})
+                                else:
+                                    # non-http or empty URL -> not counted as mismatch but also not classified
+                                    pass
                         else:
                             site_mismatch_count = 0
                             site_mismatch_examples = []
+                            source_native_count = len(jobs) if jobs else 0
+                            alternate_domain_count = 0
+                            external_result_count = 0
                     except Exception:
                         site_mismatch_count = 0
                         site_mismatch_examples = []
+                        source_native_count = 0
+                        alternate_domain_count = 0
+                        external_result_count = 0
                     # Pre-storage gate: exclude clear non-job pages (listing indexes,
                     # team/tag/article pages) BEFORE canonical ID / DB insert.
                     # jobs_found = LLM extracted count (preserve meaning for backward compat)
@@ -550,6 +593,17 @@ class Orchestrator:
                     # Do not invent FILTERED category here unless all filtered and no other error — keep cat as SUCCESS per backward compat
                     llm_extracted_count = len(jobs)
                     # provider_raw_count already captured; for non-SEARCH adapters it equals llm_extracted_count
+                    # Sanitize provider_attempts for telemetry (no secrets, bounded)
+                    _prov_hist = []
+                    try:
+                        for pa in (provider_attempts or [])[:6]:
+                            _prov_hist.append({
+                                "provider": str(pa.get("provider") or "")[:20],
+                                "attempts": int(pa.get("attempts") or 0),
+                                "final_category": str(pa.get("final_category") or "")[:20],
+                            })
+                    except Exception:
+                        _prov_hist = []
                     res = {
                         "source_id": src.id,
                         "status": status,
@@ -576,6 +630,10 @@ class Orchestrator:
                         "llm_extracted_count": llm_extracted_count,
                         "site_mismatch_count": site_mismatch_count,
                         "site_mismatch_examples": site_mismatch_examples,
+                        "source_native_count": int(source_native_count or 0),
+                        "alternate_domain_count": int(alternate_domain_count or 0),
+                        "external_result_count": int(external_result_count or 0),
+                        "provider_attempts": _prov_hist,
                     }
                     # Record health + observed mode
                     try:
@@ -599,6 +657,10 @@ class Orchestrator:
                     # Tag jobs with truthful source attribution (host not primary, mode truthful)
                     # Only gate survivors are tagged/extended: NON_JOB creates no
                     # canonical identity, attribution, Match, Priority, or OI.
+                    # Attribution classification: SOURCE_NATIVE vs ALTERNATE vs EXTERNAL (SEARCH only, no drop)
+                    _ALLOWED_ALT = {
+                        "builtin.com": {"builtinla.com", "builtinaustin.com", "builtinboston.com", "builtinnyc.com", "builtinsf.com", "builtinseattle.com", "builtinchicago.com", "builtincolorado.com"},
+                    }
                     for j in passing:
                         j["_source_id"] = src.id
                         j["_source_name"] = src.name
@@ -608,6 +670,31 @@ class Orchestrator:
                         j["_source_url"] = j.get("url")
                         j["_fallback_used"] = fallback_used
                         j["_primary_failure"] = primary_failure
+                        # Attribution: discovery_source vs job_host
+                        try:
+                            from urllib.parse import urlparse as _up2
+                            _jh2 = (_up2(j.get("url") or "").netloc or "").lower().split(":")[0]
+                            if _jh2.startswith("www."):
+                                _jh2 = _jh2[4:]
+                            _sh2 = (src.host or "").lower()
+                            if _sh2.startswith("www."):
+                                _sh2 = _sh2[4:]
+                            j["_job_host"] = _jh2
+                            j["_discovery_source"] = _sh2
+                            if actual_mode == "SEARCH":
+                                if _jh2 == _sh2 or (_jh2 and _sh2 and _jh2.endswith("." + _sh2)):
+                                    j["_attribution_class"] = "SOURCE_NATIVE"
+                                elif _jh2 in _ALLOWED_ALT.get(_sh2, set()):
+                                    j["_attribution_class"] = "ALTERNATE_SOURCE_DOMAIN"
+                                else:
+                                    # No verified alternate mapping → EXTERNAL
+                                    j["_attribution_class"] = "EXTERNAL_RESULT" if _jh2 else "UNKNOWN"
+                            else:
+                                j["_attribution_class"] = "SOURCE_NATIVE"
+                        except Exception:
+                            j["_attribution_class"] = "UNKNOWN"
+                            j["_job_host"] = ""
+                            j["_discovery_source"] = (src.host or "").lower()
                     # Only extend successes; failures contribute 0 jobs but are tracked
                     if passing:
                         all_listings.extend(passing)
@@ -631,7 +718,8 @@ class Orchestrator:
                     res = {"source_id": src.id, "status": "failed", "adapter": _actual_adapter, "mode": _actual_mode,
                            "jobs_found": 0, "jobs_normalized": 0, "non_job_filtered": 0, "jobs_new": 0, "jobs_duplicate": 0,
                            "failure_category": "UNKNOWN", "error": safe, "duration_ms": duration, "fallback_used": False,
-                           "provider_raw_count": 0, "llm_extracted_count": 0, "site_mismatch_count": 0, "site_mismatch_examples": []}
+                           "provider_raw_count": 0, "llm_extracted_count": 0, "site_mismatch_count": 0, "site_mismatch_examples": [],
+                           "source_native_count": 0, "alternate_domain_count": 0, "external_result_count": 0, "provider_attempts": []}
                     try:
                         svc.record_run(src.id, res)
                         svc.finish_source_run(rid, res)
@@ -655,6 +743,9 @@ class Orchestrator:
             self.results["provider_raw_count"] = sum(int(r.get("provider_raw_count", 0) or 0) for r in per_source)
             self.results["llm_extracted_count"] = sum(int(r.get("llm_extracted_count", 0) or r.get("jobs_found", 0) or 0) for r in per_source)
             self.results["site_mismatch_count"] = sum(int(r.get("site_mismatch_count", 0) or 0) for r in per_source)
+            self.results["source_native_count"] = sum(int(r.get("source_native_count", 0) or 0) for r in per_source)
+            self.results["alternate_domain_count"] = sum(int(r.get("alternate_domain_count", 0) or 0) for r in per_source)
+            self.results["external_result_count"] = sum(int(r.get("external_result_count", 0) or 0) for r in per_source)
             # Aggregate mismatch examples (cap 5)
             _examples: list[dict] = []
             for r in per_source:
@@ -662,9 +753,35 @@ class Orchestrator:
                     if len(_examples) < 5:
                         _examples.append({"source_id": r.get("source_id"), "host": r.get("host", ""), **ex})
             self.results["site_mismatch_examples"] = _examples
+            # Provider histogram: per-provider attempts aggregated across sources
+            _hist: dict[str, dict] = {}
+            for r in per_source:
+                for pa in (r.get("provider_attempts") or []):
+                    prov = str(pa.get("provider") or "")[:20].lower()
+                    if not prov:
+                        continue
+                    if prov not in _hist:
+                        _hist[prov] = {"provider": prov, "attempts": 0, "successes": 0, "rate_limited": 0, "auth": 0, "payment_required": 0, "provider_error": 0, "timeouts": 0, "unknown": 0}
+                    _hist[prov]["attempts"] += int(pa.get("attempts") or 0)
+                    cat = str(pa.get("final_category") or "").upper()
+                    if cat == "SUCCESS":
+                        _hist[prov]["successes"] += 1
+                    elif cat == "RATE_LIMITED":
+                        _hist[prov]["rate_limited"] += 1
+                    elif cat in ("AUTH", "AUTH_REQUIRED"):
+                        _hist[prov]["auth"] += 1
+                    elif cat == "PAYMENT_REQUIRED":
+                        _hist[prov]["payment_required"] += 1
+                    elif cat == "PROVIDER_ERROR":
+                        _hist[prov]["provider_error"] += 1
+                    elif cat == "TIMEOUT":
+                        _hist[prov]["timeouts"] += 1
+                    else:
+                        _hist[prov]["unknown"] += 1
+            self.results["provider_histogram"] = _hist
             logger.info(f"[orchestrator] Multi-source found {len(all_listings)} jobs across {len(sources)} sources "
                         f"({self.results['sources_succeeded']} succeeded, {self.results['sources_failed']} failed) fallback_used={self.results['fallback_used']} "
-                        f"non_job_filtered={self.results['non_job_filtered']} provider_raw={self.results['provider_raw_count']} llm_extracted={self.results['llm_extracted_count']} site_mismatch={self.results['site_mismatch_count']}")
+                        f"non_job_filtered={self.results['non_job_filtered']} provider_raw={self.results['provider_raw_count']} llm_extracted={self.results['llm_extracted_count']} site_mismatch={self.results['site_mismatch_count']} native={self.results['source_native_count']} alternate={self.results['alternate_domain_count']} external={self.results['external_result_count']}")
             return all_listings
         except Exception as e:
             from core.ai.errors import sanitize_exception_message, classify_error

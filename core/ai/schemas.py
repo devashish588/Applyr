@@ -43,3 +43,4 @@ class AIResponse:
     attempts: int = 1
     usage: Dict[str, int] = field(default_factory=dict)
     error: Optional[str] = None
+    provider_attempts: List[Dict[str, Any]] = field(default_factory=list)  # per-provider histogram for observability

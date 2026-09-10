@@ -45,7 +45,7 @@ export default function PipelinePage() {
   const failureCat = results.failure_category || (results.errors?.some((er:string)=> er.includes("TAVILY_API_KEY") || er.includes("All AI providers")) ? "provider_unavailable" : null)
   const isProviderFailure = failureCat === "provider_unavailable" || results.status === "blocked"
   const isFailed = !!errorEvent || results.status === "failed" || (failureCat === "discovery_failed" && jobsFound===0)
-  const perSource = (results.sources || []) as Array<{source_id:string;status:string;adapter:string;mode?:string;jobs_found:number;provider_raw_count?:number;llm_extracted_count?:number;jobs_normalized?:number;non_job_filtered?:number;site_mismatch_count?:number;site_mismatch_examples?:Array<{title:string;url:string;host:string}>;failure_category:string;error?:string;duration_ms:number;host?:string;fallback_used?:boolean}>
+  const perSource = (results.sources || []) as Array<{source_id:string;status:string;adapter:string;mode?:string;jobs_found:number;provider_raw_count?:number;llm_extracted_count?:number;jobs_normalized?:number;non_job_filtered?:number;site_mismatch_count?:number;site_mismatch_examples?:Array<{title:string;url:string;host:string;classification?:string}>;provider_attempts?:Array<{provider:string;attempts:number;final_category:string}>;source_native_count?:number;alternate_domain_count?:number;external_result_count?:number;failure_category:string;error?:string;duration_ms:number;host?:string;fallback_used?:boolean}>
   const sourcesConfigured = results.sources_configured ?? perSource.length
   const sourcesAttempted = results.sources_attempted ?? perSource.length
   const sourcesSucceeded = results.sources_succeeded ?? perSource.filter(s=> s.status==="success" && s.failure_category==="SUCCESS").length
@@ -291,10 +291,22 @@ export default function PipelinePage() {
                           {s.jobs_normalized !== undefined && <span>Gate eligible: {s.jobs_normalized}</span>}
                           {s.non_job_filtered !== undefined && s.non_job_filtered > 0 && <span className="text-amber">Non-job: {s.non_job_filtered}</span>}
                           {s.site_mismatch_count !== undefined && s.site_mismatch_count > 0 && <span className="text-amber">Site mismatch: {s.site_mismatch_count}</span>}
+                          {s.source_native_count !== undefined && s.external_result_count !== undefined && (s.source_native_count + (s.alternate_domain_count||0) + s.external_result_count) >0 && (
+                            <span className="text-text-faint">Native:{s.source_native_count} Alt:{s.alternate_domain_count||0} Ext:{s.external_result_count}</span>
+                          )}
                           {s.failure_category && !["SUCCESS","NO_RESULTS"].includes(s.failure_category) && <span className="text-red">Failure: {s.failure_category}</span>}
                         </div>
+                        {s.provider_attempts && s.provider_attempts.length >0 && (
+                          <div className="flex flex-wrap gap-1.5 text-[10px] font-mono text-text-faint">
+                            {s.provider_attempts.map((pa:any, idx:number)=> (
+                              <span key={idx} className={pa.final_category==="SUCCESS" ? "text-emerald-400" : pa.final_category==="RATE_LIMITED" ? "text-amber" : pa.final_category==="PAYMENT_REQUIRED" ? "text-red" : "text-text-faint"}>
+                                {pa.provider}:{pa.attempts} {pa.final_category}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                         {s.site_mismatch_examples && s.site_mismatch_examples.length > 0 && (
-                          <div className="text-[10px] text-text-faint truncate">Ex: {s.site_mismatch_examples[0].host} • {s.site_mismatch_examples[0].url.slice(0,40)}</div>
+                          <div className="text-[10px] text-text-faint truncate">Ex: {s.site_mismatch_examples[0].host} • {s.site_mismatch_examples[0].url.slice(0,40)} {s.site_mismatch_examples[0].classification ? `• ${s.site_mismatch_examples[0].classification}` : ""}</div>
                         )}
                       </div>
                     )})}
